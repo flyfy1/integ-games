@@ -19,6 +19,7 @@ const game: GameModule = {
     let state = restore(services.storage.get<SavedState | null>('save', null), services.random);
     let paused = false;
     let completed = false;
+    let lost = false;
     let touchStart: { x: number; y: number } | undefined;
     host.classList.add('merge-game');
     host.innerHTML = `
@@ -50,7 +51,8 @@ const game: GameModule = {
       services.reportScore(state.score);
     };
     const move = (direction: Direction) => {
-      if (paused || !canMove(state.board)) return;
+      if (paused || lost) return;
+      if (!canMove(state.board)) { lost = true; services.sound.play('fail'); render(); return; }
       const result = shift(state.board, direction);
       if (!result.changed) return;
       state = { board: addTile(result.board, services.random), score: state.score + result.gained };
@@ -58,6 +60,7 @@ const game: GameModule = {
       if (!completed && state.board.some((row) => row.some((value) => value >= 2048))) {
         completed = true; services.reportComplete(state.score); services.sound.play('success');
       }
+      if (!canMove(state.board)) { lost = true; services.sound.play('fail'); }
       persist(); render();
     };
     const onKey = (event: KeyboardEvent) => {
@@ -85,7 +88,7 @@ const game: GameModule = {
     return {
       pause() { paused = true; },
       resume() { paused = false; boardEl.focus(); },
-      restart() { state = restore(null, services.random); completed = false; persist(); render(); boardEl.focus(); },
+      restart() { state = restore(null, services.random); completed = false; lost = false; persist(); render(); boardEl.focus(); },
       destroy() {
         window.removeEventListener('keydown', onKey);
         boardEl.removeEventListener('pointerdown', onPointerDown);

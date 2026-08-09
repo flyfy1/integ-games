@@ -8,11 +8,11 @@ export const drive: GameModule = {
     let raf = 0, paused = false, crashed = false, distance = 0, speed = 0, input = 0, lean = 0, nextMilestone = 250;
     const ground = (world: number) => 315 - Math.sin(world * .024) * 24 - Math.sin(world * .077) * 17 - Math.sin(world * .14) * Math.min(10, distance / 70);
     const reset = () => { crashed = false; distance = 0; speed = 0; input = 0; lean = 0; nextMilestone = 250; };
-    const setPedal = (x: number) => { input = x < 180 ? -1 : 1; };
+    const setPedal = (x: number) => { const next = x < 180 ? -1 : 1; if (input === 0) services.sound.play('move'); input = next; };
     k.on('pointerdown', event => setPedal(k.point(event as PointerEvent).x));
     k.on('pointermove', event => { if ((event as PointerEvent).buttons) setPedal(k.point(event as PointerEvent).x); });
     k.on('pointerup', () => { input = 0; }); k.on('pointercancel', () => { input = 0; });
-    k.on('keydown', event => { const key = (event as KeyboardEvent).key; if (crashed && (key === ' ' || key === 'Enter')) reset(); if (key === 'ArrowRight' || key === 'd') input = 1; if (key === 'ArrowLeft' || key === 'a') input = -1; });
+    k.on('keydown', event => { const key = (event as KeyboardEvent).key; if (crashed && (key === ' ' || key === 'Enter')) reset(); if (key === 'ArrowRight' || key === 'd') setPedal(360); if (key === 'ArrowLeft' || key === 'a') setPedal(0); });
     k.on('keyup', () => { input = 0; });
     const draw = () => { const c = k.ctx; k.clear(); c.fillStyle = '#172033'; c.fillRect(0, 0, 360, 420); text(c, `RIDE ${Math.floor(distance)}m`, 180, 27, 15, '#a8b1c5');
       c.beginPath(); c.moveTo(0, ground(distance - 105)); for (let sx = 0; sx <= 360; sx += 4) c.lineTo(sx, ground(distance + sx - 105)); c.lineTo(360, 420); c.lineTo(0, 420); c.fillStyle = '#2f5b65'; c.fill();
