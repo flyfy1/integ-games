@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+const continuous = ['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena'];
 test('all catalog routes render without a page error', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -31,4 +32,22 @@ test('category filters persist in the URL and search stays within the active cat
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
   await expect(page.locator('[data-grid] .game-card')).toHaveCount(7);
+});
+
+test('continuous cabinets expose the shared in-stage pause shortcut on mobile', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'desktop', 'mobile-only touch controls');
+  for (const slug of continuous) {
+    await page.goto(`/play/${slug}`);
+    await expect(page.locator('.stage-pause')).toHaveCount(1);
+  }
+});
+
+test('arena renders a reachable virtual stick on mobile', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'desktop', 'mobile-only touch controls');
+  await page.goto('/play/arena');
+  const stick = page.locator('.mobile-stick');
+  await expect(stick).toBeVisible();
+  const box = await stick.boundingBox();
+  expect(box?.width).toBeGreaterThanOrEqual(110);
+  expect(box?.height).toBeGreaterThanOrEqual(110);
 });

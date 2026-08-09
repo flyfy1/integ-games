@@ -15,7 +15,7 @@ function services(): GameServices {
   let randomState = 0x12345678;
   return {
     storage: storage(),
-    sound: { muted: true, setMuted: vi.fn(), play: vi.fn() },
+    sound: { muted: true, setMuted: vi.fn(), stop: vi.fn(), play: vi.fn() },
     random: () => {
       randomState = (1664525 * randomState + 1013904223) >>> 0;
       return randomState / 2 ** 32;

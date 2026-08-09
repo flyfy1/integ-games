@@ -1,4 +1,5 @@
 import type { GameServices } from '../../core/game-types';
+import { attachKeyboardMobileControls, type MobileControls } from './mobile-controls';
 
 export type Frame = {
   canvas: HTMLCanvasElement;
@@ -8,6 +9,7 @@ export type Frame = {
   setMessage: (value: string) => void;
   on: (target: EventTarget, type: string, fn: EventListenerOrEventListenerObject, options?: AddEventListenerOptions | boolean) => void;
   destroy: () => void;
+  controls: (slug: string) => MobileControls | undefined;
 };
 
 const style = (element: HTMLElement, css: Partial<CSSStyleDeclaration>) => Object.assign(element.style, css);
@@ -28,11 +30,13 @@ export function makeFrame(host: HTMLElement, accent: string, title: string): Fra
   style(message, { minHeight: '25px', textAlign: 'center', color: '#A8B1C5', fontSize: '13px', padding: '8px 6px 2px' });
   root.append(hud, canvas, message); host.replaceChildren(root); root.focus({ preventScroll: true });
   const listeners: Array<[EventTarget, string, EventListenerOrEventListenerObject, AddEventListenerOptions | boolean | undefined]> = [];
+  let mobile: MobileControls | undefined;
   return {
     canvas, ctx: canvas.getContext('2d')!, root,
     setHud: value => { hud.textContent = value; }, setMessage: value => { message.textContent = value; },
     on: (target, type, fn, options) => { target.addEventListener(type, fn, options); listeners.push([target, type, fn, options]); },
-    destroy: () => { listeners.forEach(([target, type, fn, options]) => target.removeEventListener(type, fn, options)); root.remove(); },
+    controls: (slug) => { mobile?.destroy(); mobile = attachKeyboardMobileControls(root, slug, root); return mobile; },
+    destroy: () => { mobile?.destroy(); listeners.forEach(([target, type, fn, options]) => target.removeEventListener(type, fn, options)); root.remove(); },
   };
 }
 

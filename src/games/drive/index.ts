@@ -22,7 +22,7 @@ export const drive: GameModule = {
       void slope;
     };
     const loop = () => { if (!paused && !crashed) { speed = clamp(speed + input * .045 - speed * .012, -.8, 3.5); distance = Math.max(0, distance + speed); const slope = Math.atan2(ground(distance + 4) - ground(distance - 4), 8); lean += (slope - lean) * .08 + input * .006 * Math.max(0, speed); if (Math.abs(lean) > 1.15 && distance > 45) { crashed = true; services.sound.play('fail'); k.score(Math.floor(distance)); }
-        if (distance >= nextMilestone) { services.reportComplete(nextMilestone / 250); nextMilestone += 250; services.sound.play('success'); } } draw(); raf = requestAnimationFrame(loop); };
+        if (distance >= nextMilestone) { services.reportComplete(nextMilestone / 250); nextMilestone += 250; services.sound.play('upgrade'); } } draw(); raf = requestAnimationFrame(loop); };
     loop(); return { pause: () => { paused = true; }, resume: () => { paused = false; }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
   }
 };

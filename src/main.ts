@@ -15,6 +15,8 @@ if (redirectedPath) {
 const shell = createShellServices();
 let controller: GameController | undefined;
 let viewToken = 0;
+const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena']);
+let activeSlug: string | undefined;
 
 function href(path = ''): string { return `${import.meta.env.BASE_URL}${path}`.replace(/(?<!:)\/+/g, '/'); }
 function route(): string { return location.pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '') || '/'; }
@@ -73,6 +75,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
       score: () => { /* score is written by the service; cards read it on next render */ },
       complete: () => { /* individual games own their completion treatment */ }
     }));
+    activeSlug = slug;
     shell.recordRecent(slug);
     stage.removeAttribute('aria-busy');
   } catch (error) {
@@ -84,7 +87,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
 function notFound(): string { return '<section class="not-found"><p class="eyebrow">404</p><h1>That cabinet is elsewhere.</h1><a class="primary-button" href="' + href() + '" data-route>Back to arcade</a></section>'; }
 
 async function render(): Promise<void> {
-  controller?.destroy(); controller = undefined;
+  shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
   const token = ++viewToken;
   const current = route();
   if (current === '/' || current === '') appRoot.innerHTML = home();
@@ -103,9 +106,9 @@ document.addEventListener('click', (event) => {
   }
   const action = target.dataset.action;
   if (action === 'mute') { shell.setMuted(!shell.getMuted()); void render(); }
-  if (action === 'pause') { controller?.pause(); togglePause(true); }
+  if (action === 'pause') { controller?.pause(); shell.stopActiveSound(); togglePause(true); }
   if (action === 'resume') { controller?.resume(); togglePause(false); }
-  if (action === 'restart') controller?.restart();
+  if (action === 'restart') { controller?.restart(); appRoot.querySelector<HTMLElement>('[data-stage]')?.dispatchEvent(new Event('integ:clear-controls')); togglePause(false); }
   if (action === 'help') { const help = appRoot.querySelector<HTMLElement>('[data-help]'); if (help) help.hidden = !help.hidden; }
   const filter = target.dataset.filter;
   if (filter) navigate(filter === 'all' ? '' : `?category=${filter}`);
@@ -116,7 +119,11 @@ document.addEventListener('input', (event) => {
   if (input) filterGames(input.value);
 });
 window.addEventListener('popstate', () => void render());
+const pauseActiveGame = () => { if (controller && activeSlug && continuousGames.has(activeSlug)) { controller.pause(); shell.stopActiveSound(); togglePause(true); } };
+appRoot.addEventListener('integ:pause-request', pauseActiveGame);
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && controller) { controller.pause(); togglePause(true); } });
+window.addEventListener('blur', pauseActiveGame);
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
 
 function togglePause(show: boolean) { const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]'); if (overlay) overlay.hidden = !show; }
 function filterGames(query: string) {

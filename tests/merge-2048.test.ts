@@ -7,7 +7,7 @@ function testServices(): GameServices {
   values.set('save', { board: [[2, 2, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], score: 0 });
   return {
     storage: { get: <T>(key: string, fallback: T) => (values.get(key) as T | undefined) ?? fallback, set: (key, value) => values.set(key, value), remove: (key) => values.delete(key) },
-    sound: { muted: true, setMuted: () => undefined, play: () => undefined },
+    sound: { muted: true, setMuted: () => undefined, stop: () => undefined, play: () => undefined },
     random: () => 0,
     reportScore: () => undefined,
     reportComplete: () => undefined,

@@ -28,8 +28,9 @@ export type GameStorage = {
 };
 
 export type GameSound = {
-  play(kind: 'tap' | 'merge' | 'success' | 'fail' | 'move'): void;
+  play(kind: 'tap' | 'move' | 'merge' | 'collect' | 'clear' | 'jump' | 'shoot' | 'hit' | 'upgrade' | 'success' | 'fail'): void;
   setMuted(muted: boolean): void;
+  stop(): void;
   readonly muted: boolean;
 };
 
