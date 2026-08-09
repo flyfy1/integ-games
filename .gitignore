@@ -1,0 +1,23 @@
+# Dependencies and production output
+node_modules/
+dist/
+
+# Test and audit artifacts
+.lighthouseci/
+test-results/
+playwright-report/
+blob-report/
+
+# Local environment and editor files
+.env.local
+.env.*.local
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# TypeScript incremental build cache
+*.tsbuildinfo
