@@ -1,7 +1,7 @@
 import { registerSW } from 'virtual:pwa-register';
-import { catalog, categoryLabels, findGame, gameLoader, loadGame } from './core/catalog';
+import { catalog, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, loadGame, recommendationsFor } from './core/catalog';
 import { createShellServices } from './core/services';
-import type { GameController, GameMeta } from './core/game-types';
+import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
 import './styles/app.css';
 
 const root = document.querySelector<HTMLElement>('#app');
@@ -19,25 +19,37 @@ let viewToken = 0;
 function href(path = ''): string { return `${import.meta.env.BASE_URL}${path}`.replace(/(?<!:)\/+/g, '/'); }
 function route(): string { return location.pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '') || '/'; }
 function navigate(path: string) { history.pushState({}, '', href(path.replace(/^\//, ''))); void render(); }
+function selectedCategory(): GameCategory | undefined {
+  const value = new URLSearchParams(location.search).get('category');
+  return isGameCategory(value) ? value : undefined;
+}
+function categoryHref(category?: GameCategory): string { return href(category ? `?category=${category}` : ''); }
 
 function layout(content: string): string {
   return `<main class="app-shell"><header class="site-header"><a class="brand" href="${href()}" data-route>INTEG <span>GAMES</span></a><button class="icon-button" data-action="mute" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></header>${content}</main>`;
 }
 
 function home(): string {
-  const recent = shell.recentlyPlayed().map(findGame).filter((item): item is GameMeta => Boolean(item));
+  const category = selectedCategory();
+  const visibleGames = category ? gamesInCategory(category) : catalog;
+  const heading = category ? categoryInfo[category] : { label: 'All games', promise: 'Twenty bright little worlds, ready whenever you are.' };
+  const recent = shell.recentlyPlayed().map(findGame).filter((item): item is GameCatalogEntry => Boolean(item));
   const featured = catalog[0];
   return layout(`
     <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Twenty original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
     ${recent.length ? `<section class="section"><div class="section-heading"><h2>Continue playing</h2></div><div class="game-rail">${recent.map(card).join('')}</div></section>` : ''}
-    <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2>All games</h2></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Find a game" aria-label="Find a game" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter is-active" data-filter="all">All</button>${Object.entries(categoryLabels).map(([key, label]) => `<button class="filter" data-filter="${key}">${label}</button>`).join('')}</div><div class="games-grid" data-grid>${catalog.map(card).join('')}</div></section>`);
+    <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${catalog.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>`);
 }
 
-function card(game: GameMeta): string {
+function card(game: GameCatalogEntry): string {
   const best = shell.bestScore(game.slug);
   const available = Boolean(gameLoader(game.slug));
-  return `<article class="game-card" data-game-card data-category="${game.category}" data-title="${game.title.toLowerCase()}"><a href="${href(`play/${game.slug}`)}" data-route aria-label="Play ${game.title}"><div class="cover" style="--accent:${game.accent}"><span>${coverGlyph(game.slug)}</span>${!available ? '<small>Loading soon</small>' : ''}</div><div class="card-info"><p>${game.mechanic}</p><h3>${game.title}</h3><span>${best ? `Best ${best.toLocaleString()}` : 'New game'}</span></div></a></article>`;
+  const searchable = `${game.title} ${game.description} ${game.mechanic} ${game.traits.join(' ')}`.toLowerCase();
+  return `<article class="game-card" data-game-card data-title="${searchable}"><a href="${href(`play/${game.slug}`)}" data-route aria-label="Play ${game.title}, ${categoryLabels[game.primaryCategory]}"><div class="cover" style="--accent:${game.accent}"><span>${coverGlyph(game.slug)}</span>${!available ? '<small>Loading soon</small>' : ''}</div><div class="card-info"><p class="card-category">${categoryLabels[game.primaryCategory]}</p><h3>${game.title}</h3><div class="trait-chips">${traitChips(game)}</div><p class="card-mechanic">${game.mechanic}</p><span>${best ? `Best ${best.toLocaleString()}` : 'New game'}</span></div></a></article>`;
 }
+
+function traitChips(game: GameCatalogEntry): string { return game.traits.map((trait) => `<span class="trait-chip">${trait}</span>`).join(''); }
+function resultMessage(count: number, label: string): string { return `${count} ${count === 1 ? 'game' : 'games'} in ${label}`; }
 
 function coverGlyph(slug: string): string {
   const glyphs: Record<string, string> = { 'merge-2048': '2×2', 'block-drop': '▦', snake: '〰', mines: '✦', solitaire: '♠', sudoku: '9', 'word-grid': 'ABC', memory: '◒', stack: '▤', flap: '◓', breakout: '▰', invaders: '⌁', runner: '↗', platformer: '⌂', drive: '◉', 'fruit-merge': '◍', bubble: '●', 'hex-puzzle': '⬡', knife: '✣', arena: '✹' };
@@ -47,8 +59,8 @@ function coverGlyph(slug: string): string {
 async function gamePage(slug: string, token: number): Promise<void> {
   const game = findGame(slug);
   if (!game) { appRoot.innerHTML = layout(notFound()); return; }
-  const related = catalog.filter((item) => item.category === game.category && item.slug !== game.slug).slice(0, 3);
-  appRoot.innerHTML = layout(`<section class="play-page"><a class="back-link" href="${href()}" data-route>← All games</a><div class="game-title"><div><p class="eyebrow">${categoryLabels[game.category]}</p><h1>${game.title}</h1><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside>${related.length ? `<section class="related"><h2>Keep exploring</h2><div class="game-rail">${related.map(card).join('')}</div></section>` : ''}</section>`);
+  const recommended = recommendationsFor(game);
+  appRoot.innerHTML = layout(`<section class="play-page"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><h1>${game.title}</h1><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section></section>`);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
     if (stage) stage.innerHTML = '<p class="stage-message">This game is on its way. Pick another cabinet while it arrives.</p>';
@@ -83,7 +95,12 @@ async function render(): Promise<void> {
 document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-route], [data-action], [data-filter]') : null;
   if (!target) return;
-  if (target.hasAttribute('data-route')) { event.preventDefault(); navigate(new URL((target as HTMLAnchorElement).href).pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '')); return; }
+  if (target.hasAttribute('data-route')) {
+    event.preventDefault();
+    const destination = new URL((target as HTMLAnchorElement).href);
+    navigate(`${destination.pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '')}${destination.search}`);
+    return;
+  }
   const action = target.dataset.action;
   if (action === 'mute') { shell.setMuted(!shell.getMuted()); void render(); }
   if (action === 'pause') { controller?.pause(); togglePause(true); }
@@ -91,21 +108,28 @@ document.addEventListener('click', (event) => {
   if (action === 'restart') controller?.restart();
   if (action === 'help') { const help = appRoot.querySelector<HTMLElement>('[data-help]'); if (help) help.hidden = !help.hidden; }
   const filter = target.dataset.filter;
-  if (filter) filterGames(filter, '');
+  if (filter) navigate(filter === 'all' ? '' : `?category=${filter}`);
 });
 
 document.addEventListener('input', (event) => {
   const input = event.target instanceof HTMLInputElement && event.target.matches('[data-search]') ? event.target : null;
-  if (input) filterGames('all', input.value);
+  if (input) filterGames(input.value);
 });
 window.addEventListener('popstate', () => void render());
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && controller) { controller.pause(); togglePause(true); } });
 
 function togglePause(show: boolean) { const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]'); if (overlay) overlay.hidden = !show; }
-function filterGames(category: string, query: string) {
-  const selected = appRoot.querySelector<HTMLElement>(`[data-filter="${category}"]`);
-  appRoot.querySelectorAll<HTMLElement>('[data-filter]').forEach((button) => button.classList.toggle('is-active', button === selected));
-  appRoot.querySelectorAll<HTMLElement>('[data-game-card]').forEach((item) => { item.hidden = !((category === 'all' || item.dataset.category === category) && item.dataset.title?.includes(query.trim().toLowerCase())); });
+function filterGames(query: string) {
+  const normalized = query.trim().toLowerCase();
+  const cards = [...appRoot.querySelectorAll<HTMLElement>('[data-game-card]')];
+  const visible = cards.filter((item) => item.dataset.title?.includes(normalized));
+  cards.forEach((item) => { item.hidden = !visible.includes(item); });
+  const category = selectedCategory();
+  const label = category ? categoryLabels[category] : 'All games';
+  const result = appRoot.querySelector<HTMLElement>('[data-results]');
+  if (result) result.textContent = resultMessage(visible.length, label);
+  const empty = appRoot.querySelector<HTMLElement>('[data-empty]');
+  if (empty) empty.hidden = visible.length !== 0;
 }
 
 registerSW({ onNeedRefresh() { document.documentElement.dataset.updateReady = 'true'; } });

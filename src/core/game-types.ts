@@ -1,14 +1,24 @@
 /** Shared, intentionally small boundary between the arcade shell and games. */
-export type GameCategory = 'puzzle' | 'arcade' | 'action' | 'cards-logic';
+/** Internal game-module grouping retained for backwards-compatible game metadata. */
+export type GameModuleCategory = 'puzzle' | 'arcade' | 'action' | 'cards-logic';
+
+/** Visitor-facing, mechanic-led arcade taxonomy. */
+export type GameCategory = 'puzzle-strategy' | 'match-build' | 'quick-reflex' | 'action-adventure';
 
 export type GameMeta = {
   slug: string;
   title: string;
-  category: GameCategory;
+  category: GameModuleCategory;
   description: string;
   instructions: string;
   accent: string;
   mechanic: string;
+};
+
+export type GameCatalogEntry = GameMeta & {
+  primaryCategory: GameCategory;
+  traits: readonly [string, string];
+  recommendations: readonly [string, string, string, string];
 };
 
 export type GameStorage = {

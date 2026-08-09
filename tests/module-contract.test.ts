@@ -46,7 +46,7 @@ describe('game module contract', () => {
       expect(module.meta.instructions.trim().length, `${item.slug} must explain controls`).toBeGreaterThan(12);
       expect(module.meta.accent).toMatch(/^#[0-9a-f]{6}$/i);
     }
-    expect(loaded).toEqual(catalog);
+    expect(loaded).toEqual(catalog.map(({ primaryCategory: _category, traits: _traits, recommendations: _recommendations, ...meta }) => meta));
   });
 
   it.each(catalog.map((game) => [game.slug]))('%s mounts and has a safe lifecycle', async (slug) => {
