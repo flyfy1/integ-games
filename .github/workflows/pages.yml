@@ -3,9 +3,7 @@ name: Build and deploy Integ Games
 on:
   push:
     branches: [main]
-    paths: ['integ-games/**']
   pull_request:
-    paths: ['integ-games/**']
   workflow_dispatch:
 
 permissions:
@@ -20,16 +18,13 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: integ-games
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: integ-games/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -43,7 +38,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:
-          path: integ-games/dist
+          path: dist
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: verify
