@@ -54,6 +54,17 @@ test('arena renders a reachable virtual stick on mobile', async ({ page }, testI
   expect(box?.height).toBeGreaterThanOrEqual(110);
 });
 
+test('mobile start enters immersive mode even without the native fullscreen API', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'desktop', 'mobile-only immersive launch');
+  await page.addInitScript(() => { Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', { value: undefined, configurable: true }); });
+  await page.goto('/play/merge-2048');
+  await page.locator('[data-action="start-game"]').click();
+  await expect(page.locator('[data-stage]')).toHaveClass(/is-immersive/);
+  await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeVisible();
+  await page.getByRole('button', { name: 'Exit full screen' }).click();
+  await expect(page.locator('[data-stage]')).not.toHaveClass(/is-immersive/);
+});
+
 test('every cabinet can pause, restart, and accept its primary keyboard input', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'desktop keyboard lifecycle coverage');
   const primaryKey: Record<string, string> = {

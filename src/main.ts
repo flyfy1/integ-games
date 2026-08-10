@@ -19,6 +19,7 @@ let viewToken = 0;
 const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena']);
 let activeSlug: string | undefined;
 let pendingStart: (() => Promise<void>) | undefined;
+let immersiveStage: HTMLElement | undefined;
 const loginError = consumeLoginResult();
 
 function href(path = ''): string { return `${import.meta.env.BASE_URL}${path}`.replace(/(?<!:)\/+/g, '/'); }
@@ -72,6 +73,29 @@ function coverGlyph(slug: string): string {
   return glyphs[slug] ?? '•';
 }
 function gameArt(slug: string, kind: 'cover' | 'icon'): string { return href(`game-art/${slug}-${kind}.jpg`); }
+type WebkitFullscreenElement = HTMLElement & { webkitRequestFullscreen?: () => void | Promise<void> };
+type WebkitFullscreenDocument = Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void | Promise<void> };
+function isMobilePlay(): boolean { return innerWidth < 900 || matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0; }
+async function enterImmersive(stage: HTMLElement): Promise<void> {
+  immersiveStage = stage;
+  stage.classList.add('is-immersive');
+  document.documentElement.classList.add('game-immersive');
+  const webkitStage = stage as WebkitFullscreenElement;
+  try {
+    if (stage.requestFullscreen) await stage.requestFullscreen({ navigationUI: 'hide' });
+    else if (webkitStage.webkitRequestFullscreen) await webkitStage.webkitRequestFullscreen();
+  } catch { /* CSS immersive mode remains available when native fullscreen is blocked. */ }
+}
+async function exitImmersive(): Promise<void> {
+  immersiveStage?.classList.remove('is-immersive');
+  immersiveStage = undefined;
+  document.documentElement.classList.remove('game-immersive');
+  const webkitDocument = document as WebkitFullscreenDocument;
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) await document.exitFullscreen();
+    else if (webkitDocument.webkitFullscreenElement && webkitDocument.webkitExitFullscreen) await webkitDocument.webkitExitFullscreen();
+  } catch { /* leaving CSS immersive mode is sufficient */ }
+}
 
 async function gamePage(slug: string, token: number): Promise<void> {
   const game = findGame(slug);
@@ -90,12 +114,12 @@ async function gamePage(slug: string, token: number): Promise<void> {
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
       score: (score) => { void submitScore(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
-    })); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
-    const mobileStart = matchMedia('(pointer: coarse)').matches && innerWidth < 900;
+    })); if (stage.classList.contains('is-immersive')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
+    const mobileStart = isMobilePlay();
     if (mobileStart) {
       stage.removeAttribute('aria-busy');
       stage.innerHTML = `<div class="start-screen"><img src="${gameArt(slug, 'icon')}" width="96" height="96" alt="" /><h2>${game.title}</h2><p>Play in full screen for the best controls.</p><button class="primary-button" data-action="start-game">Start game</button></div>`;
-      pendingStart = async () => { pendingStart = undefined; try { if (!document.fullscreenElement && stage.requestFullscreen) await stage.requestFullscreen(); } catch { /* fullscreen may be blocked; game still starts */ } stage.innerHTML = ''; mountGame(); };
+      pendingStart = async () => { pendingStart = undefined; await enterImmersive(stage); stage.innerHTML = ''; mountGame(); };
     } else mountGame();
   } catch (error) {
     console.error(error);
@@ -107,6 +131,7 @@ function notFound(): string { return '<section class="not-found"><p class="eyebr
 
 async function render(): Promise<void> {
   shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
+  void exitImmersive();
   pendingStart = undefined;
   const token = ++viewToken;
   const current = route();
@@ -129,6 +154,7 @@ document.addEventListener('click', (event) => {
   if (action === 'login') login();
   if (action === 'logout') { void logout().then(() => render()); }
   if (action === 'start-game') void pendingStart?.();
+  if (action === 'exit-fullscreen') void exitImmersive();
   if (action === 'share') void shareCurrentGame();
   if (action === 'pause') { controller?.pause(); shell.stopActiveSound(); togglePause(true); }
   if (action === 'resume') { controller?.resume(); togglePause(false); }

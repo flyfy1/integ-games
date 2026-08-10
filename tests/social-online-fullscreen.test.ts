@@ -10,9 +10,12 @@ describe('social, online scores, and mobile launch', () => {
     expect(main).toContain('navigator.share');
     expect(main).toContain('navigator.clipboard.writeText');
   });
-  it('defers coarse-pointer gameplay to a fullscreen user action', () => {
-    expect(main).toContain("matchMedia('(pointer: coarse)')");
-    expect(main).toContain('await stage.requestFullscreen()');
+  it('defers mobile gameplay to native or CSS immersive fullscreen', () => {
+    expect(main).toContain("matchMedia('(hover: none), (pointer: coarse)')");
+    expect(main).toContain('navigator.maxTouchPoints');
+    expect(main).toContain('await stage.requestFullscreen');
+    expect(main).toContain('webkitRequestFullscreen');
+    expect(main).toContain("classList.add('is-immersive')");
     expect(main).toContain('data-action="start-game"');
   });
   it('connects login, score submission, and the overall leaderboard', () => {
