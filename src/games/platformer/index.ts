@@ -12,7 +12,7 @@ export const platformer: GameModule = {
     const spikes: Spike[] = [{ x: 112, y: 510, width: 33 }, { x: 220, y: 510, width: 35 }, { x: 180, y: 450, width: 25 }, { x: 110, y: 325, width: 25 }];
     let raf = 0, paused = false, won = false, dead = false, x = 32, y = 458, vx = 0, vy = 0, stage = 1, elapsed = 0, airborne = false;
     const reset = () => { paused = false; won = false; dead = false; x = 32; y = 458; vx = 0; vy = 0; stage = 1; elapsed = 0; airborne = false; k.fx.clear(); };
-    const jump = () => { if (!paused && !won && !dead && vy === 0) { vy = -11; airborne = true; k.fx.burst(x + 9, y + 26, '#ffcb6b', 4); services.sound.play('jump'); } };
+    const jump = () => { if (!paused && !won && !dead && !airborne) { vy = -11; airborne = true; k.fx.burst(x + 9, y + 26, '#ffcb6b', 4); services.sound.play('jump'); } };
     const touchMove = (event: PointerEvent) => { const point = k.point(event); if (point.y < 355) jump(); else vx = point.x < 180 ? -4 : 4; };
     k.on('pointerdown', event => { if (dead || won) { reset(); return; } touchMove(event as PointerEvent); }); k.on('pointermove', event => { if ((event as PointerEvent).buttons) touchMove(event as PointerEvent); }); k.on('pointerup', () => { vx = 0; }); k.on('pointercancel', () => { vx = 0; });
     k.on('keydown', event => { const key = (event as KeyboardEvent).key; if ((dead || won) && (key === ' ' || key === 'Enter' || key === 'r')) { reset(); return; } if (key === 'ArrowUp' || key === 'w' || key === ' ') jump(); if (key === 'ArrowLeft' || key === 'a') vx = -4; if (key === 'ArrowRight' || key === 'd') vx = 4; }); k.on('keyup', () => { vx = 0; });

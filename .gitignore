@@ -21,3 +21,7 @@ Thumbs.db
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Local backend state
+backend/*.db
+backend/*.db-*

@@ -1,6 +1,7 @@
 import { registerSW } from 'virtual:pwa-register';
 import { catalog, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, loadGame, recommendationsFor } from './core/catalog';
 import { createShellServices } from './core/services';
+import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
 import './styles/app.css';
 
@@ -17,6 +18,8 @@ let controller: GameController | undefined;
 let viewToken = 0;
 const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena']);
 let activeSlug: string | undefined;
+let pendingStart: (() => Promise<void>) | undefined;
+const loginError = consumeLoginResult();
 
 function href(path = ''): string { return `${import.meta.env.BASE_URL}${path}`.replace(/(?<!:)\/+/g, '/'); }
 function route(): string { return location.pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '') || '/'; }
@@ -28,7 +31,8 @@ function selectedCategory(): GameCategory | undefined {
 function categoryHref(category?: GameCategory): string { return href(category ? `?category=${category}` : ''); }
 
 function layout(content: string): string {
-  return `<main class="app-shell"><header class="site-header"><a class="brand" href="${href()}" data-route>INTEG <span>GAMES</span></a><button class="icon-button" data-action="mute" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></header>${content}</main>`;
+  const player = currentPlayer();
+  return `<main class="app-shell"><header class="site-header"><a class="brand" href="${href()}" data-route>INTEG <span>GAMES</span></a><div class="header-actions">${player ? `<span class="player-name">${escapeHTML(player.name)}</span><button class="account-button" data-action="logout">Log out</button>` : '<button class="account-button" data-action="login">Log in</button>'}<button class="icon-button" data-action="mute" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></div></header>${loginError ? `<p class="auth-notice" role="alert">${escapeHTML(loginError)}</p>` : ''}${content}</main>`;
 }
 
 function home(): string {
@@ -40,7 +44,17 @@ function home(): string {
   return layout(`
     <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Twenty original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
     ${recent.length ? `<section class="section"><div class="section-heading"><h2>Continue playing</h2></div><div class="game-rail">${recent.map(card).join('')}</div></section>` : ''}
+    <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard><li class="leaderboard-empty">Loading the standings…</li></ol></section>
     <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${catalog.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>`);
+}
+
+function escapeHTML(value: string): string { return value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!); }
+async function hydrateLeaderboard(): Promise<void> {
+  const list = appRoot.querySelector<HTMLOListElement>('[data-leaderboard]');
+  if (!list) return;
+  const entries = await leaderboard();
+  if (!list.isConnected) return;
+  list.innerHTML = entries.length ? entries.slice(0, 10).map((entry, index) => `<li><span class="rank">${index + 1}</span><strong>${escapeHTML(entry.name)}</strong><span>${entry.games} games</span><b>${entry.score.toLocaleString()}</b></li>`).join('') : `<li class="leaderboard-empty">No scores yet. ${currentPlayer() ? 'Play a game to take the first spot.' : 'Log in and play to join the board.'}</li>`;
 }
 
 function card(game: GameCatalogEntry): string {
@@ -63,7 +77,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
   const game = findGame(slug);
   if (!game) { appRoot.innerHTML = layout(notFound()); return; }
   const recommended = recommendationsFor(game);
-  appRoot.innerHTML = layout(`<section class="play-page"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section></section>`);
+  appRoot.innerHTML = layout(`<section class="play-page"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
     if (stage) stage.innerHTML = '<p class="stage-message">This game is on its way. Pick another cabinet while it arrives.</p>';
@@ -72,13 +86,17 @@ async function gamePage(slug: string, token: number): Promise<void> {
   try {
     const module = await loadGame(slug);
     if (token !== viewToken) return;
-    controller = module.mount(stage, shell.createGameServices(slug, {
-      score: () => { /* score is written by the service; cards read it on next render */ },
-      complete: () => { /* individual games own their completion treatment */ }
-    }));
     activeSlug = slug;
-    shell.recordRecent(slug);
-    stage.removeAttribute('aria-busy');
+    const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
+      score: (score) => { void submitScore(slug, score); },
+      complete: () => { /* individual games own their completion treatment */ }
+    })); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
+    const mobileStart = matchMedia('(pointer: coarse)').matches && innerWidth < 900;
+    if (mobileStart) {
+      stage.removeAttribute('aria-busy');
+      stage.innerHTML = `<div class="start-screen"><img src="${gameArt(slug, 'icon')}" width="96" height="96" alt="" /><h2>${game.title}</h2><p>Play in full screen for the best controls.</p><button class="primary-button" data-action="start-game">Start game</button></div>`;
+      pendingStart = async () => { pendingStart = undefined; try { if (!document.fullscreenElement && stage.requestFullscreen) await stage.requestFullscreen(); } catch { /* fullscreen may be blocked; game still starts */ } stage.innerHTML = ''; mountGame(); };
+    } else mountGame();
   } catch (error) {
     console.error(error);
     stage.innerHTML = '<p class="stage-message">This cabinet could not start. Please refresh and try again.</p>';
@@ -89,9 +107,10 @@ function notFound(): string { return '<section class="not-found"><p class="eyebr
 
 async function render(): Promise<void> {
   shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
+  pendingStart = undefined;
   const token = ++viewToken;
   const current = route();
-  if (current === '/' || current === '') appRoot.innerHTML = home();
+  if (current === '/' || current === '') { appRoot.innerHTML = home(); void hydrateLeaderboard(); }
   else if (current.startsWith('/play/')) await gamePage(decodeURIComponent(current.slice('/play/'.length)), token);
   else appRoot.innerHTML = layout(notFound());
 }
@@ -107,6 +126,10 @@ document.addEventListener('click', (event) => {
   }
   const action = target.dataset.action;
   if (action === 'mute') { shell.setMuted(!shell.getMuted()); void render(); }
+  if (action === 'login') login();
+  if (action === 'logout') { void logout().then(() => render()); }
+  if (action === 'start-game') void pendingStart?.();
+  if (action === 'share') void shareCurrentGame();
   if (action === 'pause') { controller?.pause(); shell.stopActiveSound(); togglePause(true); }
   if (action === 'resume') { controller?.resume(); togglePause(false); }
   if (action === 'restart') { controller?.restart(); appRoot.querySelector<HTMLElement>('[data-stage]')?.dispatchEvent(new Event('integ:clear-controls')); togglePause(false); }
@@ -134,6 +157,16 @@ window.addEventListener('blur', pauseActiveGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
 
 function togglePause(show: boolean) { const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]'); if (overlay) overlay.hidden = !show; }
+async function shareCurrentGame(): Promise<void> {
+  const game = activeSlug ? findGame(activeSlug) : undefined;
+  if (!game) return;
+  const data = { title: `${game.title} · Integ Games`, text: `Play ${game.title} with me on Integ Games.`, url: location.href };
+  const status = appRoot.querySelector<HTMLElement>('[data-share-status]');
+  try {
+    if (navigator.share) await navigator.share(data);
+    else { await navigator.clipboard.writeText(data.url); if (status) status.textContent = 'Game link copied.'; }
+  } catch (error) { if ((error as DOMException).name !== 'AbortError' && status) status.textContent = 'Could not share this link.'; }
+}
 function filterGames(query: string) {
   const normalized = query.trim().toLowerCase();
   const cards = [...appRoot.querySelectorAll<HTMLElement>('[data-game-card]')];
@@ -148,4 +181,4 @@ function filterGames(query: string) {
 }
 
 registerSW({ onNeedRefresh() { document.documentElement.dataset.updateReady = 'true'; } });
-void render();
+void loadPlayer().then(() => render());

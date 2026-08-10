@@ -3,6 +3,7 @@ import { clamp, makeKit, text } from '../arcade-kit';
 
 type Fruit = { x: number; y: number; vy: number; level: number };
 const colors = ['#70f0c2', '#8b7cff', '#ffcb6b', '#ff8f70', '#ff6b7a', '#b7f57b', '#f1a7ff'];
+export const canMergeFruitTier = (tier: number) => tier >= 0 && tier < colors.length - 1;
 
 export const fruitMerge: GameModule = {
   meta: { slug: 'fruit-merge', title: 'Fruit Orbit', category: 'puzzle', description: 'Drop orbiting fruit and grow them into stellar giants.', instructions: 'Drag across the rim and release to drop; use arrows and Space too.', accent: '#ff8f70', mechanic: 'Drop and merge fruit tiers' },
@@ -24,7 +25,7 @@ export const fruitMerge: GameModule = {
     const loop = () => { if (!paused && !lost) { moveCooldown--; if (moveCooldown <= 0) { if (k.keys.has('ArrowLeft') || k.keys.has('a')) { held = clamp(held - 14, 18, 342); moveCooldown = 3; } if (k.keys.has('ArrowRight') || k.keys.has('d')) { held = clamp(held + 14, 18, 342); moveCooldown = 3; } }
       fruits.forEach(f => { const r = radius(f.level); f.vy += .22; f.y += f.vy; f.x = clamp(f.x, 15 + r, 345 - r); if (f.y + r > 540) { f.y = 540 - r; f.vy *= -.28; } });
       outer: for (let i = 0; i < fruits.length; i++) for (let j = i + 1; j < fruits.length; j++) { const a = fruits[i], b = fruits[j], d = Math.hypot(a.x - b.x, a.y - b.y), min = radius(a.level) + radius(b.level); if (d < min && d > .01) { const ux = (a.x - b.x) / d, uy = (a.y - b.y) / d, push = (min - d) / 2; a.x += ux * push; a.y += uy * push; b.x -= ux * push; b.y -= uy * push;
-        if (a.level === b.level && Math.abs(a.vy - b.vy) < 2.3) { a.x = (a.x + b.x) / 2; a.y = (a.y + b.y) / 2; a.level = Math.min(colors.length - 1, a.level + 1); a.vy = -2.4; fruits.splice(j, 1); k.fx.burst(a.x, a.y, colors[a.level], 10); score += (a.level + 1) * 10; k.score(score); services.sound.play('collect'); if (score >= level * 180) { level++; services.reportComplete(level); k.fx.flash('#ff8f70'); services.sound.play('upgrade'); } break outer; } } }
+        if (a.level === b.level && canMergeFruitTier(a.level) && Math.abs(a.vy - b.vy) < 2.3) { a.x = (a.x + b.x) / 2; a.y = (a.y + b.y) / 2; a.level++; a.vy = -2.4; fruits.splice(j, 1); k.fx.burst(a.x, a.y, colors[a.level], 10); score += (a.level + 1) * 10; k.score(score); services.sound.play('collect'); if (score >= level * 180) { level++; services.reportComplete(level); k.fx.flash('#ff8f70'); services.sound.play('upgrade'); } break outer; } } }
       if (fruits.some(f => f.y - radius(f.level) < 47 && f.vy > .5)) { lost = true; k.fx.flash('#ff6b7a'); services.sound.play('fail'); } k.fx.step(); } draw(); raf = requestAnimationFrame(loop); };
     loop(); return { pause: () => { paused = true; }, resume: () => { paused = false; }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
   }

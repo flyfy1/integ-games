@@ -22,4 +22,10 @@ describe('static deployment assets', () => {
     expect(workflow).toContain('actions/deploy-pages@v4');
     expect(workflow).toContain('VITE_BASE: ${{ vars.PAGES_BASE_PATH || \'/\' }}');
   });
+
+  it('loads the shared comments component for each game', () => {
+    expect(read('index.html')).toContain('https://discuss.integ.life/sdk/v1/comments.js');
+    expect(read('src/main.ts')).toContain('project-key="pk_games_web_v1_7b4e1a"');
+    expect(read('src/main.ts')).toContain('resource="game:${game.slug}"');
+  });
 });

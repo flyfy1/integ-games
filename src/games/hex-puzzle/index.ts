@@ -18,7 +18,10 @@ export const hexPuzzle: GameModule = {
     const hasMove = () => pieces.some(shape => shape && cells.some(cell => canPlace(shape, cell.q, cell.r)));
     const reset = () => { paused = false; gameover = false; score = 0; round = 1; selected = -1; cursor = { q: 3, r: 3 }; cells = []; k.fx.clear(); for (let r = 0; r < 7; r++) for (let q = 0; q < 7; q++) cells.push({ q, r, on: false }); makeTray(); };
     const place = (q: number, r: number) => { const shape = pieces[selected]; if (gameover || !shape) return; if (!canPlace(shape, q, r)) { k.fx.flash('#ff6b7a'); services.sound.play('fail'); return; } shape.forEach(([dq, dr]) => { at(q + dq, r + dr)!.on = true; }); k.fx.burst(pos(q, r).x, pos(q, r).y, '#8b7cff'); pieces[selected] = null; selected = -1; score += shape.length; k.score(score); services.sound.play('move');
-      let cleared = 0; for (let row = 0; row < 7; row++) { const line = cells.filter(cell => cell.r === row); if (line.every(cell => cell.on)) { line.forEach(cell => { cell.on = false; }); cleared++; } } for (let col = 0; col < 7; col++) { const line = cells.filter(cell => cell.q === col); if (line.every(cell => cell.on)) { line.forEach(cell => { cell.on = false; }); cleared++; } }
+      const fullRows = new Set(Array.from({ length: 7 }, (_, row) => row).filter(row => cells.filter(cell => cell.r === row).every(cell => cell.on)));
+      const fullColumns = new Set(Array.from({ length: 7 }, (_, col) => col).filter(col => cells.filter(cell => cell.q === col).every(cell => cell.on)));
+      const cleared = fullRows.size + fullColumns.size;
+      if (cleared) cells.forEach(cell => { if (fullRows.has(cell.r) || fullColumns.has(cell.q)) cell.on = false; });
       if (cleared) { score += cleared * 14 * round; k.score(score); k.fx.flash('#70f0c2'); services.sound.play('clear'); } if (pieces.every(piece => !piece)) { round++; makeTray(); services.reportComplete(round); services.sound.play('upgrade'); } if (!hasMove()) { gameover = true; services.sound.play('fail'); }
     };
     const nearest = (x: number, y: number) => cells.reduce((best, cell) => Math.hypot(pos(cell.q, cell.r).x - x, pos(cell.q, cell.r).y - y) < Math.hypot(pos(best.q, best.r).x - x, pos(best.q, best.r).y - y) ? cell : best, cells[0]);

@@ -38,6 +38,7 @@ test('continuous cabinets expose the shared in-stage pause shortcut on mobile', 
   test.skip(testInfo.project.name === 'desktop', 'mobile-only touch controls');
   for (const slug of continuous) {
     await page.goto(`/play/${slug}`);
+    await page.locator('[data-action="start-game"]').click();
     await expect(page.locator('.stage-pause')).toHaveCount(1);
   }
 });
@@ -45,9 +46,31 @@ test('continuous cabinets expose the shared in-stage pause shortcut on mobile', 
 test('arena renders a reachable virtual stick on mobile', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'desktop', 'mobile-only touch controls');
   await page.goto('/play/arena');
+  await page.locator('[data-action="start-game"]').click();
   const stick = page.locator('.mobile-stick');
   await expect(stick).toBeVisible();
   const box = await stick.boundingBox();
   expect(box?.width).toBeGreaterThanOrEqual(110);
   expect(box?.height).toBeGreaterThanOrEqual(110);
+});
+
+test('every cabinet can pause, restart, and accept its primary keyboard input', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop keyboard lifecycle coverage');
+  const primaryKey: Record<string, string> = {
+    'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
+    'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight'
+  };
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  for (const [slug, key] of Object.entries(primaryKey)) {
+    await page.goto(`/play/${slug}`);
+    await page.getByRole('button', { name: 'Pause', exact: true }).click();
+    await expect(page.locator('[data-overlay]')).toBeVisible();
+    await page.locator('[data-overlay]').getByRole('button', { name: 'Restart' }).click();
+    await expect(page.locator('[data-overlay]')).toBeHidden();
+    await page.locator('[data-stage]').press(key);
+    await expect(page.locator('[data-stage]')).toBeVisible();
+  }
+  expect(errors).toEqual([]);
 });
