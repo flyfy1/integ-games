@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#12192A"/><path d="M18 20h28v8H18zm0 16h28v8H18z" fill="#70F0C2"/><circle cx="32" cy="32" r="6" fill="#8B7CFF"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Integ Games mark</title><desc id="desc">The Integ.Life leaf with a mint game controller badge.</desc>
+  <rect width="512" height="512" rx="112" fill="#f1eee6"/><circle cx="244" cy="244" r="160" fill="#274b62"/>
+  <path d="M136 288c19-103 98-167 219-179-18 107-93 198-219 179Z" fill="#fffdf7"/><path d="M136 326c68-68 131-131 207-203" fill="none" stroke="#fffdf7" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="390" cy="390" r="78" fill="#328b78" stroke="#f1eee6" stroke-width="18"/><path d="M349 378c4-19 18-30 41-30s37 11 41 30l9 40c3 14-12 22-21 11l-13-16h-32l-13 16c-9 11-24 3-21-11Z" fill="#fffdf7"/><path d="M365 382h22m-11-11v22" stroke="#328b78" stroke-width="8" stroke-linecap="round"/><circle cx="412" cy="376" r="5" fill="#328b78"/><circle cx="423" cy="389" r="5" fill="#328b78"/>
+</svg>
