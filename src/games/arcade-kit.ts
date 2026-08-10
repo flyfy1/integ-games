@@ -6,6 +6,7 @@ export type Kit = {
   point(e: PointerEvent): { x: number; y: number }; keys: Set<string>;
   on(type: string, fn: EventListenerOrEventListenerObject): void; clear(): void;
   score(value: number): void; dispose(): void;
+  fx: { burst(x: number, y: number, color: string, count?: number): void; flash(color: string, life?: number): void; step(): void; draw(): void; clear(): void };
 };
 
 export function makeKit(host: HTMLElement, services: GameServices, slug: string, width = 360, height = 560): Kit {
@@ -21,8 +22,18 @@ export function makeKit(host: HTMLElement, services: GameServices, slug: string,
   on('keydown', key(true)); on('keyup', key(false)); on('pointerdown', () => canvas.focus());
   const bestKey = slug + '-best';
   const score = (value: number) => { const old = services.storage.get(bestKey, 0); if (value > old) services.storage.set(bestKey, value); services.reportScore(value); };
+  type Effect = { x: number; y: number; dx: number; dy: number; life: number; max: number; color: string; flash: boolean };
+  let effects: Effect[] = [];
+  const fx = {
+    burst(x: number, y: number, color: string, count = 7) { if (services.isReducedMotion) { effects.push({ x, y, dx: 0, dy: 0, life: 1, max: 1, color, flash: true }); return; } for (let index = 0; index < count; index++) { const angle = Math.PI * 2 * index / count; effects.push({ x, y, dx: Math.cos(angle) * (1.2 + (index % 3)), dy: Math.sin(angle) * (1.2 + (index % 2)), life: 18, max: 18, color, flash: false }); } },
+    flash(color: string, life = 10) { effects.push({ x: width / 2, y: height / 2, dx: 0, dy: 0, life: services.isReducedMotion ? 1 : life, max: services.isReducedMotion ? 1 : life, color, flash: true }); },
+    step() { effects = effects.filter(effect => { effect.life--; effect.x += effect.dx; effect.y += effect.dy; return effect.life > 0; }); },
+    draw() { const alpha = kctx.globalAlpha; effects.forEach(effect => { kctx.globalAlpha = Math.max(.08, effect.life / effect.max) * .8; kctx.strokeStyle = effect.color; kctx.fillStyle = effect.color; if (effect.flash) { kctx.fillRect(0, 0, width, height); } else { kctx.fillRect(effect.x - 2, effect.y - 2, 4, 4); } }); kctx.globalAlpha = alpha; },
+    clear() { effects = []; }
+  };
   const mobile = attachKeyboardMobileControls(host, slug, canvas);
-  return { canvas, ctx, width, height, keys, on, score, point: e => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX-r.left)*width/r.width, y: (e.clientY-r.top)*height/r.height }; }, clear: () => ctx.clearRect(0,0,width,height), dispose: () => { mobile?.destroy(); listeners.forEach(([t,n,f]) => t.removeEventListener(n,f)); canvas.remove(); } };
+  const kctx = ctx;
+  return { canvas, ctx, width, height, keys, on, score, fx, point: e => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX-r.left)*width/r.width, y: (e.clientY-r.top)*height/r.height }; }, clear: () => ctx.clearRect(0,0,width,height), dispose: () => { fx.clear(); mobile?.destroy(); listeners.forEach(([t,n,f]) => t.removeEventListener(n,f)); canvas.remove(); } };
 }
 
 
