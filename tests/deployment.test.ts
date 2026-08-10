@@ -28,4 +28,9 @@ describe('static deployment assets', () => {
     expect(read('src/main.ts')).toContain('project-key="pk_games_web_v1_7b4e1a"');
     expect(read('src/main.ts')).toContain('resource="game:${game.slug}"');
   });
+
+  it('activates a newly deployed service worker for returning players', () => {
+    expect(read('src/main.ts')).toContain('immediate: true');
+    expect(read('src/main.ts')).toContain('updateSW(true)');
+  });
 });

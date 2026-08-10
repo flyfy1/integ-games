@@ -180,5 +180,5 @@ function filterGames(query: string) {
   if (empty) empty.hidden = visible.length !== 0;
 }
 
-registerSW({ onNeedRefresh() { document.documentElement.dataset.updateReady = 'true'; } });
+const updateSW = registerSW({ immediate: true, onNeedRefresh() { document.documentElement.dataset.updateReady = 'true'; void updateSW(true); } });
 void loadPlayer().then(() => render());
