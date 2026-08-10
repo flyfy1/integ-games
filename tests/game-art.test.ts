@@ -13,4 +13,12 @@ describe('game card art mapping', () => {
     expect(paths).toHaveLength(40);
     expect(new Set(paths)).toHaveLength(40);
   });
+
+  it('uses a flat overlay for real artwork and restores ornament only for the glyph fallback', () => {
+    const css = readFileSync('src/styles/app.css', 'utf8');
+    expect(css).toContain('.cover:before{inset:0;width:auto;aspect-ratio:auto;border:0;border-radius:0');
+    expect(css).toContain('.cover:after{display:none}');
+    expect(css).toContain('.cover.is-art-fallback:before{inset:auto;width:85%');
+    expect(css).toContain('.cover.is-art-fallback:after{display:block;width:48%');
+  });
 });
