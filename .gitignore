@@ -1,6 +1,7 @@
 # Dependencies and production output
 node_modules/
 dist/
+public/build-version.json
 
 # Test and audit artifacts
 .lighthouseci/

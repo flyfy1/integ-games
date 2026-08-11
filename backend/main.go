@@ -56,6 +56,9 @@ func main() {
 func (s *server) routes() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	m.HandleFunc("GET /api/version", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, currentBuildVersion("flyfy1/integ-games", "games-api"))
+	})
 	m.HandleFunc("GET /api/auth/integ/start", s.authStart)
 	m.HandleFunc("GET /api/auth/integ/callback", s.authCallback)
 	m.Handle("GET /api/me", s.requireUser(http.HandlerFunc(s.me)))
