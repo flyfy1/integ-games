@@ -21,6 +21,12 @@ describe('static deployment assets', () => {
     expect(workflow).toContain('actions/upload-pages-artifact@v3');
     expect(workflow).toContain('actions/deploy-pages@v4');
     expect(workflow).toContain('VITE_BASE: ${{ vars.PAGES_BASE_PATH || \'/\' }}');
+    expect(read('package.json')).toContain('node scripts/generate-share-pages.mjs dist');
+  });
+
+  it('defines complete default social preview metadata', () => {
+    const index = read('index.html');
+    for (const metadata of ['rel="canonical"', 'property="og:title"', 'property="og:description"', 'property="og:image"', 'name="twitter:card"', 'name="twitter:image"']) expect(index).toContain(metadata);
   });
 
   it('loads the shared comments component for each game', () => {

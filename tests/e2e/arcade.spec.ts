@@ -34,6 +34,18 @@ test('category filters persist in the URL and search stays within the active cat
   await expect(page.locator('[data-grid] .game-card')).toHaveCount(7);
 });
 
+test('game navigation updates canonical and social metadata', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'metadata behavior is device-independent');
+  await page.goto('/play/arena/');
+  await expect(page).toHaveTitle('Pocket Survivor · Integ Games');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://games.integ.life/play/arena/');
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute('content', 'Pocket Survivor · Integ Games');
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', 'https://games.integ.life/game-art/arena-cover.jpg');
+  await page.getByRole('link', { name: 'All games' }).click();
+  await expect(page).toHaveTitle('Integ Games');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://games.integ.life/');
+});
+
 test('continuous cabinets expose the shared in-stage pause shortcut on mobile', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'desktop', 'mobile-only touch controls');
   for (const slug of continuous) {
@@ -84,4 +96,55 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
     await expect(page.locator('[data-stage]')).toBeVisible();
   }
   expect(errors).toEqual([]);
+});
+
+test('system sharing sends the canonical game payload and confirms success', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser project is enough for share API behavior');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async (data: ShareData) => { (window as Window & { capturedShare?: ShareData }).capturedShare = data; } });
+  });
+  await page.goto('/play/merge-2048');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(page.locator('[data-share-status]')).toHaveText('Game shared.');
+  await expect.poll(() => page.evaluate(() => (window as Window & { capturedShare?: ShareData }).capturedShare)).toEqual({
+    title: 'Merge 2048 · Integ Games',
+    text: 'Play Merge 2048 with me on Integ Games.',
+    url: 'https://games.integ.life/play/merge-2048/'
+  });
+});
+
+test('cancelling the system share leaves the page quiet', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser project is enough for share API behavior');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { throw new DOMException('Cancelled', 'AbortError'); } });
+  });
+  await page.goto('/play/snake');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(page.locator('[data-share-status]')).toBeEmpty();
+  await expect(page.locator('[data-share-fallback]')).toBeHidden();
+});
+
+test('sharing copies the canonical link when Web Share is unavailable', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser project is enough for share API behavior');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (url: string) => { (window as Window & { copiedShareLink?: string }).copiedShareLink = url; } } });
+  });
+  await page.goto('/play/flap');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(page.locator('[data-share-status]')).toHaveText('Game link copied.');
+  await expect.poll(() => page.evaluate(() => (window as Window & { copiedShareLink?: string }).copiedShareLink)).toBe('https://games.integ.life/play/flap/');
+});
+
+test('sharing exposes a selectable manual link after API and clipboard failure', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'one browser project is enough for share API behavior');
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { throw new DOMException('Blocked', 'NotAllowedError'); } });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+  await page.goto('/play/arena');
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(page.locator('[data-share-fallback]')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Game link' })).toHaveValue('https://games.integ.life/play/arena/');
+  await expect(page.locator('[data-share-status]')).toHaveText('Select the link and copy it manually.');
 });

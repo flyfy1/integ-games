@@ -6,9 +6,12 @@ const read = (file: string) => readFileSync(resolve(process.cwd(), file), 'utf8'
 
 describe('social, online scores, and mobile launch', () => {
   const main = read('src/main.ts');
-  it('offers system sharing with a clipboard fallback', () => {
+  it('offers system sharing, clipboard copying, and a manual-copy fallback', () => {
     expect(main).toContain('navigator.share');
     expect(main).toContain('navigator.clipboard.writeText');
+    expect(main).toContain('showManualShare(data.url)');
+    expect(main).toContain('Select the link and copy it manually.');
+    expect(main).toContain('Game shared.');
   });
   it('defers mobile gameplay to native or CSS immersive fullscreen', () => {
     expect(main).toContain("matchMedia('(hover: none), (pointer: coarse)')");

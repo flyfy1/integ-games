@@ -17,19 +17,46 @@ const shell = createShellServices();
 let controller: GameController | undefined;
 let viewToken = 0;
 const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena']);
+const siteOrigin = 'https://games.integ.life';
 let activeSlug: string | undefined;
 let pendingStart: (() => Promise<void>) | undefined;
 let immersiveStage: HTMLElement | undefined;
 const loginError = consumeLoginResult();
 
 function href(path = ''): string { return `${import.meta.env.BASE_URL}${path}`.replace(/(?<!:)\/+/g, '/'); }
-function route(): string { return location.pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '') || '/'; }
+function route(): string {
+  const path = location.pathname.replace(import.meta.env.BASE_URL.replace(/\/$/, ''), '') || '/';
+  return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
 function navigate(path: string) { history.pushState({}, '', href(path.replace(/^\//, ''))); void render(); }
 function selectedCategory(): GameCategory | undefined {
   const value = new URLSearchParams(location.search).get('category');
   return isGameCategory(value) ? value : undefined;
 }
 function categoryHref(category?: GameCategory): string { return href(category ? `?category=${category}` : ''); }
+
+function setMetaContent(selector: string, value: string): void {
+  document.head.querySelector<HTMLMetaElement>(selector)?.setAttribute('content', value);
+}
+
+function applyPageMetadata(game?: GameCatalogEntry): void {
+  const title = game ? `${game.title} · Integ Games` : 'Integ Games';
+  const description = game ? game.description : 'Twenty original browser games made for any screen.';
+  const path = game ? `/play/${game.slug}/` : '/';
+  const url = new URL(path, siteOrigin).href;
+  const image = new URL(game ? `/game-art/${game.slug}-cover.jpg` : '/game-art/merge-2048-cover.jpg', siteOrigin).href;
+  document.title = title;
+  document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', url);
+  setMetaContent('meta[name="description"]', description);
+  setMetaContent('meta[property="og:title"]', title);
+  setMetaContent('meta[property="og:description"]', description);
+  setMetaContent('meta[property="og:url"]', url);
+  setMetaContent('meta[property="og:image"]', image);
+  setMetaContent('meta[property="og:image:alt"]', game ? `${game.title} gameplay screenshot` : 'Integ Games arcade preview');
+  setMetaContent('meta[name="twitter:title"]', title);
+  setMetaContent('meta[name="twitter:description"]', description);
+  setMetaContent('meta[name="twitter:image"]', image);
+}
 
 function layout(content: string): string {
   const player = currentPlayer();
@@ -43,7 +70,7 @@ function home(): string {
   const recent = shell.recentlyPlayed().map(findGame).filter((item): item is GameCatalogEntry => Boolean(item));
   const featured = catalog[0];
   return layout(`
-    <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Twenty original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
+    <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Twenty original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}/`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
     ${recent.length ? `<section class="section"><div class="section-heading"><h2>Continue playing</h2></div><div class="game-rail">${recent.map(card).join('')}</div></section>` : ''}
     <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard><li class="leaderboard-empty">Loading the standings…</li></ol></section>
     <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${catalog.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>`);
@@ -62,7 +89,7 @@ function card(game: GameCatalogEntry): string {
   const best = shell.bestScore(game.slug);
   const available = Boolean(gameLoader(game.slug));
   const searchable = `${game.title} ${game.description} ${game.mechanic} ${game.traits.join(' ')}`.toLowerCase();
-  return `<article class="game-card" data-game-card data-title="${searchable}"><a href="${href(`play/${game.slug}`)}" data-route aria-label="Play ${game.title}, ${categoryLabels[game.primaryCategory]}"><div class="cover" style="--accent:${game.accent}"><img class="cover-image" src="${gameArt(game.slug, 'cover')}" width="640" height="360" loading="lazy" decoding="async" alt="${game.title} gameplay screenshot" /><span class="cover-glyph" aria-hidden="true">${coverGlyph(game.slug)}</span>${!available ? '<small>Loading soon</small>' : ''}</div><div class="card-info"><p class="card-category">${categoryLabels[game.primaryCategory]}</p><h3>${game.title}</h3><div class="trait-chips">${traitChips(game)}</div><p class="card-mechanic">${game.mechanic}</p><span>${best ? `Best ${best.toLocaleString()}` : 'New game'}</span></div></a></article>`;
+  return `<article class="game-card" data-game-card data-title="${searchable}"><a href="${href(`play/${game.slug}/`)}" data-route aria-label="Play ${game.title}, ${categoryLabels[game.primaryCategory]}"><div class="cover" style="--accent:${game.accent}"><img class="cover-image" src="${gameArt(game.slug, 'cover')}" width="640" height="360" loading="lazy" decoding="async" alt="${game.title} gameplay screenshot" /><span class="cover-glyph" aria-hidden="true">${coverGlyph(game.slug)}</span>${!available ? '<small>Loading soon</small>' : ''}</div><div class="card-info"><p class="card-category">${categoryLabels[game.primaryCategory]}</p><h3>${game.title}</h3><div class="trait-chips">${traitChips(game)}</div><p class="card-mechanic">${game.mechanic}</p><span>${best ? `Best ${best.toLocaleString()}` : 'New game'}</span></div></a></article>`;
 }
 
 function traitChips(game: GameCatalogEntry): string { return game.traits.map((trait) => `<span class="trait-chip">${trait}</span>`).join(''); }
@@ -100,8 +127,9 @@ async function exitImmersive(): Promise<void> {
 async function gamePage(slug: string, token: number): Promise<void> {
   const game = findGame(slug);
   if (!game) { appRoot.innerHTML = layout(notFound()); return; }
+  activeSlug = slug;
   const recommended = recommendationsFor(game);
-  appRoot.innerHTML = layout(`<section class="play-page"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
+  appRoot.innerHTML = layout(`<section class="play-page"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
     if (stage) stage.innerHTML = '<p class="stage-message">This game is on its way. Pick another cabinet while it arrives.</p>';
@@ -110,7 +138,6 @@ async function gamePage(slug: string, token: number): Promise<void> {
   try {
     const module = await loadGame(slug);
     if (token !== viewToken) return;
-    activeSlug = slug;
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
       score: (score) => { void submitScore(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
@@ -135,9 +162,9 @@ async function render(): Promise<void> {
   pendingStart = undefined;
   const token = ++viewToken;
   const current = route();
-  if (current === '/' || current === '') { appRoot.innerHTML = home(); void hydrateLeaderboard(); }
-  else if (current.startsWith('/play/')) await gamePage(decodeURIComponent(current.slice('/play/'.length)), token);
-  else appRoot.innerHTML = layout(notFound());
+  if (current === '/' || current === '') { applyPageMetadata(); appRoot.innerHTML = home(); void hydrateLeaderboard(); }
+  else if (current.startsWith('/play/')) { const slug = decodeURIComponent(current.slice('/play/'.length)); applyPageMetadata(findGame(slug)); await gamePage(slug, token); }
+  else { applyPageMetadata(); appRoot.innerHTML = layout(notFound()); }
 }
 
 document.addEventListener('click', (event) => {
@@ -156,6 +183,8 @@ document.addEventListener('click', (event) => {
   if (action === 'start-game') void pendingStart?.();
   if (action === 'exit-fullscreen') void exitImmersive();
   if (action === 'share') void shareCurrentGame();
+  if (action === 'copy-share-link') void copyDisplayedShareLink();
+  if (action === 'close-share-fallback') hideManualShare();
   if (action === 'pause') { controller?.pause(); shell.stopActiveSound(); togglePause(true); }
   if (action === 'resume') { controller?.resume(); togglePause(false); }
   if (action === 'restart') { controller?.restart(); appRoot.querySelector<HTMLElement>('[data-stage]')?.dispatchEvent(new Event('integ:clear-controls')); togglePause(false); }
@@ -183,15 +212,60 @@ window.addEventListener('blur', pauseActiveGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
 
 function togglePause(show: boolean) { const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]'); if (overlay) overlay.hidden = !show; }
+
+function setShareStatus(message: string): void {
+  const status = appRoot.querySelector<HTMLElement>('[data-share-status]');
+  if (status) status.textContent = message;
+}
+
+function hideManualShare(): void {
+  const fallback = appRoot.querySelector<HTMLElement>('[data-share-fallback]');
+  if (fallback) fallback.hidden = true;
+}
+
+function showManualShare(url: string): void {
+  const fallback = appRoot.querySelector<HTMLElement>('[data-share-fallback]');
+  const input = fallback?.querySelector<HTMLInputElement>('[data-share-link]');
+  if (!fallback || !input) return;
+  input.value = url;
+  fallback.hidden = false;
+  input.focus();
+  input.select();
+  setShareStatus('Select the link and copy it manually.');
+}
+
+async function copyShareLink(url: string): Promise<boolean> {
+  if (!navigator.clipboard?.writeText) return false;
+  try {
+    await navigator.clipboard.writeText(url);
+    setShareStatus('Game link copied.');
+    return true;
+  } catch { return false; }
+}
+
+async function copyDisplayedShareLink(): Promise<void> {
+  const input = appRoot.querySelector<HTMLInputElement>('[data-share-link]');
+  if (!input) return;
+  if (await copyShareLink(input.value)) hideManualShare();
+  else { input.focus(); input.select(); setShareStatus('Select the link and copy it manually.'); }
+}
+
 async function shareCurrentGame(): Promise<void> {
   const game = activeSlug ? findGame(activeSlug) : undefined;
   if (!game) return;
-  const data = { title: `${game.title} · Integ Games`, text: `Play ${game.title} with me on Integ Games.`, url: location.href };
-  const status = appRoot.querySelector<HTMLElement>('[data-share-status]');
-  try {
-    if (navigator.share) await navigator.share(data);
-    else { await navigator.clipboard.writeText(data.url); if (status) status.textContent = 'Game link copied.'; }
-  } catch (error) { if ((error as DOMException).name !== 'AbortError' && status) status.textContent = 'Could not share this link.'; }
+  const data = { title: `${game.title} · Integ Games`, text: `Play ${game.title} with me on Integ Games.`, url: new URL(`/play/${game.slug}/`, siteOrigin).href };
+  hideManualShare();
+  setShareStatus('');
+  if (typeof navigator.share === 'function') {
+    try {
+      await navigator.share(data);
+      setShareStatus('Game shared.');
+      return;
+    } catch (error) {
+      if ((error as DOMException).name === 'AbortError') return;
+    }
+  }
+  if (!(await copyShareLink(data.url))) showManualShare(data.url);
 }
 function filterGames(query: string) {
   const normalized = query.trim().toLowerCase();
