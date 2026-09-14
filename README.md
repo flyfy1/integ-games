@@ -28,3 +28,12 @@ npm run test:lighthouse
 ## GitHub Pages
 
 The workflow in `.github/workflows/pages.yml` installs dependencies, runs type/unit/end-to-end/Lighthouse checks, builds the site, and deploys Pages from `dist/`. `public/CNAME` configures `games.integ.life`. Set the `PAGES_BASE_PATH` repository variable when deploying to a project-page preview path; leave it unset for the custom domain root.
+
+## Google Analytics page counts
+
+The **Integ Games** GA4 property has its own production web stream
+`G-FZ76Z2ZFKD`. Pageviews count the catalog and known game routes, including
+client-side navigation. Query strings, login fragments, referrers, player
+names and scores are excluded; unknown paths become `/not-found`. The tag
+only loads on `games.integ.life` in the top-level window. Enhanced
+measurement, Google signals and ad personalization are disabled.

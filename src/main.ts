@@ -4,6 +4,7 @@ import { createShellServices } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
 import './styles/app.css';
+import { startAnalytics } from './analytics';
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Missing application root');
@@ -22,6 +23,7 @@ let activeSlug: string | undefined;
 let pendingStart: (() => Promise<void>) | undefined;
 let immersiveStage: HTMLElement | undefined;
 const loginError = consumeLoginResult();
+startAnalytics();
 
 function href(path = ''): string { return `${import.meta.env.BASE_URL}${path}`.replace(/(?<!:)\/+/g, '/'); }
 function route(): string {
