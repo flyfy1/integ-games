@@ -19,3 +19,10 @@ body { background:var(--il-bg); }
 /* Gameplay overlays keep their dark canvas palette in either shell theme. */
 .pause-overlay,.help-sheet { color:#F7F9FF; color-scheme:dark; }
 .game-stage:not(.is-immersive) .immersive-exit { display:none; }
+
+.il-family-bar [data-action="mute"] { width:44px; height:44px; padding:8px; border:0; background:transparent; }
+.game-account-menu { position:relative; }
+.game-account-menu summary { width:44px; height:44px; padding:8px; list-style:none; border:0; background:transparent; }
+.game-account-menu summary::-webkit-details-marker { display:none; }
+.game-account-menu>div { position:absolute; inset-inline-end:0; top:48px; z-index:25; min-width:180px; padding:16px; background:var(--il-surface); border:1px solid var(--il-border); border-radius:10px; box-shadow:0 12px 32px #0002; }
+.game-account-menu strong { display:block; overflow-wrap:anywhere; margin-bottom:12px; }
