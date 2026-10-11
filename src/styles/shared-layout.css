@@ -16,3 +16,6 @@ body { background:var(--il-bg); }
 .game-stage { color:#F7F9FF; color-scheme:dark; }
 
 .card-info span,.game-title>div>p:not(.eyebrow),.back-link { color:var(--il-muted); }
+/* Gameplay overlays keep their dark canvas palette in either shell theme. */
+.pause-overlay,.help-sheet { color:#F7F9FF; color-scheme:dark; }
+.game-stage:not(.is-immersive) .immersive-exit { display:none; }

@@ -75,6 +75,7 @@ test('mobile start enters immersive mode even without the native fullscreen API'
   await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeVisible();
   await page.getByRole('button', { name: 'Exit full screen' }).click();
   await expect(page.locator('[data-stage]')).not.toHaveClass(/is-immersive/);
+  await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeHidden();
 });
 
 test('every cabinet can pause, restart, and accept its primary keyboard input', async ({ page }, testInfo) => {
