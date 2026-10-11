@@ -15,11 +15,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@integ-life/ui": "file:vendor/integ-life-ui-0.2.0.tgz",
     "vite-plugin-pwa": "^1.2.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.0",
     "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.55.0",
     "@types/node": "^24.0.0",
     "jsdom": "^26.0.0",
     "typescript": "^5.8.3",

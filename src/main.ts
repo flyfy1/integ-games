@@ -4,6 +4,9 @@ import { createShellServices } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
 import './styles/app.css';
+import '@integ-life/ui/static';
+import '@integ-life/ui/styles.css';
+import './styles/shared-layout.css';
 import { startAnalytics } from './analytics';
 
 const root = document.querySelector<HTMLElement>('#app');
@@ -62,7 +65,7 @@ function applyPageMetadata(game?: GameCatalogEntry): void {
 
 function layout(content: string): string {
   const player = currentPlayer();
-  return `<main class="app-shell"><header class="site-header"><a class="brand" href="${href()}" data-route>INTEG <span>GAMES</span></a><div class="header-actions">${player ? `<span class="player-name">${escapeHTML(player.name)}</span><button class="account-button" data-action="logout">Log out</button>` : '<button class="account-button" data-action="login">Log in</button>'}<button class="icon-button" data-action="mute" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></div></header>${loginError ? `<p class="auth-notice" role="alert">${escapeHTML(loginError)}</p>` : ''}${content}</main>`;
+  return `<integ-family-bar product="games" home-href="${href()}" default-theme="dark"><div data-il-actions>${player ? `<span class="player-name">${escapeHTML(player.name)}</span><button class="il-control" data-action="logout">Log out</button>` : '<button class="il-control" data-action="login">Log in</button>'}<button class="il-control" data-action="mute" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></div></integ-family-bar><main class="app-shell">${loginError ? `<p class="auth-notice" role="alert">${escapeHTML(loginError)}</p>` : ''}${content}</main>`;
 }
 
 function home(): string {

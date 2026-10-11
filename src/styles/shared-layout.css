@@ -1,0 +1,18 @@
+/* Frame and directory adapt to theme; gameplay retains its own palette. */
+:root { color:var(--il-text); background:var(--il-bg); }
+body { background:var(--il-bg); }
+.app-shell { padding-top:24px; }
+.hero h1,.game-title h1,.not-found h1 { font-size:clamp(30px,4vw,48px); letter-spacing:-.04em; line-height:1.1; text-wrap:balance; }
+.hero { min-height:300px; padding:28px 0; }
+.hero-copy,.category-promise,.recommended-copy,.results-status,.breadcrumb,.breadcrumb a,.player-name,.share-status { color:var(--il-muted); }
+.eyebrow,.hero h1 em,.card-category { color:var(--il-accent)!important; }
+.search,.filter,.game-card,.empty-state,.trait-chip,.leaderboard,.share-fallback { background:var(--il-surface); border-color:var(--il-border); color:var(--il-text); }
+.search input { color:var(--il-text); }
+.card-info p,.card-mechanic,.empty-state p,.leaderboard li>span:not(.rank) { color:var(--il-muted)!important; }
+.filter.is-active { background:var(--il-accent); color:var(--il-on-accent); }
+.game-card { border-radius:var(--il-radius); }
+.game-card h3,.card-info h3,.leaderboard li { color:var(--il-text); }
+.il-family-bar .il-brand strong { letter-spacing:-.3px; }
+.game-stage { color:#F7F9FF; color-scheme:dark; }
+
+.card-info span,.game-title>div>p:not(.eyebrow),.back-link { color:var(--il-muted); }
