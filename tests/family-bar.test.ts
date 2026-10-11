@@ -23,7 +23,7 @@ describe('shared family bar host integration', () => {
     expect(onMute).toHaveBeenCalledOnce();
     expect(bar.querySelector('[data-il-switch]')?.getAttribute('aria-label')).toBe('切换产品');
     const links = [...bar.querySelectorAll('.il-product-list a')];
-    expect(links).toHaveLength(11);
+    expect(links).toHaveLength(12);
     expect(links.every(link => link.querySelector('img')?.getAttribute('src')?.startsWith('data:image/svg+xml,'))).toBe(true);
     expect(links.find(link => link.getAttribute('aria-current'))?.getAttribute('href')).toBe('https://games.integ.life/');
     expect(links.every(link => (link.querySelector('small')?.textContent?.length || 0) > 6)).toBe(true);
