@@ -77,17 +77,26 @@ function home(): string {
   return layout(`
     <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Twenty original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}/`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
     ${recent.length ? `<section class="section"><div class="section-heading"><h2>Continue playing</h2></div><div class="game-rail">${recent.map(card).join('')}</div></section>` : ''}
-    <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard><li class="leaderboard-empty">Loading the standings…</li></ol></section>
+    <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard aria-live="polite"><li class="leaderboard-empty">Loading the standings…</li></ol></section>
     <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${catalog.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>`);
 }
 
 function escapeHTML(value: string): string { return value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!); }
 async function hydrateLeaderboard(): Promise<void> {
   const list = appRoot.querySelector<HTMLOListElement>('[data-leaderboard]');
-  if (!list) return;
-  const entries = await leaderboard();
-  if (!list.isConnected) return;
-  list.innerHTML = entries.length ? entries.slice(0, 10).map((entry, index) => `<li><span class="rank">${index + 1}</span><strong>${escapeHTML(entry.name)}</strong><span>${entry.games} games</span><b>${entry.score.toLocaleString()}</b></li>`).join('') : `<li class="leaderboard-empty">No scores yet. ${currentPlayer() ? 'Play a game to take the first spot.' : 'Log in and play to join the board.'}</li>`;
+  if (!list || list.getAttribute('aria-busy') === 'true') return;
+  list.innerHTML = '<li class="leaderboard-empty">Loading the standings…</li>';
+  list.setAttribute('aria-busy', 'true');
+  try {
+    const entries = await leaderboard();
+    if (!list.isConnected) return;
+    list.innerHTML = entries.length ? entries.slice(0, 10).map((entry, index) => `<li><span class="rank">${index + 1}</span><strong>${escapeHTML(entry.name)}</strong><span>${entry.games} games</span><b>${entry.score.toLocaleString()}</b></li>`).join('') : `<li class="leaderboard-empty">No scores yet. ${currentPlayer() ? 'Play a game to take the first spot.' : 'Log in and play to join the board.'}</li>`;
+  } catch {
+    if (!list.isConnected) return;
+    list.innerHTML = '<li class="leaderboard-empty">Leaderboard is temporarily unavailable. <button class="secondary-button" data-action="retry-leaderboard">Retry</button></li>';
+  } finally {
+    list.setAttribute('aria-busy', 'false');
+  }
 }
 
 function card(game: GameCatalogEntry): string {
@@ -182,6 +191,7 @@ document.addEventListener('click', (event) => {
     return;
   }
   const action = target.dataset.action;
+  if (action === 'retry-leaderboard') void hydrateLeaderboard();
   if (action === 'mute') { shell.setMuted(!shell.getMuted()); void render(); }
   if (action === 'login') login();
   if (action === 'logout') { void logout().then(() => render()); }

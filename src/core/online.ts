@@ -20,10 +20,16 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const session = token();
   if (session) headers.set('Authorization', `Bearer ${session}`);
   if (init?.body) headers.set('Content-Type', 'application/json');
-  const response = await fetch(`${apiBase}${path}`, { ...init, headers });
-  if (response.status === 401) { localStorage.removeItem(tokenKey); player = undefined; }
-  if (!response.ok) throw new Error(`API ${response.status}`);
-  return response.status === 204 ? undefined as T : response.json() as Promise<T>;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${apiBase}${path}`, { ...init, headers, signal: controller.signal });
+    if (response.status === 401) { localStorage.removeItem(tokenKey); player = undefined; }
+    if (!response.ok) throw new Error(`API ${response.status}`);
+    return response.status === 204 ? undefined as T : await response.json() as T;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function loadPlayer(): Promise<Player | undefined> {
@@ -38,4 +44,10 @@ export async function submitScore(game: string, score: number): Promise<void> {
   if (!token() || !Number.isFinite(score) || score < 0) return;
   try { await api('/api/scores', { method: 'POST', body: JSON.stringify({ game, score: Math.round(score) }) }); } catch { /* local score remains available offline */ }
 }
-export async function leaderboard(): Promise<LeaderboardEntry[]> { try { return await api('/api/leaderboard'); } catch { return []; } }
+export async function leaderboard(): Promise<LeaderboardEntry[]> {
+  const entries = await api<LeaderboardEntry[]>('/api/leaderboard');
+  if (!Array.isArray(entries) || entries.some((entry) => !entry || typeof entry.name !== 'string' || !Number.isFinite(entry.score) || !Number.isFinite(entry.games))) {
+    throw new Error('Invalid leaderboard response');
+  }
+  return entries;
+}
