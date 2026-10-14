@@ -149,3 +149,18 @@ test('sharing exposes a selectable manual link after API and clipboard failure',
   await expect(page.getByRole('textbox', { name: 'Game link' })).toHaveValue('https://games.integ.life/play/arena/');
   await expect(page.locator('[data-share-status]')).toHaveText('Select the link and copy it manually.');
 });
+
+test('merge-2048 HUD spans the board so Score and Best never touch (UX-20261014-13)', async ({ page }, testInfo) => {
+  await page.goto('/play/merge-2048');
+  const start = page.locator('[data-action="start-game"]');
+  if (await start.count()) await start.click();
+  const hud = page.locator('.game-hud');
+  await expect(hud).toBeVisible();
+  const m = await hud.evaluate(el => {
+    const [score, best] = Array.from(el.children).map(c => c.getBoundingClientRect());
+    return { hud: el.getBoundingClientRect().width, board: document.querySelector('.merge-board')!.getBoundingClientRect().width, gap: best.left - score.right };
+  });
+  expect(m.hud).toBeGreaterThanOrEqual(m.board - 1);
+  expect(m.gap).toBeGreaterThanOrEqual(24);
+  await hud.screenshot({ path: testInfo.outputPath('merge-2048-hud.png') });
+});
