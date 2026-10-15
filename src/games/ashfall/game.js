@@ -3,12 +3,12 @@
 
 import { createAudio } from './audio.js';
 import { buildArt, LAYER_W, makeCanvas } from './art.js';
-import { VIEW_W, VIEW_H, FLOOR, ZONES, ARENA, WORLD_END, zoneIndexAt, buildSolids, PITS, ENEMIES, MEDKITS, CHECKPOINTS, LIGHTS, PROPS } from './level.js';
+import { VIEW_W, VIEW_H, FLOOR, ZONES, ARENA, WORLD_END, zoneIndexAt, buildSolids, PITS, ENEMIES, MEDKITS, CHECKPOINTS, LIGHTS, PROPS, AMBUSHES } from './level.js';
 import { drawPlayer, drawEnemy, drawBoss, bladeLocal, MUZZLE } from './sprites.js';
 
 const DT = 1 / 60;
 const G = 2050, RUN = 300, JUMP_V = 730, MAX_FALL = 1150;
-const ROLL_T = 0.42, ROLL_SPEED = 470, ROLL_IFRAME = [0.04, 0.3];
+const ROLL_T = 0.42, ROLL_SPEED = 470, ROLL_IFRAME = [0.03, 0.33];
 const MAX_HP = 100, MAG = 4, RELOAD_SHELL = 0.36;
 const BUF = { jump: 0.13, attack: 0.28, shoot: 0.16, roll: 0.16, reload: 0.2 };
 const SERIF = 'Georgia, "Times New Roman", serif';
@@ -26,7 +26,7 @@ const ENEMY_DEF = {
   brute: { hp: 120, w: 52, h: 104, speed: 58, score: 400, poise: 46 },
   drone: { hp: 26, w: 34, h: 34, speed: 170, score: 150 }
 };
-const BOSS = { armor: 480, hp: 600, w: 140, h: 220 };
+const BOSS = { armor: 400, hp: 480, w: 140, h: 220 };
 const PLATES = [
   { th: 0.82, poly: [[-80, -62], [-58, -112], [-38, -86], [-56, -44]] },
   { th: 0.66, poly: [[-70, -8], [-40, -30], [60, -14], [64, 0], [-66, 0]] },
@@ -236,6 +236,7 @@ export function createAshfall(host, services) {
   // ---------- collision ----------
   function rectOf(o, hOverride) { const h = hOverride ?? o.h; return { x: o.x - o.w / 2, y: o.y - h, w: o.w, h }; }
   function bounds(o) {
+    if (g.ambush && o === player) return [g.ambush.l + 14, g.ambush.r - 14];
     if (!g.arenaLocked) return [16, WORLD_END - 16];
     return o === player || o.x > ARENA.left ? [ARENA.left + 26, ARENA.right - 26] : [16, ARENA.left - 40];
   }
@@ -288,6 +289,7 @@ export function createAshfall(host, services) {
     const p = player, cp = CHECKPOINTS[g.cpIdx];
     Object.assign(p, { x: cp, y: surfaceY(cp, 380) ?? FLOOR, vx: 0, vy: 0, hp: MAX_HP, hpGhost: MAX_HP, ammo: MAG, dead: false, deadT: 0, atk: null, rolling: false, reloading: false, iframe: 1.2, hurtT: 0, invuln: false });
     p.scarf.forEach((pt) => { pt.x = p.x; pt.y = p.y - 48; });
+    if (g.ambush) { for (const e of enemies) if (e.ambush && !e.dead) { e.dead = true; e.deadT = 1; } g.ambush = null; }
     g.pellets = []; g.bolts = []; g.waves = []; g.markers = []; g.beams = []; g.letterTarget = 0; g.cam.x = clamp(p.x - VIEW_W * 0.4, 0, WORLD_END - VIEW_W);
     if (g.arenaLocked || boss.state !== 'dormant') {
       const phase2 = boss.phase === 2 && boss.state !== 'dying';
@@ -296,7 +298,7 @@ export function createAshfall(host, services) {
       boss = fresh; boss.resumePhase2 = phase2; g.arenaLocked = false; g.gateY = 0;
       audio.setMode('foundry');
     }
-    enemies.forEach((e) => { if (!e.dead) { e.x = e.home; e.state = 'patrol'; e.hp = e.maxHp; e.y = e.type === 'drone' ? 300 : surfaceY(e.home, 380) ?? FLOOR; e.vx = 0; } });
+    enemies.forEach((e) => { if (!e.dead && !e.ambush) { e.x = e.home; e.state = 'patrol'; e.hp = e.maxHp; e.y = e.type === 'drone' ? 300 : surfaceY(e.home, 380) ?? FLOOR; e.vx = 0; } });
   }
 
   function updatePlayer(dt) {
@@ -589,11 +591,11 @@ export function createAshfall(host, services) {
     let r = rand() * total, pick = 'slam'; for (const k in w) { r -= w[k]; if (r <= 0) { pick = k; break; } }
     if (b.next) { pick = b.next; b.next = null; }
     if (pick === 'walk') { b.state = 'walk'; b.t = 0; return; }
-    if (b.phase === 2 && rand() < 0.45) b.next = { slam: 'charge', beam: 'missiles' }[pick] || null;
-    const f = b.phase === 2 ? 0.8 : 1;
+    if (b.phase === 2 && rand() < 0.3) b.next = { slam: 'charge', beam: 'missiles' }[pick] || null;
+    const f = b.phase === 2 ? 0.92 : 1.12;
     b.attack = pick; b.last = pick; b.state = 'windup'; b.t = 0;
     b.windup = { slam: 0.95, barrage: 0.85, charge: 1.05, missiles: 0.7, beam: 1.15 }[pick] * f;
-    if (pick === 'slam') { b.slamX = clamp(b.x + b.face * 150, ARENA.left + 40, ARENA.right - 40); audio.play('bigWarn'); }
+    if (pick === 'slam') { b.slamX = clamp(b.x + b.face * 72, ARENA.left + 40, ARENA.right - 40); audio.play('bigWarn'); }
     if (pick === 'charge') { audio.play('bigWarn'); }
     if (pick === 'barrage') audio.play('warn');
     if (pick === 'beam') { b.beamHigh = b.lastBeamHigh === undefined ? rand() < 0.5 : !b.lastBeamHigh; b.lastBeamHigh = b.beamHigh; audio.play('laserCharge'); }
@@ -647,8 +649,8 @@ export function createAshfall(host, services) {
         break;
       }
       case 'active': bossActive(dt); break;
-      case 'recover': if (b.t >= b.recover) { b.state = 'idle'; b.cd = b.next ? 0.1 : b.phase === 2 ? 0.3 : 0.55; b.attack = null; b.cannonAngle = lerp(b.cannonAngle, 0.15, 0.1); } break;
-      case 'stunned': if (b.t >= (b.phase === 2 ? 0.9 : 1.3)) { b.state = 'idle'; b.cd = 0.3; b.attack = null; } break;
+      case 'recover': if (b.t >= b.recover) { b.state = 'idle'; b.cd = b.next ? 0.15 : b.phase === 2 ? 0.45 : 0.75; b.attack = null; b.cannonAngle = lerp(b.cannonAngle, 0.15, 0.1); } break;
+      case 'stunned': if (b.t >= (b.phase === 2 ? 1.1 : 1.5)) { b.state = 'idle'; b.cd = 0.3; b.attack = null; } break;
       case 'stagger': if (b.t >= 1.1) { b.state = 'idle'; b.cd = 0.2; } break;
       case 'transform': updateTransform(dt); break;
       case 'dying': updateDying(dt); break;
@@ -663,18 +665,19 @@ export function createAshfall(host, services) {
     for (const w of g.waves) {
       w.x += w.dir * w.speed * dt; w.life -= dt;
       if (w.x < ARENA.left + 20 || w.x > ARENA.right - 20) w.life = 0;
-      if (Math.abs(p.x - w.x) < 24 && p.y > FLOOR - 40) hitPlayer(14, w.x - w.dir * 10);
+      if (Math.abs(p.x - w.x) < 22 && p.y > FLOOR - 40) hitPlayer(11, w.x - w.dir * 10);
       if (rand() < 0.5) part({ kind: 'ember', x: w.x, y: FLOOR - rand() * 20, vx: (rand() - 0.5) * 60, vy: -rand() * 160, life: 0.4, size: 2 });
     }
     g.waves = g.waves.filter((w) => w.life > 0);
     for (const m of g.markers) {
       m.t += dt;
-      if (m.t >= m.dur && !m.done) { m.done = true; explosion(m.x, FLOOR - 20, 1); if (Math.abs(p.x - m.x) < 66 && p.y > FLOOR - 120) hitPlayer(16, m.x); }
+      if (m.t >= m.dur && !m.done) { m.done = true; explosion(m.x, FLOOR - 20, 1); if (Math.abs(p.x - m.x) < 62 && p.y > FLOOR - 120) hitPlayer(13, m.x); }
     }
     g.markers = g.markers.filter((m) => !m.done || m.t < m.dur + 0.1);
     for (const bm of g.beams) {
       bm.t += dt;
-      if (bm.t < bm.dur) { const r = { x: Math.min(bm.x0, bm.x1), y: bm.y - bm.th / 2, w: Math.abs(bm.x1 - bm.x0), h: bm.th }; if (overlap(r, rectOf(p, p.rolling ? 34 : p.h))) hitPlayer(18, b.x); }
+      if (bm.t < bm.dur && rand() < 0.6) sparks(bm.x1 - Math.sign(bm.x1 - bm.x0) * 10, bm.y, -Math.sign(bm.x1 - bm.x0), 2, '#ff8a6a', 300);
+      if (bm.t < bm.dur) { const r = { x: Math.min(bm.x0, bm.x1), y: bm.y - bm.th / 2, w: Math.abs(bm.x1 - bm.x0), h: bm.th }; if (overlap(r, rectOf(p, p.rolling ? 34 : p.h))) hitPlayer(15, b.x); }
     }
     g.beams = g.beams.filter((bm) => bm.t < bm.dur + 0.25);
   }
@@ -691,7 +694,7 @@ export function createAshfall(host, services) {
     if (b.attack === 'slam') {
       audio.play('slam'); addShake(15); flash('#ff9a4a', 0.15); light(b.slamX, FLOOR - 20, 420, 'warm', 0.3, 1.5);
       dust(b.slamX, FLOOR, 18, 160, '#5a4a40'); sparks(b.slamX, FLOOR - 4, -1, 10, '#ffb36a', 500); sparks(b.slamX, FLOOR - 4, 1, 10, '#ffb36a', 500);
-      if (Math.abs(p.x - b.slamX) < 95 && p.y > FLOOR - 120) hitPlayer(22, b.slamX, 380);
+      if (Math.abs(p.x - b.slamX) < 95 && p.y > FLOOR - 120) hitPlayer(18, b.slamX, 380);
       const waves = () => { [-1, 1].forEach((dir) => g.waves.push({ x: b.slamX + dir * 60, dir, speed: f ? 480 : 420, life: 3 })); };
       waves(); if (f) b.events.push({ t: 0.45, fn: () => { if (b.state !== 'dying' && b.state !== 'transform') { waves(); audio.play('slam'); addShake(6); } } });
       b.recover = f ? 0.7 : 0.95;
@@ -699,7 +702,7 @@ export function createAshfall(host, services) {
       const volley = () => {
         const m = bossMuzzle(), base = Math.atan2(p.y - 34 - m.y, p.x - m.x);
         const n = f ? 5 : 3;
-        for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; g.bolts.push({ x: m.x, y: m.y, vx: Math.cos(a) * 600, vy: Math.sin(a) * 600, life: 2.4, dmg: 12, r: 9, color: 'warm' }); }
+        for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; g.bolts.push({ x: m.x, y: m.y, vx: Math.cos(a) * 600, vy: Math.sin(a) * 600, life: 2.4, dmg: 10, r: 9, color: 'warm' }); }
         audio.play('bolt'); audio.play('shot'); light(m.x, m.y, 260, 'warm', 0.12, 1.2); addShake(4);
       };
       volley(); if (f) b.events.push({ t: 0.35, fn: () => { if (b.state === 'active' || b.state === 'recover') volley(); } });
@@ -729,7 +732,7 @@ export function createAshfall(host, services) {
       b.x += b.vx * dt; b.walkPhase += dt * 14;
       if (rand() < 0.7) dust(b.x - b.face * 40, b.y, 1, 30);
       const r = { x: b.x - 70, y: b.y - 200, w: 140, h: 200 };
-      if (overlap(r, rectOf(p, p.rolling ? 34 : p.h))) hitPlayer(22, b.x, 520);
+      if (overlap(r, rectOf(p, p.rolling ? 34 : p.h))) hitPlayer(18, b.x, 520);
       const wall = b.face > 0 ? ARENA.right - 92 : ARENA.left + 92;
       if ((b.face > 0 && b.x >= wall) || (b.face < 0 && b.x <= wall)) {
         b.x = wall; b.state = 'stunned'; b.t = 0; b.vx = 0; audio.play('slam'); addShake(14); flash('#ff9a4a', 0.12);
@@ -750,6 +753,7 @@ export function createAshfall(host, services) {
     if (t > 3.3) {
       b.phase = 2; b.state = 'idle'; b.cd = 0.6; b.poise = 260; g.letterTarget = 0; player.invuln = false; g.cine = null;
       card('WARDEN · UNBOUND', '核 心 暴 露', '', 2.6);
+      g.medkits.push({ x: clamp(b.x - b.face * 260, ARENA.left + 60, ARENA.right - 60), y: FLOOR - 20, taken: false });
     }
   }
   function updateDying() {
@@ -805,6 +809,7 @@ export function createAshfall(host, services) {
     for (const q of g.particles) {
       q.life -= dt; q.vy += q.g * dt; q.vx *= 1 - Math.min(1, q.drag * dt); q.vy *= 1 - Math.min(1, q.drag * dt * 0.5);
       q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.vr * dt;
+      if (q.kind === 'missile' && rand() < 0.6) part({ kind: 'smoke', x: q.x, y: q.y + 10, vx: 0, vy: 20, life: 0.6, size: 5, color: '#4a403a' });
       if ((q.kind === 'debris' || q.kind === 'plate' || q.kind === 'shell') && q.vy > 0) {
         const sy = surfaceY(q.x, q.y - 30);
         if (sy !== null && q.y > sy - 2 && q.y < sy + 30) { q.y = sy - 2; q.vy *= -0.3; q.vx *= 0.6; q.vr *= 0.5; if (q.kind === 'plate' && Math.abs(q.vy) > 60) { audio.play('plate'); } }
@@ -817,6 +822,25 @@ export function createAshfall(host, services) {
     g.lights = g.lights.filter((l) => l.life > 0);
   }
 
+  function updateAmbush(dt) {
+    const p = player;
+    if (!g.ambush) {
+      if (p.dead || g.arenaLocked) return;
+      const a = AMBUSHES.find((am, i) => !g.ambushDone.has(i) && p.x >= am.x && p.x <= am.r);
+      if (!a) return;
+      g.ambush = a; g.ambushT = 0; audio.play('bigWarn'); audio.play('gate'); addShake(6);
+      popup(p.x, p.y - 100, 'THE ASH STIRS', '#ff9a6a');
+      a.wave.forEach(([type, x], i) => {
+        const e = spawnEnemy(type, x, 100 + enemies.length + i); e.ambush = true; e.state = 'chase'; e.cd = 0.8 + i * 0.3; e.face = Math.sign(p.x - x) || 1;
+        enemies.push(e); ashBurst(e); light(x, e.y - 30, 220, 'warm', 0.4, 1.2);
+      });
+      return;
+    }
+    const a = g.ambush; g.ambushT += dt;
+    for (const x of [a.l, a.r]) if (rand() < 0.5) part({ kind: 'ember', x: x + (rand() - 0.5) * 16, y: FLOOR - rand() * 220, vx: (rand() - 0.5) * 30, vy: -60 - rand() * 90, life: 0.8, size: 2 });
+    const left = enemies.some((e) => !e.dead && e.x > a.l - 30 && e.x < a.r + 30);
+    if (!left && g.ambushT > 1) { g.ambushDone.add(AMBUSHES.indexOf(a)); g.ambush = null; audio.play('checkpoint'); popup(p.x, p.y - 100, 'CLEARED', '#ffcf8a'); }
+  }
   function updatePickups() {
     const p = player, r = rectOf(p);
     for (const m of g.medkits) {
@@ -912,6 +936,7 @@ export function createAshfall(host, services) {
     updateProjectiles(sdt);
     updateParticles(sdt);
     updatePickups();
+    updateAmbush(sdt);
     updateAmbient(sdt);
     // camera
     const p = player;
@@ -947,6 +972,8 @@ export function createAshfall(host, services) {
       if (a.y > VIEW_H + 5) { a.y = -5; a.x = Math.random() * (VIEW_W + 80); } if (a.x < -10) a.x = VIEW_W + 10;
     }
     // ambient embers from fires
+    const camMid = g.cam.x + VIEW_W / 2;
+    for (const pit of PITS) if (pit.zone === 2 && Math.abs(pit.x - camMid) < 700 && Math.random() < 0.3 * dt * 60) part({ kind: 'ember', x: pit.x + Math.random() * pit.w, y: VIEW_H, vx: 0, vy: -120 - Math.random() * 100, g: -20, life: 1.2, size: 1.8 });
     if (Math.random() < 0.35) for (const l of LIGHTS) if (l.kind !== 'lamp' && l.kind !== 'lantern' && Math.abs(l.x - (g.cam.x + VIEW_W / 2)) < 700 && Math.random() < 0.15) part({ kind: 'ember', x: l.x + (Math.random() - 0.5) * 30, y: l.y - 10, vx: (Math.random() - 0.5) * 30, vy: -60 - Math.random() * 60, g: -10, life: 1.4 + Math.random(), size: 1.5 });
   }
 
@@ -1051,7 +1078,6 @@ export function createAshfall(host, services) {
         ctx.fillStyle = gr; ctx.fillRect(pit.x, FLOOR + 10, pit.w, 400);
         ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.35 + Math.sin(g.time * 3 + pit.x) * 0.1;
         ctx.drawImage(art.warmGlow, pit.x - 60, FLOOR - 40, pit.w + 120, 260); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-        if (Math.random() < 0.3) part({ kind: 'ember', x: pit.x + Math.random() * pit.w, y: VIEW_H, vx: 0, vy: -120 - Math.random() * 100, g: -20, life: 1.2, size: 1.8 });
       } else {
         const gr = ctx.createLinearGradient(0, FLOOR, 0, VIEW_H + 100); gr.addColorStop(0, '#050606'); gr.addColorStop(1, pit.zone === 0 ? '#0a1414' : '#0a0a0c');
         ctx.fillStyle = gr; ctx.fillRect(pit.x, FLOOR, pit.w, 400);
@@ -1094,6 +1120,15 @@ export function createAshfall(host, services) {
       const lip = art.lips[zi];
       for (let x = s.x; x < s.x + s.w; x += 512) { const w = Math.min(512, s.x + s.w - x); ctx.drawImage(lip, 0, 0, w, 44, x, s.y - 20, w, 44); }
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(s.x, s.y + 4, 3, 300); ctx.fillRect(s.x + s.w - 3, s.y + 4, 3, 300);
+    }
+    // ambush curtains
+    if (g.ambush) for (const x of [g.ambush.l, g.ambush.r]) {
+      const a = Math.min(1, g.ambushT * 2);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const gr = ctx.createLinearGradient(0, FLOOR - 260, 0, FLOOR); gr.addColorStop(0, 'rgba(255,90,30,0)'); gr.addColorStop(1, `rgba(255,120,50,${0.45 * a})`);
+      ctx.fillStyle = gr; ctx.fillRect(x - 14, FLOOR - 260, 28, 260);
+      ctx.fillStyle = `rgba(255,220,170,${0.6 * a})`; ctx.fillRect(x - 1.5, FLOOR - 200 + Math.sin(g.time * 7 + x) * 10, 3, 200);
+      ctx.restore();
     }
     // arena gate
     if (g.gateY > 0) {
@@ -1145,21 +1180,18 @@ export function createAshfall(host, services) {
     // brute slam zones
     for (const e of enemies) if (!e.dead && e.type === 'brute' && e.state === 'windup') {
       const k = e.t / e.windup, x0 = e.x + e.face * 20, x1 = e.x + e.face * 150;
-      ctx.fillStyle = `rgba(255,60,30,${0.12 + 0.25 * k})`; ctx.fillRect(Math.min(x0, x1), e.y - 6, 130, 8);
-      ctx.strokeStyle = `rgba(255,90,50,${0.4 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(Math.min(x0, x1), e.y - 6, 130, 8);
+      dangerRect(Math.min(x0, x1), e.y - 6, 130, 8, k, pulse);
     }
     // drone laser sights
     for (const e of enemies) if (!e.dead && e.type === 'drone' && e.state === 'windup' && e.aim) {
       const k = e.t / e.windup, locked = e.t >= e.lockT;
-      ctx.strokeStyle = locked ? `rgba(255,80,60,${0.5 + 0.5 * pulse})` : `rgba(255,60,40,${0.25 + 0.3 * k})`; ctx.lineWidth = locked ? 2 : 1;
-      const a = Math.atan2(e.aim.y - e.y, e.aim.x - e.x); ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(e.x + Math.cos(a) * 900, e.y + Math.sin(a) * 900); ctx.stroke();
+      const a = Math.atan2(e.aim.y - e.y, e.aim.x - e.x); dangerLine(e.x, e.y, e.x + Math.cos(a) * 900, e.y + Math.sin(a) * 900, locked ? 1 : k * 0.5, pulse, !locked);
     }
     const b = boss;
     if (b.state === 'windup') {
       const k = b.t / b.windup;
       if (b.attack === 'slam') {
-        const x = b.slamX; ctx.fillStyle = `rgba(255,50,20,${0.15 + 0.3 * k})`; ctx.fillRect(x - 95, FLOOR - 8, 190, 10);
-        ctx.strokeStyle = `rgba(255,120,60,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(x - 95, FLOOR - 8, 190, 10);
+        const x = b.slamX; dangerRect(x - 95, FLOOR - 8, 190, 10, k, pulse);
         chevrons(x, FLOOR - 40 - 30 * (1 - k), 0, k);
       } else if (b.attack === 'charge') {
         const xe = b.face > 0 ? ARENA.right : ARENA.left, xs = b.x;
@@ -1167,11 +1199,10 @@ export function createAshfall(host, services) {
         for (let i = 0; i < 8; i++) { const x = xs + b.face * (100 + ((i * 90 + g.time * 400) % 720)); if ((x - xs) * b.face < Math.abs(xe - xs)) arrow(x, FLOOR - 100, b.face, 0.3 + 0.5 * k); }
       } else if (b.attack === 'barrage') {
         const m = bossMuzzle(), base = Math.atan2(player.y - 34 - m.y, player.x - m.x), n = b.phase === 2 ? 5 : 3;
-        ctx.lineWidth = 1.5; ctx.strokeStyle = `rgba(255,80,40,${0.2 + 0.6 * k * pulse})`;
-        for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(m.x + Math.cos(a) * 1000, m.y + Math.sin(a) * 1000); ctx.stroke(); }
+        for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; dangerLine(m.x, m.y, m.x + Math.cos(a) * 1000, m.y + Math.sin(a) * 1000, k, pulse, true); }
       } else if (b.attack === 'beam') {
         const y = FLOOR - (b.beamHigh ? 52 : 15), xe = b.face > 0 ? ARENA.right : ARENA.left, xs = b.x + b.face * 70;
-        ctx.strokeStyle = `rgba(255,60,40,${0.3 + 0.6 * pulse})`; ctx.lineWidth = 1 + k * 2; ctx.setLineDash?.([14, 8]); ctx.beginPath(); ctx.moveTo(xs, y); ctx.lineTo(xe, y); ctx.stroke(); ctx.setLineDash?.([]);
+        dangerLine(xs, y, xe, y, k, pulse, true);
         for (let i = 1; i < 6; i++) chevrons(xs + (xe - xs) * i / 6, y + (b.beamHigh ? 30 : -30), b.beamHigh ? Math.PI : 0, k);
       } else if (b.attack === 'missiles') {
         ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = k; ctx.drawImage(art.redGlow, b.x - b.face * 30 - 40, b.y - 270, 80, 80); ctx.restore();
@@ -1181,17 +1212,28 @@ export function createAshfall(host, services) {
       if (m.done || m.t < 0) continue;
       const k = m.t / m.dur;
       ctx.fillStyle = `rgba(255,50,20,${0.12 + 0.3 * k})`; ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66, 10, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = `rgba(255,120,60,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66 * k, 10 * k, 0, 0, 7); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,250,240,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66 * k, 10 * k, 0, 0, 7); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66, 10, 0, 0, 7); ctx.stroke();
       if (k > 0.7) { ctx.fillStyle = '#ffd0a0'; ctx.fillRect(m.x - 2, FLOOR - 2 - (1 - k) * 1500, 4, 26); }
     }
   }
+  function dangerLine(x0, y0, x1, y1, k, pulse, dash) {
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(255,60,30,${0.25 + 0.35 * k})`; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    if (dash) ctx.setLineDash?.([16, 10]);
+    ctx.strokeStyle = `rgba(255,250,240,${0.35 + 0.6 * k * (0.6 + 0.4 * pulse)})`; ctx.lineWidth = 1.6 + k; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    ctx.restore();
+  }
+  function dangerRect(x, y, w, h, k, pulse) {
+    ctx.fillStyle = `rgba(255,50,20,${0.15 + 0.3 * k})`; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = `rgba(255,250,240,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+  }
   function chevrons(x, y, rot, k) {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.strokeStyle = `rgba(255,110,60,${0.4 + 0.6 * k})`; ctx.lineWidth = 3;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.strokeStyle = `rgba(255,240,220,${0.4 + 0.6 * k})`; ctx.lineWidth = 3;
     for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.moveTo(-9, i * 10 - 6); ctx.lineTo(0, i * 10 + 2); ctx.lineTo(9, i * 10 - 6); ctx.stroke(); }
     ctx.restore();
   }
-  function arrow(x, y, dir, a) { ctx.strokeStyle = `rgba(255,90,50,${a})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - dir * 14, y - 18); ctx.lineTo(x, y); ctx.lineTo(x - dir * 14, y + 18); ctx.stroke(); }
+  function arrow(x, y, dir, a) { ctx.strokeStyle = `rgba(255,236,220,${a})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x - dir * 14, y - 18); ctx.lineTo(x, y); ctx.lineTo(x - dir * 14, y + 18); ctx.stroke(); }
   function drawTrail() {
     const tr = player.trail; if (!tr.length) return;
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
@@ -1237,7 +1279,6 @@ export function createAshfall(host, services) {
       ctx.fillStyle = `rgba(255,60,30,${0.5 * k})`; ctx.fillRect(x, bm.y - th, w, th * 2);
       ctx.fillStyle = `rgba(255,220,200,${0.95 * k})`; ctx.fillRect(x, bm.y - th * 0.3, w, th * 0.6);
       ctx.globalAlpha = 0.6 * k; ctx.drawImage(art.redGlow, bm.x0 - 60, bm.y - 60, 120, 120); ctx.globalAlpha = 1;
-      if (k > 0.5 && Math.random() < 0.6) sparks(bm.x1 - Math.sign(bm.x1 - bm.x0) * 10, bm.y, -Math.sign(bm.x1 - bm.x0), 2, '#ff8a6a', 300);
     }
     ctx.restore();
   }
@@ -1255,7 +1296,7 @@ export function createAshfall(host, services) {
         case 'muzzle': { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.translate(q.x, q.y); ctx.scale(q.face, 1); ctx.globalAlpha = k; ctx.fillStyle = '#fff4d0'; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(46, 0); ctx.lineTo(0, 7); ctx.fill(); ctx.fillStyle = '#ffb050'; ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(30, -16); ctx.lineTo(22, 0); ctx.lineTo(30, 16); ctx.lineTo(0, 14); ctx.fill(); ctx.drawImage(art.warmGlow, -40, -40, 110, 80); ctx.restore(); break; }
         case 'flare': ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = k; ctx.drawImage(art.warmGlow, q.x - q.size, q.y - q.size, q.size * 2, q.size * 2); ctx.globalAlpha = k * 0.8; ctx.drawImage(art.whiteGlow, q.x - q.size * 0.4, q.y - q.size * 0.4, q.size * 0.8, q.size * 0.8); ctx.restore(); break;
         case 'ring': { const r = q.size + (1 - k) * 420; ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = `rgba(255,150,80,${k})`; ctx.lineWidth = 6 * k + 1; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, 7); ctx.stroke(); ctx.restore(); break; }
-        case 'missile': ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = k; ctx.drawImage(art.warmGlow, q.x - 14, q.y - 14, 28, 40); ctx.fillStyle = '#fff'; ctx.fillRect(q.x - 2, q.y - 6, 4, 12); ctx.restore(); if (Math.random() < 0.6) part({ kind: 'smoke', x: q.x, y: q.y + 10, vx: 0, vy: 20, life: 0.6, size: 5, color: '#4a403a' }); break;
+        case 'missile': ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = k; ctx.drawImage(art.warmGlow, q.x - 14, q.y - 14, 28, 40); ctx.fillStyle = '#fff'; ctx.fillRect(q.x - 2, q.y - 6, 4, 12); ctx.restore(); break;
       }
     }
     ctx.globalAlpha = 1;

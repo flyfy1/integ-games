@@ -54,6 +54,9 @@ try {
       await snap('boss-intro');
       await run(() => { __ashfall.step(60); });
       if (scene === 'phase2') { await run(() => { const b = __ashfall.boss; b.armor = 1; __ashfall.press('shoot'); }); await run(() => { __ashfall.player.x = __ashfall.boss.x - 160; __ashfall.player.face = 1; __ashfall.press('shoot'); __ashfall.step(20); }); await snap('transform-a'); await run(() => __ashfall.step(90)); await snap('transform-b'); await run(() => __ashfall.step(200)); }
+      // slam impact frame (hammer head must meet the floor at the danger bar)
+      await run(() => { const b = __ashfall.boss; let n = 0; while (n++ < 900 && !(b.attack === 'slam' && b.state === 'recover' && b.t > 0.02)) { if (b.state === 'idle' && b.cd < 0.2) { b.cd = 0; } __ashfall.step(1); __ashfall.player.hp = 100; } });
+      await snap(`${scene}-slam-impact`);
       for (let i = 0; i < 6; i++) { await run(() => { const b = __ashfall.boss; let n = 0; while (n++ < 400 && !(b.state === 'windup' && b.t > b.windup * 0.7)) __ashfall.step(1); }); const st = await run(() => __ashfall.boss.attack); await snap(`${scene}-tele-${i}-${st}`); await run(() => __ashfall.step(40)); }
     }
     console.log('shot', scene);

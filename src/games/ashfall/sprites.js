@@ -253,16 +253,22 @@ export function drawBoss(c, b, art, time) {
   const flash = false;
   const metal = flash ? '#f6ece2' : '#2c2624', dark = flash ? '#ddd' : '#171211', plateC = flash ? '#fff' : '#4a423b';
   const k = b.state === 'windup' ? Math.min(1, b.t / b.windup) : 0;
-  let crouch = 0, hammer = -0.3, cannon = b.cannonAngle;
-  if (b.attack === 'slam') { if (b.state === 'windup') hammer = -0.3 - 2.3 * k; else if (b.state === 'active' || b.state === 'recover') hammer = 1.35; }
+  let crouch = 0, hammer = -0.3, cannon = b.cannonAngle, ext = 0;
+  const charging = b.attack === 'charge' && b.state === 'active';
+  if (b.attack === 'slam') {
+    // The arm telescopes out; at impact the head centre sits exactly on (x + 72, floor), where the hit is checked.
+    if (b.state === 'windup') { hammer = -0.3 - 2.3 * k; ext = 0.6 * k; }
+    else if (b.state === 'active' || b.state === 'recover') { const r = b.state === 'active' ? 0 : Math.min(1, b.t / (b.recover || 1)); hammer = 1.45; ext = 1 - Math.max(0, r - 0.5) * 2; crouch = 70 * (r < 0.5 ? 1 : 1 - (r - 0.5) * 2); }
+  }
   if (b.attack === 'charge' && b.state === 'windup') crouch = 18 * k;
+  if (charging) { crouch = 16; hammer = 0.05; ext = 0.35; c.rotate(0.08); }
   if (b.state === 'stunned' || b.state === 'stagger') { crouch = 22; hammer = 1.2; }
   if (b.state === 'transform') crouch = 24 * Math.min(1, b.t * 2) * (b.t < 2 ? 1 : Math.max(0, 1 - (b.t - 2) * 2));
   if (b.state === 'dying') crouch = Math.min(70, b.t * 30);
   const hip = -112 + crouch, ph = b.walkPhase;
   // legs (reverse-jointed)
   [[-34, ph + Math.PI, dark], [30, ph, metal]].forEach(([lx, lp, col]) => {
-    const lift = b.state === 'walk' ? Math.max(0, Math.sin(lp)) * 14 : 0;
+    const lift = b.state === 'walk' || charging ? Math.max(0, Math.sin(lp)) * (charging ? 22 : 14) : 0;
     const kx = lx + 26, ky = hip + 46 - lift * 0.5, ax = lx - 8, ay = -24 - lift;
     limb(c, lx, hip, kx, ky, 18, col); limb(c, kx, ky, ax, ay, 14, col); limb(c, ax, ay, lx + 6, -2 - lift * 0.3, 11, col);
     c.fillStyle = col; c.beginPath(); c.moveTo(lx - 18, -lift * 0.3); c.lineTo(lx + 30, -lift * 0.3); c.lineTo(lx + 22, -12 - lift * 0.3); c.lineTo(lx - 10, -12 - lift * 0.3); c.fill();
@@ -313,9 +319,11 @@ export function drawBoss(c, b, art, time) {
   // hammer arm (in front)
   const hsx = 52, hsy = ty - 84;
   c.save(); c.translate(hsx, hsy); c.rotate(hammer);
+  const L = 70 + 64 * ext;
+  c.fillStyle = dark; c.fillRect(50, -9, L - 50, 18); c.fillStyle = flash ? '#fff' : 'rgba(255,170,100,0.35)'; c.fillRect(50, -9, L - 50, 2);
   c.fillStyle = metal; c.fillRect(-10, -14, 70, 28); c.fillStyle = dark; c.beginPath(); c.arc(0, 0, 18, 0, 7); c.fill();
-  c.fillStyle = plateC; c.fillRect(60, -38, 46, 76); c.fillStyle = dark; c.fillRect(64, -34, 8, 68);
-  if (b.attack === 'slam' && b.state === 'windup') { c.globalCompositeOperation = 'lighter'; c.globalAlpha = k; c.drawImage(art.warmGlow, 83 - 50, -50, 100, 100); }
+  c.fillStyle = plateC; c.fillRect(L, -38, 46, 76); c.fillStyle = dark; c.fillRect(L + 4, -34, 8, 68);
+  if (b.attack === 'slam' && b.state === 'windup') { c.globalCompositeOperation = 'lighter'; c.globalAlpha = k; c.drawImage(art.warmGlow, L + 23 - 50, -50, 100, 100); }
   c.restore();
   c.restore();
 }

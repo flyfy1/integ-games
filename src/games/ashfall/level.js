@@ -84,3 +84,10 @@ export const PROPS = [
   ['pole', 4020], ['wreck', 4700], ['hydrant', 5060], ['pole', 5380], ['rubble', 5760], ['pole', 6500], ['wreck', 7150], ['rubble', 7480], ['sign2', 7840],
   ['pipe', 8040], ['vat', 8560], ['pipe', 9040], ['gear', 9250], ['vat', 9860], ['pipe', 10240], ['gear', 10420], ['pipe', 10720]
 ];
+
+// Gate-locked ambushes: crossing x seals [l, r] behind ember curtains until the wave is ash.
+export const AMBUSHES = [
+  { x: 3440, l: 3190, r: 3860, wave: [['husk', 3210], ['husk', 3840], ['hound', 3830]] },
+  { x: 7060, l: 6700, r: 7400, wave: [['hound', 6720], ['husk', 7380], ['husk', 6740]] },
+  { x: 10440, l: 10190, r: 10840, wave: [['drone', 10220], ['husk', 10820], ['hound', 10810]] }
+];
