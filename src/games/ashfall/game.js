@@ -55,13 +55,21 @@ export function createAshfall(host, services) {
   const root = document.createElement('div');
   root.className = 'ashfall';
   const style = document.createElement('style');
-  style.textContent = `.ashfall{position:relative;width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;user-select:none;-webkit-user-select:none}
+  style.textContent = `.ashfall{position:relative;width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .ashfall canvas{display:block;width:100%;max-width:min(1280px,calc((100dvh - 24px) * 16 / 9));aspect-ratio:16/9;border-radius:14px;background:#050607;touch-action:none;outline:none;box-shadow:0 18px 60px #0008}
-.ashfall-touch{display:none;width:100%;max-width:min(1280px,calc((100dvh - 24px) * 16 / 9));justify-content:space-between;gap:10px;touch-action:none}
-.ashfall-touch.on{display:flex}.ashfall-touch div{display:flex;gap:8px;align-items:center}
-.ashfall-touch button{min-width:58px;min-height:58px;border-radius:50%;border:1px solid #6b5a4a;background:#15110ecc;color:#f3e2cf;font:700 12px Georgia,serif;letter-spacing:.06em;touch-action:none;padding:0}
-.ashfall-touch button.big{min-width:70px;min-height:70px}.ashfall-touch button.held{background:#e08a4a;color:#120a06}
-@media (orientation:landscape) and (max-height:560px){.ashfall-touch.on{position:absolute;left:0;right:0;bottom:6px;margin:auto;padding:0 10px;pointer-events:none}.ashfall-touch button{pointer-events:auto;opacity:.78}}`;
+.ashfall-touch{display:none;width:100%;max-width:min(1280px,calc((100dvh - 24px) * 16 / 9));justify-content:space-between;align-items:flex-end;gap:12px;touch-action:none;padding:0 4px}
+.ashfall-touch.on{display:flex}
+.ashfall-pad{position:relative;width:min(44vw,190px);height:78px;border-radius:40px;border:1px solid #6b5a4a;background:#15110ecc;display:flex;align-items:center;justify-content:space-between;padding:0 18px;color:#f3e2cf;font-size:20px;touch-action:none}
+.ashfall-pad i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;background:#f3e2cf22;border:1px solid #f3e2cf66;transition:transform .05s}
+.ashfall-pad.to-l .l,.ashfall-pad.to-r .r{color:#ffb070;text-shadow:0 0 10px #ff8a3a}
+.ashfall-actions{display:grid;grid-template-areas:"reload roll fire" ". slash jump";grid-template-columns:40px 64px 72px;gap:8px 10px;align-items:center;justify-items:center}
+.ashfall-actions button{width:64px;height:64px;border-radius:50%;border:1px solid #6b5a4a;background:#15110ecc;color:#f3e2cf;font:700 11px Georgia,serif;letter-spacing:.06em;touch-action:none;padding:0}
+.ashfall-actions .a-jump,.ashfall-actions .a-slash{width:72px;height:72px;font-size:12px}.ashfall-actions .a-reload{width:40px;height:40px;font-size:16px}
+.ashfall-actions .a-slash{border-color:#c98a5a}.ashfall-actions button.held{background:#e08a4a;color:#120a06}
+.ashfall-rotate{display:none;margin:0;color:#d9c3ab;font:13px Georgia,serif;letter-spacing:.04em;opacity:.8}
+.game-stage:has(>.ashfall){grid-template-columns:minmax(0,1fr)}.ashfall{min-width:0;max-width:100%}.is-immersive .ashfall,:fullscreen .ashfall{height:100%;justify-content:center}
+@media (orientation:portrait){.is-immersive .ashfall.is-touch{justify-content:flex-start;padding-top:58px}.is-immersive .ashfall.is-touch .ashfall-rotate{display:block}.is-immersive .ashfall-touch.on{flex:1;padding-bottom:max(14px,env(safe-area-inset-bottom))}.is-immersive .ashfall-pad{height:96px;width:min(46vw,210px)}.is-immersive .ashfall-actions{grid-template-columns:44px 72px 84px}.is-immersive .ashfall-actions button{width:72px;height:72px}.is-immersive .ashfall-actions .a-jump,.is-immersive .ashfall-actions .a-slash{width:84px;height:84px}.is-immersive .ashfall-actions .a-reload{width:44px;height:44px}}
+@media (orientation:landscape) and (max-height:600px){.ashfall canvas{max-width:min(1280px,calc((100dvh - 20px) * 16 / 9));border-radius:6px}.ashfall-touch.on{position:absolute;inset:auto 0 max(6px,env(safe-area-inset-bottom)) 0;margin:auto;max-width:none;padding:0 max(10px,env(safe-area-inset-left)) 0 max(10px,env(safe-area-inset-right));pointer-events:none}.ashfall-touch.on>*{pointer-events:auto}.ashfall-pad,.ashfall-actions button{opacity:.62;background:#15110e88}.ashfall-pad{height:70px;width:170px}.ashfall-actions{grid-template-columns:38px 56px 64px;gap:6px 8px}.ashfall-actions button{width:56px;height:56px}.ashfall-actions .a-jump,.ashfall-actions .a-slash{width:64px;height:64px}.ashfall-actions .a-reload{width:38px;height:38px}.ashfall-actions button.held{opacity:.95}}`;
   const canvas = document.createElement('canvas');
   canvas.width = VIEW_W; canvas.height = VIEW_H; canvas.tabIndex = 0;
   canvas.setAttribute('aria-label', 'Ashfall game canvas');
@@ -119,20 +127,38 @@ export function createAshfall(host, services) {
   const coarse = !!globalThis.matchMedia?.('(pointer: coarse)').matches;
   if (coarse) {
     touch.classList.add('on');
-    const mk = (label, action, cls = '') => {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-label', action); if (cls) b.className = cls;
-      const up = () => { b.classList.remove('held'); pressAction(action, false); };
-      b.addEventListener('pointerdown', (e) => { e.preventDefault(); b.setPointerCapture?.(e.pointerId); b.classList.add('held'); audio.unlock(); if (g.mode !== 'play') { anyStart(); return; } pressAction(action, true); navigator.vibrate?.(6); });
-      b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
-      return b;
+    root.classList.add('is-touch');
+    // Move pad: one thumb slides left/right; the half under the thumb is the held direction.
+    const pad = document.createElement('div'); pad.className = 'ashfall-pad'; pad.setAttribute('aria-label', 'Move left or right');
+    pad.innerHTML = '<span class="l">◀</span><i></i><span class="r">▶</span>';
+    const knob = pad.querySelector('i');
+    let padId = null;
+    const padMove = (e) => {
+      const r = pad.getBoundingClientRect(), dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+      const dir = Math.abs(dx) < 0.16 ? 0 : Math.sign(dx);
+      if (held.left !== (dir < 0)) pressAction('left', dir < 0);
+      if (held.right !== (dir > 0)) pressAction('right', dir > 0);
+      pad.classList.toggle('to-l', dir < 0); pad.classList.toggle('to-r', dir > 0);
+      knob.style.transform = `translateX(${clamp(dx, -1, 1) * r.width * 0.32}px)`;
     };
-    const left = document.createElement('div'), right = document.createElement('div');
-    left.append(mk('◀', 'left', 'big'), mk('▶', 'right', 'big'));
-    right.append(mk('ROLL', 'roll'), mk('FIRE', 'shoot'), mk('SLASH', 'attack', 'big'), mk('JUMP', 'jump', 'big'));
-    touch.append(left, right);
+    const padEnd = (e) => { if (e.pointerId !== padId) return; padId = null; pressAction('left', false); pressAction('right', false); pad.classList.remove('to-l', 'to-r'); knob.style.transform = ''; };
+    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); audio.unlock(); if (g.mode !== 'play') { anyStart(); return; } padId = e.pointerId; pad.setPointerCapture?.(e.pointerId); padMove(e); });
+    pad.addEventListener('pointermove', (e) => { if (e.pointerId === padId) padMove(e); });
+    pad.addEventListener('pointerup', padEnd); pad.addEventListener('pointercancel', padEnd); pad.addEventListener('lostpointercapture', padEnd);
+    const mk = (label, action, area) => {
+      const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = label; btn.setAttribute('aria-label', action); btn.style.gridArea = area; btn.className = `a-${area}`;
+      const up = () => { btn.classList.remove('held'); pressAction(action, false); };
+      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture?.(e.pointerId); btn.classList.add('held'); audio.unlock(); if (g.mode !== 'play') { anyStart(); return; } pressAction(action, true); navigator.vibrate?.(6); });
+      btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up); btn.addEventListener('lostpointercapture', up);
+      return btn;
+    };
+    const cluster = document.createElement('div'); cluster.className = 'ashfall-actions';
+    cluster.append(mk('↻', 'reload', 'reload'), mk('ROLL', 'roll', 'roll'), mk('FIRE', 'shoot', 'fire'), mk('SLASH', 'attack', 'slash'), mk('JUMP', 'jump', 'jump'));
+    touch.append(pad, cluster);
     const pause = document.createElement('button'); pause.type = 'button'; pause.className = 'stage-pause'; pause.textContent = 'Ⅱ'; pause.setAttribute('aria-label', 'Pause game');
     pause.addEventListener('click', () => host.dispatchEvent(new CustomEvent('integ:pause-request', { bubbles: true })));
-    root.append(pause);
+    const rotate = document.createElement('p'); rotate.className = 'ashfall-rotate'; rotate.textContent = '↻  Turn your phone sideways for the full view';
+    root.append(pause, rotate);
   }
 
   // ---------- state ----------
@@ -250,7 +276,7 @@ export function createAshfall(host, services) {
     if (p.iframe > 0) return false;
     p.hp -= dmg; p.iframe = 0.9; p.flash = 0.12; p.hurtT = 0.28; p.atk = null; p.reloading = false;
     p.vx = Math.sign(p.x - srcX || 1) * knock; p.vy = -230; p.grounded = false; p.rolling = false;
-    audio.play('hurt'); addShake(8); hitStop(0.075); g.dmgVignette = 1; flash('#7a0c08', 0.25);
+    audio.play('hurt'); addShake(8); hitStop(0.075); if (coarse) navigator.vibrate?.(35); g.dmgVignette = 1; flash('#7a0c08', 0.25);
     for (let i = 0; i < 8; i++) part({ kind: 'ichor', x: p.x, y: p.y - 40, vx: (rand() - 0.5) * 220, vy: -rand() * 260, g: 1200, life: 0.6, size: 2.2, color: '#5a1410' });
     if (p.hp <= 0) killPlayer();
     return true;
@@ -1360,7 +1386,7 @@ export function createAshfall(host, services) {
       const ha = ht < 1.4 ? 0 : ht < 2.4 ? ht - 1.4 : ht > hEnd ? Math.max(0, 1 - (ht - hEnd)) : 1;
       if (ha > 0 && !g.arenaLocked) {
         ctx.globalAlpha = ha * 0.92;
-        const hy = VIEW_H - 54;
+        const hy = coarse ? 112 : VIEW_H - 54;
         ctx.fillStyle = 'rgba(6,5,5,0.6)'; ctx.fillRect(VIEW_W / 2 - 360, hy - 22, 720, 44);
         ctx.strokeStyle = 'rgba(230,180,130,0.35)'; ctx.strokeRect(VIEW_W / 2 - 360.5, hy - 22.5, 721, 45);
         const items = coarse ? [['◀ ▶', 'move'], ['JUMP', 'leap'], ['SLASH', '3-hit combo'], ['FIRE', 'shotgun'], ['ROLL', 'evade']] : [['A D', 'move'], ['W / SPACE', 'jump'], ['J', 'slash ×3'], ['K', 'shotgun'], ['L / SHIFT', 'roll'], ['R', 'reload']];

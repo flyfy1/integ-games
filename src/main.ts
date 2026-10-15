@@ -117,8 +117,10 @@ function gameArt(slug: string, kind: 'cover' | 'icon'): string { return href(`ga
 type WebkitFullscreenElement = HTMLElement & { webkitRequestFullscreen?: () => void | Promise<void> };
 type WebkitFullscreenDocument = Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void | Promise<void> };
 function isMobilePlay(): boolean { return innerWidth < 900 || matchMedia('(hover: none), (pointer: coarse)').matches || navigator.maxTouchPoints > 0; }
+const landscapeGames = new Set(['ashfall']);
 async function enterImmersive(stage: HTMLElement): Promise<void> {
   immersiveStage = stage;
+  if (!stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>');
   stage.classList.add('is-immersive');
   document.documentElement.classList.add('game-immersive');
   const webkitStage = stage as WebkitFullscreenElement;
@@ -126,9 +128,14 @@ async function enterImmersive(stage: HTMLElement): Promise<void> {
     if (stage.requestFullscreen) await stage.requestFullscreen({ navigationUI: 'hide' });
     else if (webkitStage.webkitRequestFullscreen) await webkitStage.webkitRequestFullscreen();
   } catch { /* CSS immersive mode remains available when native fullscreen is blocked. */ }
+  // Wide cabinets ask for landscape; browsers that refuse (iOS) keep the portrait layout.
+  const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+  if (activeSlug && landscapeGames.has(activeSlug)) orientation?.lock?.('landscape').catch(() => undefined);
 }
 async function exitImmersive(): Promise<void> {
   immersiveStage?.classList.remove('is-immersive');
+  immersiveStage?.querySelectorAll('.immersive-exit').forEach((button) => button.remove());
+  try { screen.orientation?.unlock?.(); } catch { /* not locked */ }
   immersiveStage = undefined;
   document.documentElement.classList.remove('game-immersive');
   const webkitDocument = document as WebkitFullscreenDocument;
@@ -143,7 +150,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
   if (!game) { appRoot.innerHTML = layout(notFound()); return; }
   activeSlug = slug;
   const recommended = recommendationsFor(game);
-  appRoot.innerHTML = layout(`<section class="play-page"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div><div class="play-actions"><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="primary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
+  appRoot.innerHTML = layout(`<section class="play-page"><div class="play-bar"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="play-actions"><button class="primary-button" data-action="fullscreen" aria-label="Play in full screen">Full screen</button><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="secondary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
     if (stage) stage.innerHTML = '<p class="stage-message">This game is on its way. Pick another cabinet while it arrives.</p>';
@@ -155,7 +162,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
       score: (score) => { void submitScore(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
-    })); if (stage.classList.contains('is-immersive')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
+    })); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
     const mobileStart = isMobilePlay();
     if (mobileStart) {
       stage.removeAttribute('aria-busy');
@@ -197,6 +204,7 @@ document.addEventListener('click', (event) => {
   if (action === 'logout') { void logout().then(() => render()); }
   if (action === 'start-game') void pendingStart?.();
   if (action === 'exit-fullscreen') void exitImmersive();
+  if (action === 'fullscreen') { const stage = appRoot.querySelector<HTMLElement>('[data-stage]'); if (stage) { if (pendingStart) void pendingStart(); else void enterImmersive(stage); } }
   if (action === 'share') void shareCurrentGame();
   if (action === 'copy-share-link') void copyDisplayedShareLink();
   if (action === 'close-share-fallback') hideManualShare();
@@ -220,6 +228,8 @@ document.addEventListener('input', (event) => {
   if (input) filterGames(input.value);
 });
 window.addEventListener('popstate', () => void render());
+// Leaving native fullscreen (Esc, back gesture) also leaves the CSS immersive layout.
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && immersiveStage) void exitImmersive(); });
 const pauseActiveGame = () => { if (controller && activeSlug && continuousGames.has(activeSlug)) { controller.pause(); shell.stopActiveSound(); togglePause(true); } };
 appRoot.addEventListener('integ:pause-request', pauseActiveGame);
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && controller) { controller.pause(); togglePause(true); } });
