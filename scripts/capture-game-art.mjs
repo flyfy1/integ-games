@@ -28,7 +28,7 @@ const framing = {
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
-  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 52%' }
+  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 52%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
 };
 
 async function clickCanvas(target, x, y, width = 360, height = 560) {
@@ -63,7 +63,12 @@ const safeInteraction = {
     await clickCanvas(target, 180, 180);
   },
   knife: async (page) => { await page.keyboard.press('Space'); },
-  arena: async (page) => { await page.keyboard.down('ArrowRight'); await page.waitForTimeout(70); await page.keyboard.up('ArrowRight'); }
+  arena: async (page) => { await page.keyboard.down('ArrowRight'); await page.waitForTimeout(70); await page.keyboard.up('ArrowRight'); },
+  // Ashfall's title screen is mostly type; use its debug hook to frame a real boss-arena moment instead.
+  ashfall: async (page) => {
+    await page.waitForFunction(() => !!globalThis.__ashfall);
+    await page.evaluate(() => { const a = globalThis.__ashfall; a.manual(true); a.start(); a.step(30); a.warp(11250); a.step(330); const b = a.boss; let n = 0; while (n++ < 600 && !(b.state === 'windup' && b.attack === 'slam' && b.t > b.windup * 0.75)) a.step(1); a.player.x = b.x + b.face * 330; a.player.face = -b.face; a.press('shoot'); a.step(4); b.flash = 0; for (const e of a.enemies) e.flash = 0; a.render(); });
+  }
 };
 
 function jpegSize(buffer) {
@@ -116,7 +121,7 @@ let browser;
 try {
   await mkdir(outputDir, { recursive: true });
   await vite.listen();
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
   const page = await context.newPage();
   await page.addInitScript(() => {
@@ -125,7 +130,7 @@ try {
   });
   const composer = await context.newPage();
   for (const slug of selectedSlugs) {
-    await page.goto(`http://127.0.0.1:5189/play/${slug}`, { waitUntil: 'networkidle' });
+    await page.goto(`http://127.0.0.1:5189/play/${slug}${slug === 'ashfall' ? '?ashfall-debug' : ''}`, { waitUntil: 'networkidle' });
     await page.locator('[data-stage]').waitFor({ state: 'visible' });
     await page.waitForFunction(() => !document.querySelector('[data-stage][aria-busy]'));
     const target = page.locator(slug === 'merge-2048' ? '.merge-game' : '.game-stage canvas').first();

@@ -117,7 +117,7 @@ function woodsLayers(R) {
     const x = R() * LAYER_W;
     wrap(LAYER_W, x, 120, (xx) => { for (let b = 0; b < 26; b++) { gc.lineWidth = 2 + R() * 3; gc.beginPath(); gc.moveTo(xx + (R() - 0.5) * 120, 545); gc.quadraticCurveTo(xx + (R() - 0.5) * 140, 500, xx + (R() - 0.5) * 170, 455 + R() * 50); gc.stroke(); } });
   }
-  for (let i = 0; i < 3; i++) { const x = (i + 0.3) * LAYER_W / 3; wrap(LAYER_W, x, 300, (xx) => branch(gc, rng(i + 50), xx, -20, 1.1 + R() * 0.6, 170, 16, 5)); }
+  for (let i = 0; i < 3; i++) { const x = (i + 0.3) * LAYER_W / 3; wrap(LAYER_W, x, 200, (xx) => branch(gc, rng(i + 50), xx, -30, 0.5 + R() * 0.3, 95, 12, 4)); }
   return { far, mid, near, fg };
 }
 

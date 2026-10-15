@@ -54,16 +54,19 @@ export function bladeLocal(p, time) {
 }
 
 export function drawPlayer(c, p, art, time) {
-  const flashing = p.flash > 0;
+  const flashing = false;
   const body = flashing ? '#f4e8dc' : '#15171b', cloak = flashing ? '#f4e8dc' : '#1d2026', trim = flashing ? '#fff' : '#2c2f36';
   c.save(); c.translate(p.x, p.y); c.lineCap = 'round'; c.lineJoin = 'round';
   if (p.iframe > 0 && !p.rolling && Math.floor(time * 30) % 2 === 0) c.globalAlpha = 0.45;
   if (p.anim === 'dead') { c.globalAlpha *= Math.max(0, 1 - p.deadT * 0.4); }
   // Scarf (world-space chain, drawn behind the body).
   if (p.scarf) {
-    c.strokeStyle = flashing ? '#fff' : '#8e2b22'; c.lineWidth = 4.2; c.beginPath();
-    p.scarf.forEach((pt, i) => { const lx = pt.x - p.x, ly = pt.y - p.y; i ? c.lineTo(lx, ly) : c.moveTo(lx, ly); }); c.stroke();
-    c.strokeStyle = 'rgba(255,170,120,0.35)'; c.lineWidth = 1.2; c.stroke();
+    for (let i = 1; i < p.scarf.length; i++) {
+      const a = p.scarf[i - 1], b = p.scarf[i];
+      c.strokeStyle = flashing ? '#fff' : i % 2 ? '#8e2b22' : '#7a241d'; c.lineWidth = 5 - i * 0.55;
+      c.beginPath(); c.moveTo(a.x - p.x, a.y - p.y); c.lineTo(b.x - p.x, b.y - p.y); c.stroke();
+    }
+    c.strokeStyle = 'rgba(255,170,120,0.3)'; c.lineWidth = 1; c.beginPath(); p.scarf.forEach((pt, i) => (i ? c.lineTo(pt.x - p.x, pt.y - p.y - 1.5) : c.moveTo(pt.x - p.x, pt.y - p.y - 1.5))); c.stroke();
   }
   c.scale(p.face, 1);
   if (p.squash !== 1) { c.scale(2 - p.squash, p.squash); }
@@ -135,7 +138,7 @@ export function drawPlayer(c, p, art, time) {
 export function drawEnemy(c, e, art, time) {
   c.save(); c.translate(e.x, e.y);
   if (e.dead) c.globalAlpha = Math.max(0, 1 - e.deadT * 1.6);
-  const flash = e.flash > 0;
+  const flash = false;
   c.scale(e.face, 1); c.lineCap = 'round'; c.lineJoin = 'round';
   const k = e.state === 'windup' ? Math.min(1, e.t / e.windup) : 0;
   if (e.state === 'windup' && e.type !== 'drone') c.translate((Math.random() - 0.5) * 2 * k, 0);
@@ -247,8 +250,8 @@ function drone(c, e, art, time, flash, k) {
 export function drawBoss(c, b, art, time) {
   c.save(); c.translate(b.x + b.shakeX, b.y); c.scale(b.face, 1); c.lineCap = 'round'; c.lineJoin = 'round';
   if (b.state === 'dying') c.globalAlpha = Math.max(0, 1 - Math.max(0, b.t - 2.4) * 1.2);
-  const flash = b.flash > 0;
-  const metal = flash ? '#f6ece2' : '#1f1b1a', dark = flash ? '#ddd' : '#110e0d', plateC = flash ? '#fff' : '#35302c';
+  const flash = false;
+  const metal = flash ? '#f6ece2' : '#2c2624', dark = flash ? '#ddd' : '#171211', plateC = flash ? '#fff' : '#4a423b';
   const k = b.state === 'windup' ? Math.min(1, b.t / b.windup) : 0;
   let crouch = 0, hammer = -0.3, cannon = b.cannonAngle;
   if (b.attack === 'slam') { if (b.state === 'windup') hammer = -0.3 - 2.3 * k; else if (b.state === 'active' || b.state === 'recover') hammer = 1.35; }
@@ -265,6 +268,9 @@ export function drawBoss(c, b, art, time) {
     c.fillStyle = col; c.beginPath(); c.moveTo(lx - 18, -lift * 0.3); c.lineTo(lx + 30, -lift * 0.3); c.lineTo(lx + 22, -12 - lift * 0.3); c.lineTo(lx - 10, -12 - lift * 0.3); c.fill();
     c.fillStyle = flash ? '#fff' : '#ff7a32'; c.globalAlpha *= 0.6; c.beginPath(); c.arc(kx, ky, 3.5, 0, 7); c.fill(); c.globalAlpha /= 0.6;
   });
+  // pelvis block joining legs and torso
+  c.fillStyle = dark; c.beginPath(); c.moveTo(-52, hip + 10); c.lineTo(48, hip + 10); c.lineTo(60, hip - 36); c.lineTo(-64, hip - 36); c.closePath(); c.fill();
+  c.fillStyle = metal; c.fillRect(-40, hip - 14, 80, 10);
   // cannon arm (behind body)
   const csx = -40, csy = hip - 70;
   c.save(); c.translate(csx, csy); c.rotate(cannon);
@@ -291,6 +297,7 @@ export function drawBoss(c, b, art, time) {
     if (pl.gone) return;
     c.fillStyle = plateC; c.beginPath(); pl.poly.forEach(([x, y], i) => (i ? c.lineTo(x, ty + y) : c.moveTo(x, ty + y))); c.closePath(); c.fill();
     c.strokeStyle = flash ? '#fff' : '#100c0b'; c.lineWidth = 2; c.stroke();
+    c.strokeStyle = flash ? '#fff' : 'rgba(255,190,130,0.45)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(pl.poly[0][0], ty + pl.poly[0][1]); c.lineTo(pl.poly[1][0], ty + pl.poly[1][1]); c.stroke();
     c.fillStyle = flash ? '#fff' : '#6a4a34'; pl.rivets.forEach(([x, y]) => { c.beginPath(); c.arc(x, ty + y, 2, 0, 7); c.fill(); });
     if (pl.crack > 0) { c.strokeStyle = `rgba(255,140,60,${0.4 + pl.crack * 0.5})`; c.lineWidth = 1.6; c.beginPath(); pl.crackLine.forEach(([x, y], i) => (i ? c.lineTo(x, ty + y) : c.moveTo(x, ty + y))); c.stroke(); }
   });
