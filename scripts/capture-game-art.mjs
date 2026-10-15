@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');

@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var validGames = map[string]bool{"merge-2048": true, "block-drop": true, "snake": true, "mines": true, "solitaire": true, "sudoku": true, "word-grid": true, "memory": true, "stack": true, "flap": true, "breakout": true, "invaders": true, "runner": true, "platformer": true, "drive": true, "fruit-merge": true, "bubble": true, "hex-puzzle": true, "knife": true, "arena": true}
+var validGames = map[string]bool{"merge-2048": true, "block-drop": true, "snake": true, "mines": true, "solitaire": true, "sudoku": true, "word-grid": true, "memory": true, "stack": true, "flap": true, "breakout": true, "invaders": true, "runner": true, "platformer": true, "drive": true, "fruit-merge": true, "bubble": true, "hex-puzzle": true, "knife": true, "arena": true, "ashfall": true}
 
 type server struct {
 	db   *sql.DB

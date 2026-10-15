@@ -10,8 +10,8 @@ describe('game card art mapping', () => {
     expect(source).toContain('width="640" height="360" loading="lazy" decoding="async"');
     expect(source).toContain('class="game-logo"');
     const paths = catalog.flatMap((game) => [`/game-art/${game.slug}-cover.jpg`, `/game-art/${game.slug}-icon.jpg`]);
-    expect(paths).toHaveLength(40);
-    expect(new Set(paths)).toHaveLength(40);
+    expect(paths).toHaveLength(42);
+    expect(new Set(paths)).toHaveLength(42);
   });
 
   it('uses a flat overlay for real artwork and restores ornament only for the glyph fallback', () => {
