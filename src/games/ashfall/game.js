@@ -68,8 +68,8 @@ export function createAshfall(host, services) {
 .ashfall-actions .a-slash{border-color:#c98a5a}.ashfall-actions button.held{background:#e08a4a;color:#120a06}
 .ashfall-rotate{display:none;margin:0;color:#d9c3ab;font:13px Georgia,serif;letter-spacing:.04em;opacity:.8}
 .game-stage:has(>.ashfall){grid-template-columns:minmax(0,1fr)}.ashfall{min-width:0;max-width:100%}.is-immersive .ashfall,:fullscreen .ashfall{height:100%;justify-content:center}
-@media (orientation:portrait){.is-immersive .ashfall.is-touch{justify-content:flex-start;padding-top:58px}.is-immersive .ashfall.is-touch .ashfall-rotate{display:block}.is-immersive .ashfall-touch.on{flex:1;padding-bottom:max(14px,env(safe-area-inset-bottom))}.is-immersive .ashfall-pad{height:96px;width:min(46vw,210px)}.is-immersive .ashfall-actions{grid-template-columns:44px 72px 84px}.is-immersive .ashfall-actions button{width:72px;height:72px}.is-immersive .ashfall-actions .a-jump,.is-immersive .ashfall-actions .a-slash{width:84px;height:84px}.is-immersive .ashfall-actions .a-reload{width:44px;height:44px}}
-@media (orientation:landscape) and (max-height:600px){.ashfall canvas{max-width:min(1280px,calc((100dvh - 20px) * 16 / 9));border-radius:6px}.ashfall-touch.on{position:absolute;inset:auto 0 max(6px,env(safe-area-inset-bottom)) 0;margin:auto;max-width:none;padding:0 max(10px,env(safe-area-inset-left)) 0 max(10px,env(safe-area-inset-right));pointer-events:none}.ashfall-touch.on>*{pointer-events:auto}.ashfall-pad,.ashfall-actions button{opacity:.62;background:#15110e88}.ashfall-pad{height:70px;width:170px}.ashfall-actions{grid-template-columns:38px 56px 64px;gap:6px 8px}.ashfall-actions button{width:56px;height:56px}.ashfall-actions .a-jump,.ashfall-actions .a-slash{width:64px;height:64px}.ashfall-actions .a-reload{width:38px;height:38px}.ashfall-actions button.held{opacity:.95}}`;
+@media (orientation:portrait){.is-immersive .ashfall.is-touch{justify-content:flex-end;padding-top:58px;gap:22px}.is-immersive .ashfall.is-touch .ashfall-rotate{display:block;order:-1;margin-bottom:auto}.is-immersive .ashfall-touch.on{padding-bottom:max(18px,env(safe-area-inset-bottom))}.is-immersive .ashfall-pad{height:96px;width:min(46vw,210px)}.is-immersive .ashfall-actions{grid-template-columns:44px 72px 84px}.is-immersive .ashfall-actions button{width:72px;height:72px}.is-immersive .ashfall-actions .a-jump,.is-immersive .ashfall-actions .a-slash{width:84px;height:84px}.is-immersive .ashfall-actions .a-reload{width:44px;height:44px}}
+@media (orientation:landscape) and (max-height:600px){.ashfall canvas{max-width:min(1280px,calc((100dvh - 20px) * 16 / 9));border-radius:6px}.ashfall-touch.on{position:absolute;inset:auto 0 max(6px,env(safe-area-inset-bottom)) 0;margin:auto;max-width:none;padding:0 max(10px,env(safe-area-inset-left)) 0 max(10px,env(safe-area-inset-right));pointer-events:none}.ashfall-touch.on>*{pointer-events:auto}.ashfall.is-touch canvas{max-width:min(calc((100dvh - 20px) * 16 / 9),calc(100vw - 290px))}.ashfall-touch.on{align-items:flex-end;inset:0;padding-bottom:max(16px,env(safe-area-inset-bottom))}.ashfall-pad,.ashfall-actions button{opacity:.8;background:#15110ecc}.ashfall-pad{height:120px;width:122px;padding:0 12px;border-radius:26px}.ashfall-pad i{width:40px;height:40px;margin:-20px}.ashfall-actions{grid-template-areas:"reload fire" "roll jump" "slash jump";grid-template-columns:58px 60px;gap:8px}.ashfall-actions button{width:56px;height:56px}.ashfall-actions .a-jump{width:60px;height:124px;border-radius:30px}.ashfall-actions .a-slash{width:58px;height:58px}.ashfall-actions .a-reload{width:40px;height:40px}.ashfall-actions button.held{opacity:.95}}`;
   const canvas = document.createElement('canvas');
   canvas.width = VIEW_W; canvas.height = VIEW_H; canvas.tabIndex = 0;
   canvas.setAttribute('aria-label', 'Ashfall game canvas');
@@ -294,7 +294,7 @@ export function createAshfall(host, services) {
     if (g.arenaLocked || boss.state !== 'dormant') {
       const phase2 = boss.phase === 2 && boss.state !== 'dying';
       const fresh = makeBoss();
-      if (phase2) { fresh.phase = 2; fresh.armor = 0; fresh.plates.forEach((pl) => (pl.gone = true)); fresh.wake = 1; }
+      if (phase2) { fresh.phase = 2; fresh.armor = 0; fresh.plates.forEach((pl) => (pl.gone = true)); fresh.wake = 1; fresh.hp = Math.max(boss.hp, BOSS.hp * 0.6); }
       boss = fresh; boss.resumePhase2 = phase2; g.arenaLocked = false; g.gateY = 0;
       audio.setMode('foundry');
     }
@@ -384,7 +384,7 @@ export function createAshfall(host, services) {
 
   function startAttack(step) {
     const p = player;
-    p.atk = { step, phase: 'windup', t: 0, k: 0, from: p.bladeAngle, id: ++p.swingId, queued: false };
+    p.atk = { step, phase: 'windup', t: 0, k: 0, from: p.bladeAngle, id: ++p.swingId, queued: false, swept: ATTACKS[step].raise };
     p.reloading = false;
   }
   function bladeWorld(angle) {
@@ -409,7 +409,7 @@ export function createAshfall(host, services) {
       a.k = Math.min(1, a.t / A.active); p.bladeAngle = lerp(A.raise, A.to, easeInOut(a.k));
       const prevGeo = bladeWorld(prevAngle), geo = bladeWorld(p.bladeAngle);
       p.trail.push({ a: prevGeo, b: geo, life: 0.14, max: 0.14, heavy: a.step === 2 });
-      if (a.t > DT * 1.5) meleeHits(prevAngle, p.bladeAngle, a, A);
+      if (a.t > DT * 1.5) { meleeHits(a.swept, p.bladeAngle, a, A); a.swept = p.bladeAngle; }
       if (a.t >= A.active) { a.phase = 'recover'; a.t = 0; a.k = 0; if (a.step === 2 && p.grounded) { const tip = geo.tip; sparks(tip.x, Math.min(tip.y, p.y), p.face, 10, '#ffb36a', 300); dust(tip.x, p.y, 5, 30); addShake(3); } }
     } else {
       a.k = Math.min(1, a.t / A.recover); p.bladeAngle = lerp(A.to, A.end, easeOut(a.k));
@@ -637,25 +637,26 @@ export function createAshfall(host, services) {
         if (b.cd <= 0) chooseAttack();
         break;
       case 'walk':
-        b.face = sd; b.x += sd * (b.phase === 2 ? 130 : 95) * dt; b.walkPhase += dt * 5;
+        { const goal = b.retreat ? (ARENA.left + ARENA.right) / 2 : p.x, gd = Math.sign(goal - b.x) || 1; b.face = b.retreat ? gd : sd; b.x += gd * (b.phase === 2 ? 130 : 95) * dt; b.walkPhase += dt * 5;
+          if (b.retreat && (Math.abs(goal - b.x) < 60 || b.t > 1.2)) { b.retreat = false; b.state = 'idle'; b.cd = 0.2; break; } }
         if (Math.floor(b.walkPhase / Math.PI) !== Math.floor((b.walkPhase - dt * 5) / Math.PI)) { addShake(2); audio.play('land'); dust(b.x + b.face * 20, b.y, 3, 40); }
-        if (adx < 230 || b.t > 1.5) chooseAttack();
+        if (!b.retreat && (adx < 230 || b.t > 1.5)) chooseAttack();
         break;
       case 'windup': {
         const k = b.t / b.windup;
-        if (b.attack === 'barrage' && k < 0.72) { const sx = b.x - b.face * 40, sy = b.y - 182; b.cannonAngle = lerp(b.cannonAngle, clamp(Math.atan2(p.y - 36 - sy, Math.max(40, (p.x - sx) * b.face)), -0.6, 0.9), 0.2); }
+        if (b.attack === 'barrage' && k < 0.72) { b.aim = { x: p.x, y: p.y - 34 }; const sx = b.x - b.face * 40, sy = b.y - 182; b.cannonAngle = lerp(b.cannonAngle, clamp(Math.atan2(p.y - 36 - sy, Math.max(40, (p.x - sx) * b.face)), -0.6, 0.9), 0.2); }
         if (b.attack === 'charge') b.x -= b.face * 30 * dt;
         if (b.t >= b.windup) { b.state = 'active'; b.t = 0; bossActiveStart(); }
         break;
       }
       case 'active': bossActive(dt); break;
       case 'recover': if (b.t >= b.recover) { b.state = 'idle'; b.cd = b.next ? 0.15 : b.phase === 2 ? 0.45 : 0.75; b.attack = null; b.cannonAngle = lerp(b.cannonAngle, 0.15, 0.1); } break;
-      case 'stunned': if (b.t >= (b.phase === 2 ? 1.1 : 1.5)) { b.state = 'idle'; b.cd = 0.3; b.attack = null; } break;
+      case 'stunned': if (b.t >= (b.phase === 2 ? 1.1 : 1.5)) { b.state = 'walk'; b.t = 0; b.retreat = true; b.attack = null; } break;
       case 'stagger': if (b.t >= 1.1) { b.state = 'idle'; b.cd = 0.2; } break;
       case 'transform': updateTransform(dt); break;
       case 'dying': updateDying(dt); break;
     }
-    b.x = clamp(b.x, ARENA.left + 90, ARENA.right - 90);
+    b.x = clamp(b.x, ARENA.left + 150, ARENA.right - 150);
     // Keep the player from standing inside the machine.
     const br = { x: b.x - 58, y: b.y - 190, w: 116, h: 190 };
     if (!p.dead && b.state !== 'dying' && overlap(br, rectOf(p, p.rolling ? 34 : p.h)) && !(b.attack === 'charge' && b.state === 'active')) {
@@ -686,7 +687,7 @@ export function createAshfall(host, services) {
     audio.play('gate'); player.vx = 0;
     // Stragglers caught inside the arena crumble to ash as the gate falls.
     for (const e of enemies) if (!e.dead && e.x > ARENA.left - 20) { e.dead = true; e.deadT = 0; ashBurst(e); }
-    if (boss.resumePhase2) { boss.phase = 2; }
+    if (boss.resumePhase2) { boss.phase = 2; g.medkits.push({ x: (ARENA.left + ARENA.right) / 2, y: FLOOR - 20, taken: false }); }
   }
   function bossActiveStart() {
     const b = boss, p = player;
@@ -700,7 +701,7 @@ export function createAshfall(host, services) {
       b.recover = f ? 0.7 : 0.95;
     } else if (b.attack === 'barrage') {
       const volley = () => {
-        const m = bossMuzzle(), base = Math.atan2(p.y - 34 - m.y, p.x - m.x);
+        const m = bossMuzzle(), aim = b.aim || { x: p.x, y: p.y - 34 }, base = Math.atan2(aim.y - m.y, aim.x - m.x);
         const n = f ? 5 : 3;
         for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; g.bolts.push({ x: m.x, y: m.y, vx: Math.cos(a) * 600, vy: Math.sin(a) * 600, life: 2.4, dmg: 10, r: 9, color: 'warm' }); }
         audio.play('bolt'); audio.play('shot'); light(m.x, m.y, 260, 'warm', 0.12, 1.2); addShake(4);
@@ -733,7 +734,7 @@ export function createAshfall(host, services) {
       if (rand() < 0.7) dust(b.x - b.face * 40, b.y, 1, 30);
       const r = { x: b.x - 70, y: b.y - 200, w: 140, h: 200 };
       if (overlap(r, rectOf(p, p.rolling ? 34 : p.h))) hitPlayer(18, b.x, 520);
-      const wall = b.face > 0 ? ARENA.right - 92 : ARENA.left + 92;
+      const wall = b.face > 0 ? ARENA.right - 150 : ARENA.left + 150;
       if ((b.face > 0 && b.x >= wall) || (b.face < 0 && b.x <= wall)) {
         b.x = wall; b.state = 'stunned'; b.t = 0; b.vx = 0; audio.play('slam'); addShake(14); flash('#ff9a4a', 0.12);
         sparks(b.x + b.face * 70, b.y - 100, -b.face, 24, '#ffd08a', 600); dust(b.x + b.face * 60, b.y, 10, 60);
@@ -750,9 +751,9 @@ export function createAshfall(host, services) {
       part({ kind: 'ring', x: b.x, y: b.y - 120, life: 0.8, size: 20 });
       const p = player; if (Math.abs(p.x - b.x) < 280) { p.vx = Math.sign(p.x - b.x || -1) * 600; p.vy = -260; p.grounded = false; }
     }
+    if (t > 2.2 && !c.carded) { c.carded = true; card('WARDEN · UNBOUND', '核 心 暴 露', '', 2.2); }
     if (t > 3.3) {
-      b.phase = 2; b.state = 'idle'; b.cd = 0.6; b.poise = 260; g.letterTarget = 0; player.invuln = false; g.cine = null;
-      card('WARDEN · UNBOUND', '核 心 暴 露', '', 2.6);
+      b.phase = 2; b.state = 'idle'; b.cd = 1.4; b.poise = 260; g.letterTarget = 0; player.invuln = false; g.cine = null;
       g.medkits.push({ x: clamp(b.x - b.face * 260, ARENA.left + 60, ARENA.right - 60), y: FLOOR - 20, taken: false });
     }
   }
@@ -838,7 +839,7 @@ export function createAshfall(host, services) {
     }
     const a = g.ambush; g.ambushT += dt;
     for (const x of [a.l, a.r]) if (rand() < 0.5) part({ kind: 'ember', x: x + (rand() - 0.5) * 16, y: FLOOR - rand() * 220, vx: (rand() - 0.5) * 30, vy: -60 - rand() * 90, life: 0.8, size: 2 });
-    const left = enemies.some((e) => !e.dead && e.x > a.l - 30 && e.x < a.r + 30);
+    const left = enemies.some((e) => !e.dead && (e.ambush || (e.awake && e.x > a.l - 30 && e.x < a.r + 30)));
     if (!left && g.ambushT > 1) { g.ambushDone.add(AMBUSHES.indexOf(a)); g.ambush = null; audio.play('checkpoint'); popup(p.x, p.y - 100, 'CLEARED', '#ffcf8a'); }
   }
   function updatePickups() {
@@ -962,8 +963,8 @@ export function createAshfall(host, services) {
       g.gateY = Math.min(1, c.t / 0.8);
       if (c.t > 0.8 && c.t < 0.9) addShake(8);
       b.wake = clamp((c.t - 1.0) / 0.6, 0, 1);
-      if (c.t > 1.5 && !c.roared) { c.roared = true; audio.play('roar'); addShake(14); audio.setMode(boss.phase === 2 ? 'boss2' : 'boss1'); card('THE FOUNDRY WARDEN', '铸 炉 守 卫', 'GUARDIAN', 3); }
-      if (c.t > 3.3) { g.introSeen = true; g.cine = null; g.letterTarget = 0; b.state = 'idle'; b.cd = 0.8; b.t = 0; b.wake = 1; }
+      if (c.t > 1.5 && !c.roared) { c.roared = true; audio.play('roar'); addShake(14); audio.setMode(boss.phase === 2 ? 'boss2' : 'boss1'); card('THE FOUNDRY WARDEN', '铸 炉 守 卫', 'GUARDIAN', 2.4); }
+      if (c.t > 3.3) { g.introSeen = true; g.cine = null; g.letterTarget = 0; b.state = 'idle'; b.cd = 1.6; b.t = 0; b.wake = 1; }
     } else if (c.kind === 'transform') { /* driven by boss.t */ }
   }
   function updateAmbient(dt) {
@@ -1033,7 +1034,7 @@ export function createAshfall(host, services) {
     ctx.save(); ctx.translate(Math.round(-g.cam.x + shx), Math.round(-g.cam.y + shy));
     drawWorldBack();
     drawTelegraphs();
-    for (const e of enemies) if (!e.dead || e.deadT < 0.7) if (Math.abs(e.x - g.cam.x - VIEW_W / 2) < VIEW_W) drawActor((c) => drawEnemy(c, e, art, g.time), e.x, e.y, 220, 220, 'rgba(170,200,205,0.42)', 7, e.flash);
+    for (const e of enemies) if (!e.dead || e.deadT < 0.7) if (Math.abs(e.x - g.cam.x - VIEW_W / 2) < VIEW_W) drawActor((c) => drawEnemy(c, e, art, g.time), e.x, e.y, 220, 220, 'rgba(185,215,220,0.58)', 8, e.flash);
     if (boss.state !== 'dormant' || Math.abs(boss.x - g.cam.x) < VIEW_W + 200) drawActor((c) => drawBoss(c, boss, art, g.time), boss.x, boss.y, 480, 400, 'rgba(255,150,80,0.5)', 12, boss.flash);
     drawTrail();
     drawActor((c) => drawPlayer(c, player, art, g.time), player.x, player.y, 240, 220, 'rgba(255,196,140,0.6)', 8, player.flash);
@@ -1054,7 +1055,7 @@ export function createAshfall(host, services) {
   // silhouettes stay readable against equally dark painted backgrounds.
   const actorCv = makeCanvas(980, 820), actx = actorCv.getContext('2d');
   function drawActor(fn, x, y, w, h, rim, blur, flashT = 0) {
-    const s = Math.min(2, scale), pad = 40, cw = Math.ceil(w * s), ch = Math.ceil(h * s);
+    const s = Math.min(coarse ? 1.5 : 2, scale), pad = 40, cw = Math.ceil(w * s), ch = Math.ceil(h * s);
     actx.setTransform(1, 0, 0, 1, 0, 0); actx.clearRect(0, 0, cw + 2, ch + 2);
     actx.setTransform(s, 0, 0, s, (w / 2 - x) * s, (h - pad - y) * s);
     fn(actx);
@@ -1198,7 +1199,7 @@ export function createAshfall(host, services) {
         ctx.fillStyle = `rgba(255,40,20,${0.08 + 0.18 * k})`; ctx.fillRect(Math.min(xs, xe), FLOOR - 200, Math.abs(xe - xs), 200);
         for (let i = 0; i < 8; i++) { const x = xs + b.face * (100 + ((i * 90 + g.time * 400) % 720)); if ((x - xs) * b.face < Math.abs(xe - xs)) arrow(x, FLOOR - 100, b.face, 0.3 + 0.5 * k); }
       } else if (b.attack === 'barrage') {
-        const m = bossMuzzle(), base = Math.atan2(player.y - 34 - m.y, player.x - m.x), n = b.phase === 2 ? 5 : 3;
+        const m = bossMuzzle(), aim = b.aim || { x: player.x, y: player.y - 34 }, base = Math.atan2(aim.y - m.y, aim.x - m.x), n = b.phase === 2 ? 5 : 3;
         for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; dangerLine(m.x, m.y, m.x + Math.cos(a) * 1000, m.y + Math.sin(a) * 1000, k, pulse, true); }
       } else if (b.attack === 'beam') {
         const y = FLOOR - (b.beamHigh ? 52 : 15), xe = b.face > 0 ? ARENA.right : ARENA.left, xs = b.x + b.face * 70;
@@ -1374,7 +1375,10 @@ export function createAshfall(host, services) {
     const p = player;
     if (g.mode === 'play') {
       const lbOff = g.letterbox * 58, hudA = clamp(1 - g.letterbox * 1.3, 0, 1);
+      // Small portrait canvases: enlarge the HUD so it stays legible on phones.
+      const hs = coarse && canvas.clientWidth && canvas.clientWidth < 560 ? 1.7 : 1;
       ctx.globalAlpha = hudA;
+      ctx.save(); ctx.scale(hs, hs);
       // health
       const x = 30, y = 30;
       ctx.fillStyle = 'rgba(8,6,6,0.7)'; ctx.fillRect(x - 4, y - 4, 228, 18);
@@ -1391,12 +1395,14 @@ export function createAshfall(host, services) {
       }
       if (p.reloading) { text('RELOADING', x + 160, y + 28, 10, '#ffcf8a', { align: 'left', spacing: 2 }); ctx.fillStyle = '#ffcf8a'; ctx.fillRect(x + 92 + p.ammo * 16, y + 38, 10 * clamp(p.reloadT / RELOAD_SHELL, 0, 1), 2); }
       else if (p.ammo === 0) text('EMPTY · R', x + 160, y + 28, 10, '#ff8a6a', { align: 'left', spacing: 2 });
-      // score
+      ctx.restore(); ctx.save(); ctx.translate(VIEW_W, 0); ctx.scale(hs, hs); ctx.translate(-VIEW_W, 0);
       text(`${g.score}`, VIEW_W - 30, y + 4, 22, '#f0dcc4', { align: 'right', spacing: 2 });
       text(`ASH CLAIMED ${g.kills}`, VIEW_W - 30, y + 28, 10, 'rgba(230,200,170,0.7)', { align: 'right', spacing: 3 });
+      ctx.restore();
       ctx.globalAlpha = 1;
       // boss bar
       if (g.arenaLocked && !g.cine && g.letterbox < 0.3 && boss.state !== 'intro' && boss.state !== 'dormant') {
+        ctx.save(); ctx.translate(VIEW_W / 2, VIEW_H); ctx.scale(hs, hs); ctx.translate(-VIEW_W / 2, -VIEW_H);
         const bw = 520, bx = VIEW_W / 2 - bw / 2, by = VIEW_H - 46 - lbOff;
         text(boss.phase === 1 ? 'THE FOUNDRY WARDEN' : 'THE WARDEN · UNBOUND', VIEW_W / 2, by - 14, 13, '#f0dcc4', { spacing: 5 });
         ctx.fillStyle = 'rgba(8,6,6,0.75)'; ctx.fillRect(bx - 3, by - 3, bw + 6, 14);
@@ -1406,6 +1412,7 @@ export function createAshfall(host, services) {
         ctx.fillStyle = bgr; ctx.fillRect(bx, by, bw * Math.max(0, frac), 8);
         ctx.strokeStyle = 'rgba(230,190,150,0.5)'; ctx.strokeRect(bx - 3.5, by - 3.5, bw + 7, 15);
         text(boss.phase === 1 ? 'ARMOR' : 'CORE', bx + bw + 14, by + 4, 9, 'rgba(230,200,170,0.7)', { align: 'left', spacing: 2 });
+        ctx.restore();
       }
       // popups
       for (const t of g.popups) { ctx.globalAlpha = Math.min(1, t.life * 2); text(t.text, t.x - g.cam.x, t.y - g.cam.y, 13, t.color, { weight: 700, spacing: 2 }); }
@@ -1414,7 +1421,7 @@ export function createAshfall(host, services) {
       for (const c of g.cards) {
         const a = c.t < 0.9 ? c.t / 0.9 : c.t > c.dur - 1.1 ? Math.max(0, (c.dur - c.t) / 1.1) : 1;
         if (a <= 0) continue;
-        ctx.globalAlpha = a; const cy = VIEW_H * 0.36;
+        ctx.globalAlpha = a; const cy = g.arenaLocked ? VIEW_H * 0.22 : VIEW_H * 0.36;
         if (c.chapter) text(c.chapter, VIEW_W / 2, cy - 44, 12, 'rgba(230,180,130,0.9)', { spacing: 8 });
         text(c.title, VIEW_W / 2, cy, 40, '#f3e6d4', { spacing: 10 + (1 - a) * 6 });
         ctx.strokeStyle = 'rgba(230,180,130,0.6)'; ctx.lineWidth = 1; const lw = 180 * a; ctx.beginPath(); ctx.moveTo(VIEW_W / 2 - lw, cy + 30); ctx.lineTo(VIEW_W / 2 + lw, cy + 30); ctx.stroke();
@@ -1425,12 +1432,12 @@ export function createAshfall(host, services) {
       const used = g.usedActions, learned = ['jump', 'attack', 'shoot', 'roll'].every((k) => used.has(k));
       const hEnd = learned ? Math.min(13, Math.max(6, g.hintT)) : 13, ht = g.hintT;
       const ha = ht < 1.4 ? 0 : ht < 2.4 ? ht - 1.4 : ht > hEnd ? Math.max(0, 1 - (ht - hEnd)) : 1;
-      if (ha > 0 && !g.arenaLocked) {
+      if (ha > 0 && !g.arenaLocked && hs === 1) {
         ctx.globalAlpha = ha * 0.92;
         const hy = coarse ? 112 : VIEW_H - 54;
         ctx.fillStyle = 'rgba(6,5,5,0.6)'; ctx.fillRect(VIEW_W / 2 - 360, hy - 22, 720, 44);
         ctx.strokeStyle = 'rgba(230,180,130,0.35)'; ctx.strokeRect(VIEW_W / 2 - 360.5, hy - 22.5, 721, 45);
-        const items = coarse ? [['◀ ▶', 'move'], ['JUMP', 'leap'], ['SLASH', '3-hit combo'], ['FIRE', 'shotgun'], ['ROLL', 'evade']] : [['A D', 'move'], ['W / SPACE', 'jump'], ['J', 'slash ×3'], ['K', 'shotgun'], ['L / SHIFT', 'roll'], ['R', 'reload']];
+        const items = coarse ? [['◀ ▶', 'move'], ['JUMP', 'leap'], ['SLASH', '3-hit combo'], ['FIRE', 'shotgun'], ['ROLL', 'evade'], ['↻', 'reload']] : [['A D', 'move'], ['W / SPACE', 'jump'], ['J', 'slash ×3'], ['K', 'shotgun'], ['L / SHIFT', 'roll'], ['R', 'reload']];
         const step = 720 / items.length;
         items.forEach(([k, v], i) => { const cx = VIEW_W / 2 - 360 + step * (i + 0.5); text(k, cx, hy - 7, 12, used.has(['left', 'jump', 'attack', 'shoot', 'roll', 'reload'][i]) ? '#ffcf8a' : '#f3e6d4', { weight: 700, spacing: 2 }); text(v, cx, hy + 10, 10, 'rgba(220,200,180,0.7)', { spacing: 1 }); });
         ctx.globalAlpha = 1;
@@ -1469,6 +1476,8 @@ export function createAshfall(host, services) {
 
   // ---------- loop ----------
   resetGame();
+  if (coarse) startGame(); // the shell's "Start game" tap already was the start gesture
+
   let raf = 0, last = 0, acc = 0, destroyed = false;
   function frame(now) {
     if (destroyed) return;

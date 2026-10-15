@@ -218,7 +218,7 @@ function foundryLayers(R) {
   mc.strokeStyle = '#140e0d'; mc.lineWidth = 12;
   for (let i = 0; i < 6; i++) { const x = R() * LAYER_W; mc.beginPath(); mc.moveTo(x, 440); mc.lineTo(x, 300 - R() * 80); mc.quadraticCurveTo(x, 250, x + 60 + R() * 60, 250); mc.lineTo(x + 260, 250); mc.stroke(); }
   strokes(mc, R, { w: LAYER_W, h: VIEW_H, n: 1800, colors: ['#2d1f1b', '#080505'], len: 10, angle: 0, spread: 0.2, width: 1.3 });
-  hazeAtop(mc, 80, 460, '#6a3020', 0.32, 0.08);
+  hazeAtop(mc, 80, 460, '#7a3a24', 0.42, 0.18);
   const near = makeCanvas(LAYER_W, VIEW_H), nc = ctxOf(near);
   for (let i = 0; i < 5; i++) { const x = (i / 5) * LAYER_W + R() * 200, r = 90 + R() * 110; wrap(LAYER_W, x, r * 1.2, (xx) => gear(nc, xx, 360 + R() * 160, r, 12 + ((R() * 8) | 0), '#0e0a0a')); }
   nc.strokeStyle = '#0e0a0a'; nc.lineCap = 'round';
