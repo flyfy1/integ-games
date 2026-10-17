@@ -9,6 +9,9 @@ const SCORES = {
   woods: { bpm: 72, chords: [[50, 53, 57], [46, 50, 53], [48, 51, 55], [45, 48, 52]], drums: 0.6, arp: 0.25 },
   quarter: { bpm: 80, chords: [[45, 48, 52], [41, 45, 48], [43, 46, 50], [40, 43, 47]], drums: 0.8, arp: 0.35 },
   foundry: { bpm: 88, chords: [[43, 46, 50], [39, 43, 46], [41, 44, 48], [38, 42, 45]], drums: 1, arp: 0.45 },
+  railyard: { bpm: 84, chords: [[47, 50, 54], [43, 47, 50], [45, 48, 52], [42, 45, 49]], drums: 0.8, arp: 0.35 },
+  wastes: { bpm: 90, chords: [[44, 47, 51], [40, 44, 47], [42, 45, 49], [39, 42, 46]], drums: 0.9, arp: 0.5 },
+  cathedral: { bpm: 94, chords: [[41, 44, 48], [37, 41, 44], [39, 42, 46], [36, 40, 43]], drums: 1, arp: 0.55 },
   boss1: { bpm: 116, chords: [[36, 39, 43], [36, 39, 43], [32, 36, 39], [34, 38, 41]], drums: 1, arp: 0.9 },
   boss2: { bpm: 136, chords: [[37, 40, 44], [33, 37, 40], [35, 39, 42], [32, 35, 39]], drums: 1, arp: 1 },
   victory: { bpm: 60, chords: [[50, 54, 57], [47, 50, 54], [43, 47, 50], [45, 49, 52]], drums: 0, arp: 0.2 }
@@ -180,7 +183,7 @@ export function createAudio() {
     death(t) { tone(t, { type: 'sine', freq: 200, freqEnd: 40, dur: 1.4, gain: 0.4 }); noise(t, { type: 'lowpass', freq: 800, freqEnd: 80, dur: 1.4, gain: 0.3 }); }
   };
 
-  const MUSIC_INT = { title: 0, woods: 0.15, quarter: 0.15, foundry: 0.2, boss1: 0.85, boss2: 1, victory: 0 };
+  const MUSIC_INT = { title: 0, woods: 0.15, quarter: 0.15, foundry: 0.2, railyard: 0.2, wastes: 0.22, cathedral: 0.25, boss1: 0.85, boss2: 1, victory: 0 };
   return {
     unlock() { const c = ensure(); if (c && c.state === 'suspended') c.resume().catch(() => {}); },
     get ready() { return !!ctx; },
@@ -190,9 +193,9 @@ export function createAudio() {
       if (m === mode) return; mode = m; targetIntensity = Math.max(targetIntensity, MUSIC_INT[m] ?? 0);
       if (ambience && ctx) {
         const now = ctx.currentTime;
-        const wind = { title: 0.05, woods: 0.07, quarter: 0.05, foundry: 0.025, boss1: 0.02, boss2: 0.02, victory: 0.04 }[m] ?? 0.04;
+        const wind = { title: 0.05, woods: 0.07, quarter: 0.05, foundry: 0.025, railyard: 0.06, wastes: 0.08, cathedral: 0.035, boss1: 0.02, boss2: 0.02, victory: 0.04 }[m] ?? 0.04;
         ambience.g.gain.setTargetAtTime(wind, now, 1.2);
-        ambience.hg.gain.setTargetAtTime(m === 'foundry' || m.startsWith('boss') ? 0.05 : 0, now, 1.5);
+        ambience.hg.gain.setTargetAtTime(m === 'foundry' || m === 'cathedral' || m.startsWith('boss') ? 0.05 : 0, now, 1.5);
       }
     },
     setIntensity(v) { targetIntensity = Math.max(MUSIC_INT[mode] ?? 0, Math.min(1, v)); },

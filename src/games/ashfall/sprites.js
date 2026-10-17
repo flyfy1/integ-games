@@ -251,7 +251,9 @@ export function drawBoss(c, b, art, time) {
   c.save(); c.translate(b.x + b.shakeX, b.y); c.scale(b.face, 1); c.lineCap = 'round'; c.lineJoin = 'round';
   if (b.state === 'dying') c.globalAlpha = Math.max(0, 1 - Math.max(0, b.t - 2.4) * 1.2);
   const flash = false;
-  const metal = flash ? '#f6ece2' : b.variant === 'tempest' ? '#334e61' : '#2c2624', dark = flash ? '#ddd' : '#171211', plateC = flash ? '#fff' : b.variant === 'tempest' ? '#7196aa' : '#4a423b';
+  // The reforged Warden (level III) wears bone-pale plate over a cold blue core.
+  const cold = b.variant === 'reforged', coreGlow = cold ? art.coolGlow : art.warmGlow, eyeGlow = cold ? art.coolGlow : art.redGlow;
+  const metal = flash ? '#f6ece2' : cold ? '#3e3a38' : b.variant === 'tempest' ? '#334e61' : '#2c2624', dark = flash ? '#ddd' : cold ? '#1a1716' : '#171211', plateC = flash ? '#fff' : cold ? '#8a8272' : b.variant === 'tempest' ? '#7196aa' : '#4a423b';
   const k = b.state === 'windup' ? Math.min(1, b.t / b.windup) : 0;
   let crouch = 0, hammer = -0.3, cannon = b.cannonAngle, ext = 0;
   const charging = b.attack === 'charge' && b.state === 'active';
@@ -282,7 +284,7 @@ export function drawBoss(c, b, art, time) {
     const kx = lx + 26, ky = hip + 46 - lift * 0.5, ax = lx - 8, ay = -24 - lift;
     limb(c, lx, hip, kx, ky, 18, col); limb(c, kx, ky, ax, ay, 14, col); limb(c, ax, ay, lx + 6, -2 - lift * 0.3, 11, col);
     c.fillStyle = col; c.beginPath(); c.moveTo(lx - 18, -lift * 0.3); c.lineTo(lx + 30, -lift * 0.3); c.lineTo(lx + 22, -12 - lift * 0.3); c.lineTo(lx - 10, -12 - lift * 0.3); c.fill();
-    c.fillStyle = flash ? '#fff' : '#ff7a32'; c.globalAlpha *= 0.6; c.beginPath(); c.arc(kx, ky, 3.5, 0, 7); c.fill(); c.globalAlpha /= 0.6;
+    c.fillStyle = flash ? '#fff' : cold ? '#7ac8ff' : '#ff7a32'; c.globalAlpha *= 0.6; c.beginPath(); c.arc(kx, ky, 3.5, 0, 7); c.fill(); c.globalAlpha /= 0.6;
   });
   // pelvis block joining legs and torso
   c.fillStyle = dark; c.beginPath(); c.moveTo(-52, hip + 10); c.lineTo(48, hip + 10); c.lineTo(60, hip - 36); c.lineTo(-64, hip - 36); c.closePath(); c.fill();
@@ -292,7 +294,7 @@ export function drawBoss(c, b, art, time) {
   c.save(); c.translate(csx, csy); c.rotate(cannon);
   c.fillStyle = dark; c.fillRect(-6, -12, 84, 24); c.fillStyle = metal; c.fillRect(54, -15, 34, 30);
   c.fillStyle = '#060505'; c.beginPath(); c.arc(88, 0, 9, 0, 7); c.fill();
-  if (b.attack === 'barrage' && b.state === 'windup') { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.5 + 0.5 * k; c.drawImage(art.redGlow, 88 - 20 - k * 10, -20 - k * 10, 40 + k * 20, 40 + k * 20); }
+  if ((b.attack === 'barrage' || b.attack === 'hook') && b.state === 'windup') { c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.5 + 0.5 * k; c.drawImage(b.attack === 'hook' ? art.coolGlow : art.redGlow, 88 - 20 - k * 10, -20 - k * 10, 40 + k * 20, 40 + k * 20); }
   c.restore();
   // torso frame
   const ty = hip - 30;
@@ -305,26 +307,26 @@ export function drawBoss(c, b, art, time) {
   const pulse = 0.65 + Math.sin(time * (exposed ? 9 : 3)) * 0.2;
   c.save(); c.globalCompositeOperation = 'lighter';
   const cs = exposed ? 70 : 36; c.globalAlpha = exposed ? pulse : 0.35 * pulse;
-  c.drawImage(art.warmGlow, coreX - cs, coreY - cs, cs * 2, cs * 2); c.restore();
-  c.fillStyle = exposed ? (flash ? '#fff' : '#ffd38a') : '#5a2a14'; c.beginPath(); c.arc(coreX, coreY, exposed ? 17 : 12, 0, 7); c.fill();
-  if (exposed) { c.fillStyle = '#fff6dc'; c.beginPath(); c.arc(coreX, coreY, 8 * pulse, 0, 7); c.fill(); }
+  c.drawImage(coreGlow, coreX - cs, coreY - cs, cs * 2, cs * 2); c.restore();
+  c.fillStyle = exposed ? (flash ? '#fff' : cold ? '#bfe6ff' : '#ffd38a') : cold ? '#14304a' : '#5a2a14'; c.beginPath(); c.arc(coreX, coreY, exposed ? 17 : 12, 0, 7); c.fill();
+  if (exposed) { c.fillStyle = cold ? '#f0faff' : '#fff6dc'; c.beginPath(); c.arc(coreX, coreY, 8 * pulse, 0, 7); c.fill(); }
   // armour plates (each one breaks off at its own threshold)
   b.plates.forEach((pl) => {
     if (pl.gone) return;
     c.fillStyle = plateC; c.beginPath(); pl.poly.forEach(([x, y], i) => (i ? c.lineTo(x, ty + y) : c.moveTo(x, ty + y))); c.closePath(); c.fill();
     c.strokeStyle = flash ? '#fff' : '#100c0b'; c.lineWidth = 2; c.stroke();
     c.strokeStyle = flash ? '#fff' : 'rgba(255,190,130,0.45)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(pl.poly[0][0], ty + pl.poly[0][1]); c.lineTo(pl.poly[1][0], ty + pl.poly[1][1]); c.stroke();
-    c.fillStyle = flash ? '#fff' : '#6a4a34'; pl.rivets.forEach(([x, y]) => { c.beginPath(); c.arc(x, ty + y, 2, 0, 7); c.fill(); });
-    if (pl.crack > 0) { c.strokeStyle = `rgba(255,140,60,${0.4 + pl.crack * 0.5})`; c.lineWidth = 1.6; c.beginPath(); pl.crackLine.forEach(([x, y], i) => (i ? c.lineTo(x, ty + y) : c.moveTo(x, ty + y))); c.stroke(); }
+    c.fillStyle = flash ? '#fff' : cold ? '#c8a860' : '#6a4a34'; pl.rivets.forEach(([x, y]) => { c.beginPath(); c.arc(x, ty + y, 2, 0, 7); c.fill(); });
+    if (pl.crack > 0) { c.strokeStyle = cold ? `rgba(120,200,255,${0.4 + pl.crack * 0.5})` : `rgba(255,140,60,${0.4 + pl.crack * 0.5})`; c.lineWidth = 1.6; c.beginPath(); pl.crackLine.forEach(([x, y], i) => (i ? c.lineTo(x, ty + y) : c.moveTo(x, ty + y))); c.stroke(); }
   });
   // rim light from the furnaces
-  c.strokeStyle = flash ? '#fff' : 'rgba(255,140,70,0.55)'; c.lineWidth = 2; c.beginPath(); c.moveTo(-82, ty - 60); c.lineTo(-60, ty - 116); c.lineTo(20, ty - 128); c.stroke();
+  c.strokeStyle = flash ? '#fff' : cold ? 'rgba(150,205,255,0.55)' : 'rgba(255,140,70,0.55)'; c.lineWidth = 2; c.beginPath(); c.moveTo(-82, ty - 60); c.lineTo(-60, ty - 116); c.lineTo(20, ty - 128); c.stroke();
   // head + eye
   const hx = 58, hy = ty - 108;
   c.fillStyle = metal; c.beginPath(); c.moveTo(hx - 26, hy + 18); c.lineTo(hx - 18, hy - 14); c.lineTo(hx + 22, hy - 10); c.lineTo(hx + 30, hy + 12); c.lineTo(hx + 8, hy + 24); c.closePath(); c.fill();
   const eyeHot = b.state === 'windup' || b.phase === 2;
   c.save(); c.globalCompositeOperation = 'lighter'; const es = 16 + (b.attack === 'beam' && b.state === 'windup' ? 40 * k : 0) + (eyeHot ? 8 : 0);
-  c.globalAlpha = b.state === 'dormant' ? b.wake : 0.95; c.drawImage(art.redGlow, hx + 14 - es, hy + 2 - es, es * 2, es * 2); c.restore();
+  c.globalAlpha = b.state === 'dormant' ? b.wake : 0.95; c.drawImage(eyeGlow, hx + 14 - es, hy + 2 - es, es * 2, es * 2); c.restore();
   c.fillStyle = b.state === 'dormant' && b.wake < 0.2 ? '#2a1010' : '#ffe0d0'; c.fillRect(hx + 8, hy, 14, 4);
   // hammer arm (in front)
   const hsx = 52, hsy = ty - 84;
