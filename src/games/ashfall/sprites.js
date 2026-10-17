@@ -251,7 +251,7 @@ export function drawBoss(c, b, art, time) {
   c.save(); c.translate(b.x + b.shakeX, b.y); c.scale(b.face, 1); c.lineCap = 'round'; c.lineJoin = 'round';
   if (b.state === 'dying') c.globalAlpha = Math.max(0, 1 - Math.max(0, b.t - 2.4) * 1.2);
   const flash = false;
-  const metal = flash ? '#f6ece2' : '#2c2624', dark = flash ? '#ddd' : '#171211', plateC = flash ? '#fff' : '#4a423b';
+  const metal = flash ? '#f6ece2' : b.variant === 'tempest' ? '#334e61' : '#2c2624', dark = flash ? '#ddd' : '#171211', plateC = flash ? '#fff' : b.variant === 'tempest' ? '#7196aa' : '#4a423b';
   const k = b.state === 'windup' ? Math.min(1, b.t / b.windup) : 0;
   let crouch = 0, hammer = -0.3, cannon = b.cannonAngle, ext = 0;
   const charging = b.attack === 'charge' && b.state === 'active';
@@ -265,6 +265,16 @@ export function drawBoss(c, b, art, time) {
   if (b.state === 'stunned' || b.state === 'stagger') { crouch = 22; hammer = 1.2; }
   if (b.state === 'transform') crouch = 24 * Math.min(1, b.t * 2) * (b.t < 2 ? 1 : Math.max(0, 1 - (b.t - 2) * 2));
   if (b.state === 'dying') crouch = Math.min(70, b.t * 30);
+  if (b.variant === 'tempest') {
+    // A crown of charged insulators distinguishes the storm machine at a glance.
+    c.strokeStyle = '#a8dfff'; c.lineWidth = 3;
+    for (let i = -1; i <= 1; i++) {
+      const x = i * 45;
+      c.beginPath(); c.moveTo(x, -205 + crouch); c.lineTo(x * 1.4, -270 + crouch); c.stroke();
+      c.fillStyle = '#405f76'; c.fillRect(x * 1.4 - 12, -260 + crouch, 24, 7);
+      c.drawImage(art.coolGlow, x * 1.4 - 20, -290 + crouch, 40, 40);
+    }
+  }
   const hip = -112 + crouch, ph = b.walkPhase;
   // legs (reverse-jointed)
   [[-34, ph + Math.PI, dark], [30, ph, metal]].forEach(([lx, lp, col]) => {
