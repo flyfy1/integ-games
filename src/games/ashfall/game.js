@@ -2,10 +2,9 @@
 // Fixed 60 Hz simulation, hit-stop and slow-motion on top, one render pass per animation frame.
 
 import { createAudio } from './audio.js';
-import { buildArt, LAYER_W, makeCanvas } from './art.js';
+import { LAYER_W, makeCanvas } from './art.js';
 import { VIEW_W, VIEW_H, FLOOR as BASE_FLOOR } from './level.js';
 import { LEVELS, levelFromParam } from './levels.js';
-import { buildStormArt } from './art2.js';
 import { drawPlayer, drawEnemy, drawBoss, bladeLocal, MUZZLE } from './sprites.js';
 
 const DT = 1 / 60;
@@ -50,14 +49,14 @@ export function createAshfall(host, services) {
   const params = new URLSearchParams(globalThis.location?.search || '');
   const debug = params.has('ashfall-debug');
   const initialLevel = levelFromParam(params.get('ashfall-level'));
-  let FLOOR = BASE_FLOOR;
+  let arenaFloorY = BASE_FLOOR;
   let level, ZONES, ARENA, WORLD_END, zoneIndexAt, buildSolids, PITS, ENEMIES, MEDKITS, CHECKPOINTS, LIGHTS, PROPS, AMBUSHES, BOSS;
   let art, patterns;
   function selectLevel(data) {
     level = data;
     ({ ZONES, ARENA, WORLD_END, zoneIndexAt, buildSolids, PITS, ENEMIES, MEDKITS, CHECKPOINTS, LIGHTS, PROPS, AMBUSHES, BOSS } = data);
-    FLOOR = ARENA.floor ?? BASE_FLOOR;
-    art = data.id === 2 ? buildStormArt(data.buildSeed) : buildArt(data.buildSeed);
+    arenaFloorY = ARENA.floor ?? BASE_FLOOR;
+    art = data.artBuilder(data.buildSeed);
     patterns = art.ground.map((tile) => (ctx.createPattern ? ctx.createPattern(tile, 'repeat') : null));
   }
   const reduced = !!services.isReducedMotion;
@@ -181,7 +180,7 @@ export function createAshfall(host, services) {
     const R = (() => { let s = 1234; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
     return {
       variant: BOSS.variant, next: BOSS.variant === 'tempest' ? 'conduit' : null,
-      x: ARENA.right - 230, y: FLOOR, face: -1, phase: 1, armor: BOSS.armor, hp: BOSS.hp, state: 'dormant', t: 0, wake: 0, cd: 1,
+      x: ARENA.right - 230, y: arenaFloorY, face: -1, phase: 1, armor: BOSS.armor, hp: BOSS.hp, state: 'dormant', t: 0, wake: 0, cd: 1,
       attack: null, windup: 1, flash: 0, walkPhase: 0, cannonAngle: 0.15, shakeX: 0, poise: 200, vx: 0, last: null, events: [], staggerReady: 0,
       plates: PLATES.map((p) => {
         const cx = p.poly.reduce((s, q) => s + q[0], 0) / p.poly.length, cy = p.poly.reduce((s, q) => s + q[1], 0) / p.poly.length;
@@ -212,7 +211,7 @@ export function createAshfall(host, services) {
     player.scarf = Array.from({ length: 7 }, (_, i) => ({ x: player.x - i * 5, y: player.y - 48 }));
     enemies = ENEMIES.map(([type, x], i) => spawnEnemy(type, x, i));
     boss = makeBoss();
-    if (level.id === 2) resetFlood(level.FLOOD.startGrace);
+    if (level.flood) resetFlood(level.flood.startGrace);
     g.cam.x = 0;
   }
   function advanceLevel() {
@@ -223,7 +222,7 @@ export function createAshfall(host, services) {
   }
   function spawnEnemy(type, x, i) {
     const d = ENEMY_DEF[type];
-    const y = type === 'drone' ? (level.id === 2 ? floorY(x) - 150 : 300) : floorY(x);
+    const y = type === 'drone' ? (level.terrain === 'ascent' ? floorY(x) - 150 : 300) : floorY(x);
     return { type, x, y, home: x, vx: 0, vy: 0, w: d.w, h: d.h, hp: d.hp, maxHp: d.hp, face: -1, state: 'patrol', t: 0, windup: 0.5, cd: 0.6 + (i % 3) * 0.3,
       flash: 0, dead: false, deadT: 0, walkPhase: i, grounded: false, seed: i * 1.7, hover: 0, poise: d.poise || 0, hitBy: -1, aim: null, awake: false, lockT: 0 };
   }
@@ -234,15 +233,15 @@ export function createAshfall(host, services) {
   }
 
   // Placement queries use the local terrace; collision queries still use real Y.
-  function floorY(x) { return level.id === 2 ? level.floorAt(x) : surfaceY(x, 380) ?? FLOOR; }
+  function floorY(x) { return level.terrain === 'ascent' ? level.floorAt(x) : surfaceY(x, 380) ?? arenaFloorY; }
 
-  function resetFlood(grace = level.FLOOD.checkpointGrace) {
-    g.flood = { y: floorY(CHECKPOINTS[g.cpIdx]) + level.FLOOD.baseline, grace, cue: 0, held: null };
+  function resetFlood(grace = level.flood.checkpointGrace) {
+    g.flood = { y: floorY(CHECKPOINTS[g.cpIdx]) + level.flood.baseline, grace, cue: 0, held: null };
   }
   function updateFlood(dt) {
-    if (level.id !== 2 || player.dead || g.mode !== 'play') return;
-    const f = g.flood, cfg = level.FLOOD;
-    const cap = g.arenaLocked ? FLOOR + cfg.lockOffset : g.ambush ? floorY(g.ambush.x) + cfg.lockOffset : -Infinity;
+    if (!level.flood || player.dead || g.mode !== 'play') return;
+    const f = g.flood, cfg = level.flood;
+    const cap = g.arenaLocked ? arenaFloorY + cfg.lockOffset : g.ambush ? floorY(g.ambush.x) + cfg.lockOffset : -Infinity;
     f.held = null;
     if (f.grace > 0) { f.grace = Math.max(0, f.grace - dt); f.held = 'grace'; }
     else if (g.arenaLocked && boss.phase === 2) { f.held = 'arena'; }
@@ -341,7 +340,7 @@ export function createAshfall(host, services) {
   function respawn() {
     const p = player, cp = CHECKPOINTS[g.cpIdx];
     Object.assign(p, { x: cp, y: floorY(cp), vx: 0, vy: 0, hp: MAX_HP, hpGhost: MAX_HP, ammo: MAG, dead: false, deadT: 0, atk: null, rolling: false, reloading: false, iframe: 1.2, hurtT: 0, invuln: false });
-    if (level.id === 2) { p.safe = { x: p.x, y: p.y }; resetFlood(); g.cam.y = p.y - 390; p.grounded = true; p.jumpCut = false; g.botS.hold = 0; }
+    if (level.terrain === 'ascent') { p.safe = { x: p.x, y: p.y }; if (level.flood) resetFlood(); g.cam.y = p.y - 390; p.grounded = true; p.jumpCut = false; g.botS.hold = 0; }
     p.scarf.forEach((pt) => { pt.x = p.x; pt.y = p.y - 48; });
     if (g.ambush) { for (const e of enemies) if (e.ambush && !e.dead) { e.dead = true; e.deadT = 1; } g.ambush = null; }
     g.pellets = []; g.bolts = []; g.waves = []; g.markers = []; g.beams = []; g.conduits = []; g.letterTarget = 0; g.cam.x = clamp(p.x - VIEW_W * 0.4, 0, WORLD_END - VIEW_W);
@@ -352,7 +351,7 @@ export function createAshfall(host, services) {
       boss = fresh; boss.resumePhase2 = phase2; g.arenaLocked = false; g.gateY = 0;
       audio.setMode(ZONES[2].music || ZONES[2].id);
     }
-    enemies.forEach((e) => { if (!e.dead && !e.ambush) { e.x = e.home; e.state = 'patrol'; e.hp = e.maxHp; e.y = e.type === 'drone' ? (level.id === 2 ? floorY(e.home) - 150 : 300) : floorY(e.home); e.vx = 0; } });
+    enemies.forEach((e) => { if (!e.dead && !e.ambush) { e.x = e.home; e.state = 'patrol'; e.hp = e.maxHp; e.y = e.type === 'drone' ? (level.terrain === 'ascent' ? floorY(e.home) - 150 : 300) : floorY(e.home); e.vx = 0; } });
   }
 
   function updatePlayer(dt) {
@@ -412,7 +411,7 @@ export function createAshfall(host, services) {
       const before = Math.sin(p.runPhase); p.runPhase += Math.abs(p.vx) * dt * 0.042; if (Math.sign(Math.sin(p.runPhase)) !== Math.sign(before)) { audio.play('step'); if (rand() < 0.4) dust(p.x - p.face * 6, p.y, 1, 6); }
     }
     if (p.grounded && !p.rolling && groundBelow(p.x - 30, p.y, 8) && groundBelow(p.x + 30, p.y, 8)) p.safe = { x: p.x, y: p.y };
-    if (level.id === 1 && p.y > VIEW_H + 120) {
+    if (level.terrain !== 'ascent' && p.y > VIEW_H + 120) {
       p.hp -= 30; g.dmgVignette = 1; audio.play('hurt'); addShake(6);
       if (p.hp <= 0) { p.y = p.safe.y; p.x = p.safe.x; killPlayer(); }
       else { Object.assign(p, { x: p.safe.x, y: p.safe.y, vx: 0, vy: 0, iframe: 1.2, atk: null, rolling: false }); popup(p.x, p.y - 80, '-30', '#ff8a6a'); }
@@ -525,7 +524,7 @@ export function createAshfall(host, services) {
     const pts = ENEMY_DEF[e.type].score; g.score += pts; popup(e.x, e.y - e.h - 10, `+${pts}`);
     audio.play('kill'); ashBurst(e); hitStop(0.09); addShake(e.type === 'brute' ? 10 : 6); light(e.x, e.y - 30, 260, 'warm', 0.25, 1.2);
     if (e.type === 'drone' || e.type === 'brute') { audio.play('explode'); for (let i = 0; i < 14; i++) part({ kind: 'debris', x: e.x, y: e.y - (e.type === 'drone' ? 0 : 50), vx: (rand() - 0.5) * 420, vy: -150 - rand() * 300, g: 1300, vr: (rand() - 0.5) * 20, life: 2.2, size: 3 + rand() * 4, color: '#2a2422' }); }
-    if (player.hp < 70 && rand() < 0.3) g.medkits.push({ x: e.x, y: (surfaceY(e.x, e.y - 20) ?? FLOOR) - 20, taken: false, small: true });
+    if (player.hp < 70 && rand() < 0.3) g.medkits.push({ x: e.x, y: (surfaceY(e.x, e.y - 20) ?? arenaFloorY) - 20, taken: false, small: true });
   }
   function enemyAttackHit(e, rect, dmg) { if (overlap(rect, rectOf(player, player.rolling ? 34 : player.h))) hitPlayer(dmg, e.x); }
 
@@ -534,7 +533,7 @@ export function createAshfall(host, services) {
     let threat = 0;
     for (const e of enemies) {
       if (e.dead) { e.deadT += dt; if (e.type === 'drone') { e.vy += G * 0.5 * dt; e.y += e.vy * dt; } continue; }
-      e.awake = Math.abs(e.x - p.x) < 820 && !p.dead && (level.id === 1 || Math.abs(e.y - p.y) < 500);
+      e.awake = Math.abs(e.x - p.x) < 820 && !p.dead && (level.terrain !== 'ascent' || Math.abs(e.y - p.y) < 500);
       if (!e.awake) continue;
       e.t += dt; e.flash -= dt; e.cd -= dt;
       const dx = p.x - e.x, adx = Math.abs(dx), dy = p.y - e.y, sd = Math.sign(dx) || 1;
@@ -580,17 +579,17 @@ export function createAshfall(host, services) {
       e.vy = Math.min(MAX_FALL, e.vy + G * dt);
       moveBody(e, dt);
       if (Math.abs(e.vx) > 10 && e.grounded) e.walkPhase += Math.abs(e.vx) * dt * 0.05;
-      if (e.y > (level.id === 2 ? floorY(e.home) + 600 : VIEW_H + 150)) { e.dead = true; e.deadT = 1; g.kills++; g.score += D.score; }
+      if (e.y > (level.terrain === 'ascent' ? floorY(e.home) + 600 : VIEW_H + 150)) { e.dead = true; e.deadT = 1; g.kills++; g.score += D.score; }
     }
     return threat;
   }
   function updateDrone(e, dt, dx, adx, sd) {
     const p = player;
     // Storm seals contain both sides of the encounter, including retreating drones.
-    const seal = level.id === 2 && g.ambush && (e.ambush || (e.x > g.ambush.l && e.x < g.ambush.r)) ? g.ambush : null;
+    const seal = level.containDrones && g.ambush && (e.ambush || (e.x > g.ambush.l && e.x < g.ambush.r)) ? g.ambush : null;
     const tx = seal ? clamp(p.x - sd * 250, seal.l + 80, seal.r - 80) : p.x - sd * 250;
-    const ty = level.id === 2 ? p.y - 145 : clamp(p.y - 165, 120, 360);
-    if (e.state === 'patrol') { e.y = (level.id === 2 ? floorY(e.home) - 150 : 300) + Math.sin(g.time + e.seed) * 10; if (adx < 520) { e.state = 'chase'; e.t = 0; } return; }
+    const ty = level.terrain === 'ascent' ? p.y - 145 : clamp(p.y - 165, 120, 360);
+    if (e.state === 'patrol') { e.y = (level.terrain === 'ascent' ? floorY(e.home) - 150 : 300) + Math.sin(g.time + e.seed) * 10; if (adx < 520) { e.state = 'chase'; e.t = 0; } return; }
     if (e.state === 'hurt') { e.vx = approach(e.vx, 0, 700 * dt); e.vy = approach(e.vy, 0, 500 * dt); if (e.t > 0.35) { e.state = 'chase'; e.t = 0; } }
     else if (e.state === 'chase') {
       e.face = sd; e.vx = approach(e.vx, clamp((tx - e.x) * 2, -170, 170), 500 * dt); e.vy = approach(e.vy, clamp((ty - e.y) * 2, -150, 150), 500 * dt);
@@ -734,13 +733,13 @@ export function createAshfall(host, services) {
     for (const w of g.waves) {
       w.x += w.dir * w.speed * dt; w.life -= dt;
       if (w.x < ARENA.left + 20 || w.x > ARENA.right - 20) w.life = 0;
-      if (Math.abs(p.x - w.x) < 22 && p.y > FLOOR - 40) hitPlayer(11, w.x - w.dir * 10);
-      if (rand() < 0.5) part({ kind: 'ember', x: w.x, y: FLOOR - rand() * 20, vx: (rand() - 0.5) * 60, vy: -rand() * 160, life: 0.4, size: 2 });
+      if (Math.abs(p.x - w.x) < 22 && p.y > arenaFloorY - 40) hitPlayer(11, w.x - w.dir * 10);
+      if (rand() < 0.5) part({ kind: 'ember', x: w.x, y: arenaFloorY - rand() * 20, vx: (rand() - 0.5) * 60, vy: -rand() * 160, life: 0.4, size: 2 });
     }
     g.waves = g.waves.filter((w) => w.life > 0);
     for (const m of g.markers) {
       m.t += dt;
-      if (m.t >= m.dur && !m.done) { m.done = true; explosion(m.x, FLOOR - 20, 1); if (Math.abs(p.x - m.x) < 62 && p.y > FLOOR - 120) hitPlayer(13, m.x); }
+      if (m.t >= m.dur && !m.done) { m.done = true; explosion(m.x, arenaFloorY - 20, 1); if (Math.abs(p.x - m.x) < 62 && p.y > arenaFloorY - 120) hitPlayer(13, m.x); }
     }
     g.markers = g.markers.filter((m) => !m.done || m.t < m.dur + 0.1);
     for (const bm of g.beams) {
@@ -752,7 +751,7 @@ export function createAshfall(host, services) {
     let discharge = false;
     for (const c of g.conduits) {
       c.t += dt;
-      if (c.t >= 0 && !c.fired) { c.fired = true; discharge = true; light(c.x, FLOOR - 100, 180, 'cool', 0.3); }
+      if (c.t >= 0 && !c.fired) { c.fired = true; discharge = true; light(c.x, arenaFloorY - 100, 180, 'cool', 0.3); }
       if (c.t >= 0 && c.t < 0.3 && Math.abs(p.x - c.x) < 32 + p.w / 2) hitPlayer(17, c.x);
     }
     if (discharge) { audio.play('laser'); addShake(5); }
@@ -763,7 +762,7 @@ export function createAshfall(host, services) {
     audio.play('gate'); player.vx = 0;
     // Stragglers caught inside the arena crumble to ash as the gate falls.
     for (const e of enemies) if (!e.dead && e.x > ARENA.left - 20) { e.dead = true; e.deadT = 0; ashBurst(e); }
-    if (boss.resumePhase2) { boss.phase = 2; g.medkits.push({ x: (ARENA.left + ARENA.right) / 2, y: FLOOR - 20, taken: false }); }
+    if (boss.resumePhase2) { boss.phase = 2; g.medkits.push({ x: (ARENA.left + ARENA.right) / 2, y: arenaFloorY - 20, taken: false }); }
   }
   function bossActiveStart() {
     const b = boss, p = player;
@@ -775,9 +774,9 @@ export function createAshfall(host, services) {
       }
       b.recover = f ? 2.0 : 1.2;
     } else if (b.attack === 'slam') {
-      audio.play('slam'); addShake(15); flash('#ff9a4a', 0.15); light(b.slamX, FLOOR - 20, 420, 'warm', 0.3, 1.5);
-      dust(b.slamX, FLOOR, 18, 160, '#5a4a40'); sparks(b.slamX, FLOOR - 4, -1, 10, '#ffb36a', 500); sparks(b.slamX, FLOOR - 4, 1, 10, '#ffb36a', 500);
-      if (Math.abs(p.x - b.slamX) < 95 && p.y > FLOOR - 120) hitPlayer(18, b.slamX, 380);
+      audio.play('slam'); addShake(15); flash('#ff9a4a', 0.15); light(b.slamX, arenaFloorY - 20, 420, 'warm', 0.3, 1.5);
+      dust(b.slamX, arenaFloorY, 18, 160, '#5a4a40'); sparks(b.slamX, arenaFloorY - 4, -1, 10, '#ffb36a', 500); sparks(b.slamX, arenaFloorY - 4, 1, 10, '#ffb36a', 500);
+      if (Math.abs(p.x - b.slamX) < 95 && p.y > arenaFloorY - 120) hitPlayer(18, b.slamX, 380);
       const waves = () => { [-1, 1].forEach((dir) => g.waves.push({ x: b.slamX + dir * 60, dir, speed: f ? 480 : 420, life: 3 })); };
       waves(); if (f) b.events.push({ t: 0.45, fn: () => { if (b.state !== 'dying' && b.state !== 'transform') { waves(); audio.play('slam'); addShake(6); } } });
       b.recover = f ? 0.7 : 0.95;
@@ -803,7 +802,7 @@ export function createAshfall(host, services) {
       b.recover = 1.4;
     } else if (b.attack === 'beam') {
       audio.play('laser'); addShake(5);
-      const y = FLOOR - (b.beamHigh ? 52 : 15);
+      const y = arenaFloorY - (b.beamHigh ? 52 : 15);
       g.beams.push({ x0: b.x + b.face * 70, x1: b.face > 0 ? ARENA.right : ARENA.left, y, th: b.beamHigh ? 14 : 18, t: 0, dur: 0.36 });
       b.recover = 0.8;
     }
@@ -836,7 +835,7 @@ export function createAshfall(host, services) {
     if (t > 2.2 && !c.carded) { c.carded = true; card(BOSS.unbound, '核 心 暴 露', '', 2.2); }
     if (t > 3.3) {
       b.phase = 2; b.state = 'idle'; b.cd = 1.4; b.poise = 260; g.letterTarget = 0; player.invuln = false; g.cine = null;
-      g.medkits.push({ x: clamp(b.x - b.face * 260, ARENA.left + 60, ARENA.right - 60), y: FLOOR - 20, taken: false });
+      g.medkits.push({ x: clamp(b.x - b.face * 260, ARENA.left + 60, ARENA.right - 60), y: arenaFloorY - 20, taken: false });
     }
   }
   function updateDying() {
@@ -921,14 +920,14 @@ export function createAshfall(host, services) {
       return;
     }
     const a = g.ambush; g.ambushT += dt;
-    for (const x of [a.l, a.r]) if (rand() < 0.5) part({ kind: 'ember', x: x + (rand() - 0.5) * 16, y: (level.id === 2 ? floorY(a.x) : FLOOR) - rand() * 220, vx: (rand() - 0.5) * 30, vy: -60 - rand() * 90, life: 0.8, size: 2 });
+    for (const x of [a.l, a.r]) if (rand() < 0.5) part({ kind: 'ember', x: x + (rand() - 0.5) * 16, y: (level.terrain === 'ascent' ? floorY(a.x) : arenaFloorY) - rand() * 220, vx: (rand() - 0.5) * 30, vy: -60 - rand() * 90, life: 0.8, size: 2 });
     const left = enemies.some((e) => !e.dead && (e.ambush || (e.awake && e.x > a.l - 30 && e.x < a.r + 30)));
     if (!left && g.ambushT > 1) {
       g.ambushDone.add(AMBUSHES.indexOf(a)); g.ambush = null; audio.play('checkpoint');
       // A full seal can leave only 18px of clearance. Allow a normal run to the
       // next stair even when the final enemy dies at the far end of the refuge.
-      if (level.id === 2 && g.flood.y - floorY(a.x) < level.FLOOD.warning) {
-        g.flood.grace = level.FLOOD.exitGrace; g.flood.exitGrace = true;
+      if (level.flood && g.flood.y - floorY(a.x) < level.flood.warning) {
+        g.flood.grace = level.flood.exitGrace; g.flood.exitGrace = true;
         popup(p.x, p.y - 100, 'GATE OPEN · CLIMB', '#a0eade');
       } else popup(p.x, p.y - 100, 'CLEARED', '#ffcf8a');
     }
@@ -943,12 +942,12 @@ export function createAshfall(host, services) {
         for (let i = 0; i < 12; i++) part({ kind: 'ember', x: m.x, y: m.y, vx: (rand() - 0.5) * 120, vy: -60 - rand() * 120, life: 0.6, size: 2, color: '#ff8a7a' });
       }
     }
-    for (let i = g.cpIdx + 1; i < CHECKPOINTS.length; i++) if (p.x >= CHECKPOINTS[i] && (level.id === 1 || (!p.dead && p.y <= floorY(CHECKPOINTS[i]) + 4))) {
-      const upgrade = level.UPGRADES?.find((u) => u.checkpoint === i);
+    for (let i = g.cpIdx + 1; i < CHECKPOINTS.length; i++) if (p.x >= CHECKPOINTS[i] && (level.terrain !== 'ascent' || (!p.dead && p.y <= floorY(CHECKPOINTS[i]) + 4))) {
+      const upgrade = level.upgrades?.find((u) => u.checkpoint === i);
       if (upgrade && !g.upgrades.has(upgrade.id)) {
         g.upgrades.add(upgrade.id); card(upgrade.title, upgrade.sub, upgrade.detail, 4.2);
       }
-      g.cpIdx = i; if (level.id === 2) { g.flood.grace = Math.max(g.flood.grace, level.FLOOD.checkpointGrace); g.flood.exitGrace = false; } audio.play('checkpoint'); p.ammo = MAG; p.reloading = false; p.hp = Math.min(MAX_HP, p.hp + 25); popup(p.x, p.y - 90, 'EMBER KINDLED', '#ffc47a');
+      g.cpIdx = i; if (level.flood) { g.flood.grace = Math.max(g.flood.grace, level.flood.checkpointGrace); g.flood.exitGrace = false; } audio.play('checkpoint'); p.ammo = MAG; p.reloading = false; p.hp = Math.min(MAX_HP, p.hp + 25); popup(p.x, p.y - 90, 'EMBER KINDLED', '#ffc47a');
       for (let k = 0; k < 20; k++) part({ kind: 'ember', x: CHECKPOINTS[i], y: (floorY(CHECKPOINTS[i])) - 40, vx: (rand() - 0.5) * 80, vy: -50 - rand() * 120, life: 1, size: 2 });
     }
   }
@@ -991,7 +990,7 @@ export function createAshfall(host, services) {
     }
     // Commit to a safe landing before stopping to aim at a drone over a shaft.
     // Only input decisions change: no position, velocity, health or enemy edits.
-    if (level.id === 2 && !g.ambush) {
+    if (level.terrain === 'ascent' && !g.ambush) {
       if (s.routeJump && !p.grounded) { go(1); return; }
       s.routeJump = false;
       if (p.grounded && (solidAt(p.x + 65, p.y - 40) || !groundBelow(p.x + 60, p.y, 80))) {
@@ -1000,14 +999,14 @@ export function createAshfall(host, services) {
     }
     // exploration
     let target = null, best = 1e9;
-    for (const e of enemies) { if (e.dead || !e.awake) continue; const d = Math.abs(e.x - p.x); if (d < 380 && d < best && Math.abs(e.y - p.y) < 220 && (level.id === 1 || e.type === 'drone' || Math.abs(e.y - p.y) < 55)) { best = d; target = e; } }
+    for (const e of enemies) { if (e.dead || !e.awake) continue; const d = Math.abs(e.x - p.x); if (d < 380 && d < best && Math.abs(e.y - p.y) < 220 && (level.terrain !== 'ascent' || e.type === 'drone' || Math.abs(e.y - p.y) < 55)) { best = d; target = e; } }
     let dir = 1;
     if (target) {
       const dx = target.x - p.x, adx = Math.abs(dx), sd = Math.sign(dx) || 1;
       if (target.type === 'drone') {
         if (target.state === 'windup' && target.t > target.windup - 0.18 && p.grounded) { go(sd); press('roll'); return; }
         if (p.face !== sd) { go(sd); return; }
-        if (level.id === 2 && p.ammo > 0 && adx < 340 && target.y < p.y - 95) {
+        if (level.terrain === 'ascent' && p.ammo > 0 && adx < 340 && target.y < p.y - 95) {
           jump(0.3); dir = 0;
         } else if (p.ammo > 0 && adx < 420) { press('shoot'); dir = 0; }
         else if (adx < 60 && p.grounded) { jump(0.4); press('attack'); dir = sd; }
@@ -1023,7 +1022,7 @@ export function createAshfall(host, services) {
     if (dir) go(dir);
     if (dir && p.grounded) {
       const ahead = p.x + dir * 34;
-      if (!groundBelow(ahead, p.y, 70) || solidAt(p.x + dir * 30, p.y - 12) || solidAt(p.x + dir * (level.id === 2 ? 65 : 30), p.y - 40)) jump(0.4);
+      if (!groundBelow(ahead, p.y, 70) || solidAt(p.x + dir * 30, p.y - 12) || solidAt(p.x + dir * (level.terrain === 'ascent' ? 65 : 30), p.y - 40)) jump(0.4);
     }
     if (!dir && p.ammo < 2 && !p.reloading) press('reload');
   }
@@ -1061,11 +1060,11 @@ export function createAshfall(host, services) {
     if (g.cine) tx = g.cine.kind === 'bossIntro' ? (ARENA.left + ARENA.right) / 2 - VIEW_W / 2 : boss.x - VIEW_W / 2;
     tx = clamp(tx, 0, WORLD_END - VIEW_W);
     g.cam.x += (tx - g.cam.x) * Math.min(1, sdt * 4.5);
-    const ty = level.id === 2 ? (g.arenaLocked ? FLOOR - 420 : p.y - 360) : clamp((p.y - 420) * 0.55, -110, 30);
+    const ty = level.terrain === 'ascent' ? (g.arenaLocked ? arenaFloorY - 420 : p.y - 360) : clamp((p.y - 420) * 0.55, -110, 30);
     g.cam.y += (ty - g.cam.y) * Math.min(1, sdt * 3);
     // area cards + music
     const zi = zoneIndexAt(p.x);
-    if (!g.seenZones.has(zi) && !g.arenaLocked) { g.seenZones.add(zi); g.zoneShown = zi; const z = ZONES[zi]; if (!g.cards.some((c) => level.UPGRADES?.some((u) => u.title === c.title))) card(z.name, z.sub, `CHAPTER ${z.chapter}`); audio.setMode(z.music || z.id); }
+    if (!g.seenZones.has(zi) && !g.arenaLocked) { g.seenZones.add(zi); g.zoneShown = zi; const z = ZONES[zi]; if (!g.cards.some((c) => level.upgrades?.some((u) => u.title === c.title))) card(z.name, z.sub, `CHAPTER ${z.chapter}`); audio.setMode(z.music || z.id); }
     if (!g.arenaLocked) audio.setIntensity(threat * 0.3);
     g.hintT += sdt;
     for (const c of g.cards) c.t += dt;
@@ -1089,7 +1088,7 @@ export function createAshfall(host, services) {
     }
     // ambient embers from fires
     const camMid = g.cam.x + VIEW_W / 2;
-    for (const pit of PITS) if (pit.zone === 2 && Math.abs(pit.x - camMid) < 700 && Math.random() < 0.3 * dt * 60) part({ kind: 'ember', x: pit.x + Math.random() * pit.w, y: VIEW_H, vx: 0, vy: -120 - Math.random() * 100, g: -20, life: 1.2, size: 1.8, color: level.id === 2 ? '#a8dfff' : undefined });
+    for (const pit of PITS) if (pit.zone === 2 && Math.abs(pit.x - camMid) < 700 && Math.random() < 0.3 * dt * 60) part({ kind: 'ember', x: pit.x + Math.random() * pit.w, y: VIEW_H, vx: 0, vy: -120 - Math.random() * 100, g: -20, life: 1.2, size: 1.8, color: level.visuals.ember === '#ff9a4a' ? undefined : level.visuals.ember });
     if (Math.random() < 0.35) for (const l of LIGHTS) if (l.kind !== 'beacon' && l.kind !== 'lamp' && l.kind !== 'lantern' && Math.abs(l.x - (g.cam.x + VIEW_W / 2)) < 700 && Math.random() < 0.15) part({ kind: 'ember', x: l.x + (Math.random() - 0.5) * 30, y: l.y - 10, vx: (Math.random() - 0.5) * 30, vy: -60 - Math.random() * 60, g: -10, life: 1.4 + Math.random(), size: 1.5 });
   }
 
@@ -1113,7 +1112,7 @@ export function createAshfall(host, services) {
     if (alpha <= 0.01) return;
     const off = (((g.cam.x * factor) % LAYER_W) + LAYER_W) % LAYER_W;
     ctx.globalAlpha = alpha;
-    const y = -(level.id === 2 ? (g.cam.y - floorY(player.x) + 450) : g.cam.y) * factor * 0.5 + yShift;
+    const y = -(level.terrain === 'ascent' ? (g.cam.y - floorY(player.x) + 450) : g.cam.y) * factor * 0.5 + yShift;
     ctx.drawImage(img, -off, y); if (LAYER_W - off < VIEW_W) ctx.drawImage(img, LAYER_W - off, y);
     ctx.globalAlpha = 1;
   }
@@ -1124,7 +1123,7 @@ export function createAshfall(host, services) {
       const spr = art.fog[i], span = spr.width * 0.9;
       const off = (((g.cam.x * factor + t) % span) + span) % span;
       ctx.globalAlpha = alpha * w;
-      for (let x = -off - span; x < VIEW_W + span; x += span) ctx.drawImage(spr, x, y - (level.id === 2 ? (g.cam.y - floorY(player.x) + 450) : g.cam.y) * factor * 0.5, spr.width, spr.height);
+      for (let x = -off - span; x < VIEW_W + span; x += span) ctx.drawImage(spr, x, y - (level.terrain === 'ascent' ? (g.cam.y - floorY(player.x) + 450) : g.cam.y) * factor * 0.5, spr.width, spr.height);
     });
     ctx.globalAlpha = 1;
   }
@@ -1157,7 +1156,7 @@ export function createAshfall(host, services) {
     drawParticles();
     drawBeams();
     drawGroundFog();
-    if (level.id === 2) drawFlood();
+    if (level.flood) drawFlood();
     ctx.restore();
     // foreground parallax
     wts.forEach((w, i) => drawLayer(art.layers[i].fg, 1.25, w * 0.62, 0));
@@ -1190,19 +1189,19 @@ export function createAshfall(host, services) {
     // pits
     for (const pit of PITS) {
       if (pit.x + pit.w < x0 || pit.x > x1) continue;
-      if (level.id === 2) {
-        const FLOOR = floorY(pit.x);
+      if (level.visuals.pits === 'storm') {
+        const arenaFloorY = floorY(pit.x);
         const z = ZONES[pit.zone];
-        ctx.fillStyle = z.palette[0]; ctx.fillRect(pit.x, FLOOR, pit.w, 400);
+        ctx.fillStyle = z.palette[0]; ctx.fillRect(pit.x, arenaFloorY, pit.w, 400);
         ctx.strokeStyle = z.palette[2]; ctx.lineWidth = 2;
         if (pit.zone === 1) {
           // Broken archive glass: jagged shards, distinct from water and electrical arcs.
           ctx.fillStyle = '#66517e';
           for (let x = 8; x < pit.w - 8; x += 22) {
-            ctx.beginPath(); ctx.moveTo(pit.x + x - 8, FLOOR + 100); ctx.lineTo(pit.x + x, FLOOR + 28 + (x % 19)); ctx.lineTo(pit.x + x + 14, FLOOR + 100); ctx.fill(); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(pit.x + x - 8, arenaFloorY + 100); ctx.lineTo(pit.x + x, arenaFloorY + 28 + (x % 19)); ctx.lineTo(pit.x + x + 14, arenaFloorY + 100); ctx.fill(); ctx.stroke();
           }
         } else for (let i = 0; i < 5; i++) {
-          const y = FLOOR + 28 + i * 15;
+          const y = arenaFloorY + 28 + i * 15;
           ctx.beginPath(); ctx.moveTo(pit.x + 8, y);
           for (let x = 8; x < pit.w - 8; x += 10) ctx.lineTo(pit.x + x, y + Math.sin(x * 0.12 + g.time * 3 + i) * (pit.zone === 2 ? 8 : 3));
           ctx.stroke();
@@ -1210,13 +1209,13 @@ export function createAshfall(host, services) {
         const leftY = floorY(pit.x - 1), rightY = floorY(pit.x + pit.w + 1);
         ctx.fillStyle = z.palette[2]; ctx.fillRect(pit.x - 8, leftY - 8, 8, 8); ctx.fillRect(pit.x + pit.w, rightY - 8, 8, 8);
       } else if (pit.zone === 2) {
-        const gr = ctx.createLinearGradient(0, FLOOR + 20, 0, VIEW_H + 120); gr.addColorStop(0, '#2a0c04'); gr.addColorStop(0.5, '#c0420e'); gr.addColorStop(1, '#ffb04a');
-        ctx.fillStyle = gr; ctx.fillRect(pit.x, FLOOR + 10, pit.w, 400);
+        const gr = ctx.createLinearGradient(0, arenaFloorY + 20, 0, VIEW_H + 120); gr.addColorStop(0, '#2a0c04'); gr.addColorStop(0.5, '#c0420e'); gr.addColorStop(1, '#ffb04a');
+        ctx.fillStyle = gr; ctx.fillRect(pit.x, arenaFloorY + 10, pit.w, 400);
         ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.35 + Math.sin(g.time * 3 + pit.x) * 0.1;
-        ctx.drawImage(art.warmGlow, pit.x - 60, FLOOR - 40, pit.w + 120, 260); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        ctx.drawImage(art.warmGlow, pit.x - 60, arenaFloorY - 40, pit.w + 120, 260); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
       } else {
-        const gr = ctx.createLinearGradient(0, FLOOR, 0, VIEW_H + 100); gr.addColorStop(0, '#050606'); gr.addColorStop(1, pit.zone === 0 ? '#0a1414' : '#0a0a0c');
-        ctx.fillStyle = gr; ctx.fillRect(pit.x, FLOOR, pit.w, 400);
+        const gr = ctx.createLinearGradient(0, arenaFloorY, 0, VIEW_H + 100); gr.addColorStop(0, '#050606'); gr.addColorStop(1, pit.zone === 0 ? '#0a1414' : '#0a0a0c');
+        ctx.fillStyle = gr; ctx.fillRect(pit.x, arenaFloorY, pit.w, 400);
         if (pit.zone === 0) { ctx.strokeStyle = 'rgba(140,170,170,0.12)'; ctx.lineWidth = 1; for (let i = 0; i < 4; i++) { const y = VIEW_H - 40 + i * 9 + Math.sin(g.time + i) * 2; ctx.beginPath(); ctx.moveTo(pit.x + 10 + i * 6, y); ctx.lineTo(pit.x + pit.w - 10 - i * 8, y); ctx.stroke(); } }
       }
     }
@@ -1255,27 +1254,27 @@ export function createAshfall(host, services) {
       if (s.kind === 'car') { ctx.drawImage(art.props.car, s.x, s.y - 2, s.w, s.h + 4); continue; }
       if (s.kind === 'crate') { ctx.drawImage(art.props.crate, s.x, s.y, s.w, s.h); continue; }
       if (s.oneway) { drawPlank(s, zi); continue; }
-      ctx.fillStyle = patterns[zi] || '#15191a'; ctx.fillRect(s.x, s.y, s.w, (level.id === 2 ? Math.min(s.h, g.cam.y + VIEW_H + 200 - s.y) : VIEW_H + 200 - s.y));
+      ctx.fillStyle = patterns[zi] || '#15191a'; ctx.fillRect(s.x, s.y, s.w, (level.terrain === 'ascent' ? Math.min(s.h, g.cam.y + VIEW_H + 200 - s.y) : VIEW_H + 200 - s.y));
       const lip = art.lips[zi];
       for (let x = s.x; x < s.x + s.w; x += 512) { const w = Math.min(512, s.x + s.w - x); ctx.drawImage(lip, 0, 0, w, 44, x, s.y - 20, w, 44); }
       ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(s.x, s.y + 4, 3, 300); ctx.fillRect(s.x + s.w - 3, s.y + 4, 3, 300);
     }
     // ambush curtains
     if (g.ambush) for (const x of [g.ambush.l, g.ambush.r]) {
-      const FLOOR = level.id === 2 ? floorY(g.ambush.x) : BASE_FLOOR;
+      const arenaFloorY = level.terrain === 'ascent' ? floorY(g.ambush.x) : BASE_FLOOR;
       const a = Math.min(1, g.ambushT * 2);
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      const gr = ctx.createLinearGradient(0, FLOOR - 260, 0, FLOOR); gr.addColorStop(0, 'rgba(255,90,30,0)'); gr.addColorStop(1, `rgba(255,120,50,${0.45 * a})`);
-      ctx.fillStyle = gr; ctx.fillRect(x - 14, FLOOR - 260, 28, 260);
-      ctx.fillStyle = `rgba(255,220,170,${0.6 * a})`; ctx.fillRect(x - 1.5, FLOOR - 200 + Math.sin(g.time * 7 + x) * 10, 3, 200);
+      const gr = ctx.createLinearGradient(0, arenaFloorY - 260, 0, arenaFloorY); gr.addColorStop(0, 'rgba(255,90,30,0)'); gr.addColorStop(1, `rgba(255,120,50,${0.45 * a})`);
+      ctx.fillStyle = gr; ctx.fillRect(x - 14, arenaFloorY - 260, 28, 260);
+      ctx.fillStyle = `rgba(255,220,170,${0.6 * a})`; ctx.fillRect(x - 1.5, arenaFloorY - 200 + Math.sin(g.time * 7 + x) * 10, 3, 200);
       ctx.restore();
     }
     // arena gate
     if (g.gateY > 0) {
       const x = ARENA.left - 6, h = 330 * g.gateY;
-      ctx.fillStyle = '#100c0b'; ctx.fillRect(x - 18, FLOOR - 330, 36, h);
-      ctx.strokeStyle = '#2e2420'; ctx.lineWidth = 3; for (let y = FLOOR - 330 + 12; y < FLOOR - 330 + h; y += 22) { ctx.beginPath(); ctx.moveTo(x - 18, y); ctx.lineTo(x + 18, y); ctx.stroke(); }
-      ctx.fillStyle = '#c7902e'; ctx.fillRect(x - 18, FLOOR - 330 + h - 8, 36, 4);
+      ctx.fillStyle = '#100c0b'; ctx.fillRect(x - 18, arenaFloorY - 330, 36, h);
+      ctx.strokeStyle = '#2e2420'; ctx.lineWidth = 3; for (let y = arenaFloorY - 330 + 12; y < arenaFloorY - 330 + h; y += 22) { ctx.beginPath(); ctx.moveTo(x - 18, y); ctx.lineTo(x + 18, y); ctx.stroke(); }
+      ctx.fillStyle = '#c7902e'; ctx.fillRect(x - 18, arenaFloorY - 330 + h - 8, 36, 4);
     }
     // medkits
     for (const m of g.medkits) {
@@ -1286,16 +1285,16 @@ export function createAshfall(host, services) {
     }
   }
   function drawPlank(s, zi) {
-    const FLOOR = level.id === 2 ? s.y + 180 : BASE_FLOOR;
+    const arenaFloorY = level.terrain === 'ascent' ? s.y + 180 : BASE_FLOOR;
     if (s.kind === 'oneway') { // fallen log
       ctx.fillStyle = '#1a1410'; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(s.x, s.y - 2, s.w, 16, 8) : ctx.rect(s.x, s.y - 2, s.w, 16); ctx.fill();
       ctx.strokeStyle = '#2e241c'; ctx.lineWidth = 1.2; for (let x = s.x + 10; x < s.x + s.w - 10; x += 14) { ctx.beginPath(); ctx.moveTo(x, s.y + 1); ctx.lineTo(x + 9, s.y + 3); ctx.stroke(); }
       ctx.fillStyle = 'rgba(230,170,110,0.25)'; ctx.fillRect(s.x + 4, s.y - 2, s.w - 8, 1.5);
-      ctx.fillStyle = '#0c0a08'; ctx.fillRect(s.x + 20, s.y + 12, 6, FLOOR - s.y - 12); ctx.fillRect(s.x + s.w - 30, s.y + 12, 6, FLOOR - s.y - 12);
+      ctx.fillStyle = '#0c0a08'; ctx.fillRect(s.x + 20, s.y + 12, 6, arenaFloorY - s.y - 12); ctx.fillRect(s.x + s.w - 30, s.y + 12, 6, arenaFloorY - s.y - 12);
     } else if (s.kind === 'awning') {
       ctx.fillStyle = '#2a1c18'; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.w, s.y); ctx.lineTo(s.x + s.w - 6, s.y + 16); ctx.lineTo(s.x + 6, s.y + 16); ctx.fill();
       ctx.fillStyle = '#4a2a20'; for (let x = s.x + 6; x < s.x + s.w - 10; x += 24) ctx.fillRect(x, s.y + 2, 12, 12);
-      ctx.fillStyle = '#121214'; ctx.fillRect(s.x + 10, s.y + 16, 5, FLOOR - s.y - 16); ctx.fillRect(s.x + s.w - 15, s.y + 16, 5, FLOOR - s.y - 16);
+      ctx.fillStyle = '#121214'; ctx.fillRect(s.x + 10, s.y + 16, 5, arenaFloorY - s.y - 16); ctx.fillRect(s.x + s.w - 15, s.y + 16, 5, arenaFloorY - s.y - 16);
       ctx.fillStyle = 'rgba(255,170,100,0.3)'; ctx.fillRect(s.x, s.y, s.w, 1.5);
     } else { // catwalk
       ctx.fillStyle = '#1a1412'; ctx.fillRect(s.x, s.y, s.w, 8);
@@ -1332,17 +1331,17 @@ export function createAshfall(host, services) {
     if (b.state === 'windup') {
       const k = b.t / b.windup;
       if (b.attack === 'slam') {
-        const x = b.slamX; dangerRect(x - 95, FLOOR - 8, 190, 10, k, pulse);
-        chevrons(x, FLOOR - 40 - 30 * (1 - k), 0, k);
+        const x = b.slamX; dangerRect(x - 95, arenaFloorY - 8, 190, 10, k, pulse);
+        chevrons(x, arenaFloorY - 40 - 30 * (1 - k), 0, k);
       } else if (b.attack === 'charge') {
         const xe = b.face > 0 ? ARENA.right : ARENA.left, xs = b.x;
-        ctx.fillStyle = `rgba(255,40,20,${0.08 + 0.18 * k})`; ctx.fillRect(Math.min(xs, xe), FLOOR - 200, Math.abs(xe - xs), 200);
-        for (let i = 0; i < 8; i++) { const x = xs + b.face * (100 + ((i * 90 + g.time * 400) % 720)); if ((x - xs) * b.face < Math.abs(xe - xs)) arrow(x, FLOOR - 100, b.face, 0.3 + 0.5 * k); }
+        ctx.fillStyle = `rgba(255,40,20,${0.08 + 0.18 * k})`; ctx.fillRect(Math.min(xs, xe), arenaFloorY - 200, Math.abs(xe - xs), 200);
+        for (let i = 0; i < 8; i++) { const x = xs + b.face * (100 + ((i * 90 + g.time * 400) % 720)); if ((x - xs) * b.face < Math.abs(xe - xs)) arrow(x, arenaFloorY - 100, b.face, 0.3 + 0.5 * k); }
       } else if (b.attack === 'barrage') {
         const m = bossMuzzle(), aim = b.aim || { x: player.x, y: player.y - 34 }, base = Math.atan2(aim.y - m.y, aim.x - m.x), n = b.phase === 2 ? 5 : 3;
         for (let i = 0; i < n; i++) { const a = base + (i - (n - 1) / 2) * 0.13; dangerLine(m.x, m.y, m.x + Math.cos(a) * 1000, m.y + Math.sin(a) * 1000, k, pulse, true); }
       } else if (b.attack === 'beam') {
-        const y = FLOOR - (b.beamHigh ? 52 : 15), xe = b.face > 0 ? ARENA.right : ARENA.left, xs = b.x + b.face * 70;
+        const y = arenaFloorY - (b.beamHigh ? 52 : 15), xe = b.face > 0 ? ARENA.right : ARENA.left, xs = b.x + b.face * 70;
         dangerLine(xs, y, xe, y, k, pulse, true);
         for (let i = 1; i < 6; i++) chevrons(xs + (xe - xs) * i / 6, y + (b.beamHigh ? 30 : -30), b.beamHigh ? Math.PI : 0, k);
       } else if (b.attack === 'missiles') {
@@ -1356,22 +1355,22 @@ export function createAshfall(host, services) {
       ctx.save();
       ctx.globalAlpha = column.t > 0.3 ? Math.max(0, (0.45 - column.t) / 0.15) : 1;
       ctx.fillStyle = active ? 'rgba(156,225,255,0.65)' : `rgba(255,172,82,${0.1 + charge * 0.12})`;
-      ctx.fillRect(x - 32, FLOOR - 360, 64, 360);
+      ctx.fillRect(x - 32, arenaFloorY - 360, 64, 360);
       ctx.strokeStyle = active ? '#effcff' : '#ffc46d'; ctx.lineWidth = active ? 4 : 1.5;
       if (!active) ctx.setLineDash?.([8, 6]);
-      ctx.strokeRect(x - 32, FLOOR - 360, 64, 360);
-      if (!active) { ctx.fillStyle = '#ffc46d'; ctx.fillRect(x - 32, FLOOR - 7, 64 * charge, 5); }
-      ctx.beginPath(); ctx.moveTo(x, FLOOR - 360);
-      for (let y = FLOOR - 340; y <= FLOOR; y += 20) ctx.lineTo(x + (active ? Math.sin(y + g.time * 40) * 16 : 0), y);
+      ctx.strokeRect(x - 32, arenaFloorY - 360, 64, 360);
+      if (!active) { ctx.fillStyle = '#ffc46d'; ctx.fillRect(x - 32, arenaFloorY - 7, 64 * charge, 5); }
+      ctx.beginPath(); ctx.moveTo(x, arenaFloorY - 360);
+      for (let y = arenaFloorY - 340; y <= arenaFloorY; y += 20) ctx.lineTo(x + (active ? Math.sin(y + g.time * 40) * 16 : 0), y);
       ctx.stroke(); ctx.restore();
     }
     for (const m of g.markers) {
       if (m.done || m.t < 0) continue;
       const k = m.t / m.dur;
-      ctx.fillStyle = `rgba(255,50,20,${0.12 + 0.3 * k})`; ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66, 10, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = `rgba(255,250,240,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66 * k, 10 * k, 0, 0, 7); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(m.x, FLOOR - 2, 66, 10, 0, 0, 7); ctx.stroke();
-      if (k > 0.7) { ctx.fillStyle = '#ffd0a0'; ctx.fillRect(m.x - 2, FLOOR - 2 - (1 - k) * 1500, 4, 26); }
+      ctx.fillStyle = `rgba(255,50,20,${0.12 + 0.3 * k})`; ctx.beginPath(); ctx.ellipse(m.x, arenaFloorY - 2, 66, 10, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = `rgba(255,250,240,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(m.x, arenaFloorY - 2, 66 * k, 10 * k, 0, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(m.x, arenaFloorY - 2, 66, 10, 0, 0, 7); ctx.stroke();
+      if (k > 0.7) { ctx.fillStyle = '#ffd0a0'; ctx.fillRect(m.x - 2, arenaFloorY - 2 - (1 - k) * 1500, 4, 26); }
     }
   }
   function dangerLine(x0, y0, x1, y1, k, pulse, dash) {
@@ -1420,9 +1419,9 @@ export function createAshfall(host, services) {
       ctx.strokeStyle = b.color === 'red' ? 'rgba(255,80,60,0.6)' : 'rgba(255,150,70,0.6)'; ctx.lineWidth = b.r; ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.vx * 0.03, b.y - b.vy * 0.03); ctx.stroke();
     }
     for (const w of g.waves) {
-      ctx.globalAlpha = Math.min(1, w.life); ctx.drawImage(art.warmGlow, w.x - 40, FLOOR - 70, 80, 90);
-      ctx.strokeStyle = 'rgba(255,190,110,0.95)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(w.x - w.dir * 30, FLOOR); ctx.quadraticCurveTo(w.x - w.dir * 4, FLOOR - 40, w.x + w.dir * 10, FLOOR); ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,120,50,0.6)'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(w.x - w.dir * 50, FLOOR); ctx.quadraticCurveTo(w.x - w.dir * 20, FLOOR - 26, w.x, FLOOR); ctx.stroke();
+      ctx.globalAlpha = Math.min(1, w.life); ctx.drawImage(art.warmGlow, w.x - 40, arenaFloorY - 70, 80, 90);
+      ctx.strokeStyle = 'rgba(255,190,110,0.95)'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(w.x - w.dir * 30, arenaFloorY); ctx.quadraticCurveTo(w.x - w.dir * 4, arenaFloorY - 40, w.x + w.dir * 10, arenaFloorY); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,120,50,0.6)'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(w.x - w.dir * 50, arenaFloorY); ctx.quadraticCurveTo(w.x - w.dir * 20, arenaFloorY - 26, w.x, arenaFloorY); ctx.stroke();
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -1475,17 +1474,17 @@ export function createAshfall(host, services) {
   }
 
   function drawGroundFog() {
-    const FLOOR = level.id === 2 ? floorY(player.x) : BASE_FLOOR;
-    const gr = ctx.createLinearGradient(0, FLOOR - 70, 0, FLOOR + 30);
-    const wts = zoneBlend(); const col = level.id === 2 ? ZONES[wts.indexOf(Math.max(...wts))].fog : wts[2] > 0.5 ? '160,90,60' : wts[1] > 0.5 ? '140,120,110' : '130,150,148';
+    const arenaFloorY = level.terrain === 'ascent' ? floorY(player.x) : BASE_FLOOR;
+    const gr = ctx.createLinearGradient(0, arenaFloorY - 70, 0, arenaFloorY + 30);
+    const wts = zoneBlend(); const col = level.visuals.fog[wts[2] > 0.5 ? 2 : wts[1] > 0.5 ? 1 : 0];
     gr.addColorStop(0, `rgba(${col},0)`); gr.addColorStop(0.7, `rgba(${col},0.12)`); gr.addColorStop(1, `rgba(${col},0.02)`);
-    ctx.fillStyle = gr; ctx.fillRect(g.cam.x - 50, FLOOR - 70, VIEW_W + 100, 100);
+    ctx.fillStyle = gr; ctx.fillRect(g.cam.x - 50, arenaFloorY - 70, VIEW_W + 100, 100);
     const spr = art.fog[wts.indexOf(Math.max(...wts))], span = spr.width;
     const off = ((g.cam.x * 0.1 + g.time * 22) % span + span) % span;
-    ctx.globalAlpha = 0.28; for (let x = g.cam.x - off - span; x < g.cam.x + VIEW_W + span; x += span) ctx.drawImage(spr, x, FLOOR - 150, span, 220); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.28; for (let x = g.cam.x - off - span; x < g.cam.x + VIEW_W + span; x += span) ctx.drawImage(spr, x, arenaFloorY - 150, span, 220); ctx.globalAlpha = 1;
   }
   function drawLighting(wts, shx, shy) {
-    const ambient = 0.5 * wts[0] + 0.46 * wts[1] + 0.4 * wts[2];
+    const ambient = level.visuals.ambient.reduce((sum, a, i) => sum + a * wts[i], 0);
     lctx.setTransform(1, 0, 0, 1, 0, 0); lctx.globalCompositeOperation = 'source-over'; lctx.clearRect(0, 0, lightCv.width, lightCv.height);
     lctx.fillStyle = `rgba(3,5,8,${ambient})`; lctx.fillRect(0, 0, lightCv.width, lightCv.height);
     lctx.globalCompositeOperation = 'destination-out';
@@ -1510,7 +1509,7 @@ export function createAshfall(host, services) {
     ctx.save();
     for (const a of g.ash) {
       const ember = wts[2] > 0.5 ? a.s < 0.35 : a.s < 0.08;
-      if (ember) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5 + 0.4 * Math.sin(g.time * 4 + a.s * 20); ctx.fillStyle = level.id === 2 ? '#a8dfff' : '#ff9a4a'; }
+      if (ember) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5 + 0.4 * Math.sin(g.time * 4 + a.s * 20); ctx.fillStyle = level.visuals.ember; }
       else { ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 0.25 + a.z * 0.35; ctx.fillStyle = '#a8a29a'; }
       const s = 0.8 + a.z * 1.8; ctx.fillRect(a.x, a.y, s, s * 0.8);
     }
@@ -1519,7 +1518,7 @@ export function createAshfall(host, services) {
   function drawPost(wts) {
     // colour grade
     ctx.save(); ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.22;
-    ctx.fillStyle = level.id === 2 ? ZONES[wts.indexOf(Math.max(...wts))].palette[1] : wts[2] > 0.5 ? '#7a3a1a' : wts[1] > 0.5 ? '#4a3a40' : '#2a4a4a'; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillStyle = level.visuals.grade[wts[2] > 0.5 ? 2 : wts[1] > 0.5 ? 1 : 0]; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     ctx.restore();
     ctx.drawImage(art.vignette, 0, 0);
     if (g.dmgVignette > 0 || player.hp < 30) {
@@ -1527,8 +1526,8 @@ export function createAshfall(host, services) {
       ctx.save(); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = a; const gr = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.35, VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.6); gr.addColorStop(0, 'rgba(120,0,0,0)'); gr.addColorStop(1, 'rgba(140,10,0,1)'); ctx.fillStyle = gr; ctx.fillRect(0, 0, VIEW_W, VIEW_H); ctx.restore();
     }
     if (g.flashFx > 0) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = Math.min(0.85, g.flashFx * 0.7); ctx.fillStyle = g.flashColor; ctx.fillRect(0, 0, VIEW_W, VIEW_H); ctx.restore(); }
-    if (level.id === 2 && g.mode === 'play' && !g.flood.held) {
-      const danger = clamp(1 - (g.flood.y - player.y) / level.FLOOD.warning, 0, 1);
+    if (level.flood && g.mode === 'play' && !g.flood.held) {
+      const danger = clamp(1 - (g.flood.y - player.y) / level.flood.warning, 0, 1);
       const gr = ctx.createLinearGradient(0, VIEW_H - 130, 0, VIEW_H);
       gr.addColorStop(0, 'rgba(39,193,216,0)'); gr.addColorStop(1, `rgba(39,193,216,${danger * 0.65})`);
       ctx.fillStyle = gr; ctx.fillRect(0, VIEW_H - 130, VIEW_W, 130);
@@ -1575,7 +1574,7 @@ export function createAshfall(host, services) {
       }
       if (p.reloading) { text('RELOADING', x + 160, y + 28, 10, '#ffcf8a', { align: 'left', spacing: 2 }); ctx.fillStyle = '#ffcf8a'; ctx.fillRect(x + 92 + p.ammo * 16, y + 38, 10 * clamp(p.reloadT / RELOAD_SHELL, 0, 1), 2); }
       else if (p.ammo === 0) text('EMPTY · R', x + 160, y + 28, 10, '#ff8a6a', { align: 'left', spacing: 2 });
-      if (level.id === 2) {
+      if (level.flood) {
         const f = g.flood, distance = Math.max(0, Math.round(f.y - p.y));
         ctx.fillStyle = '#07151de6'; ctx.fillRect(x - 4, 82, 238, 33);
         ctx.fillStyle = distance < 90 && !f.held ? '#ffce85' : '#a0eade';
@@ -1597,7 +1596,7 @@ export function createAshfall(host, services) {
       if (g.arenaLocked && !g.cine && g.letterbox < 0.3 && boss.state !== 'intro' && boss.state !== 'dormant') {
         ctx.save(); ctx.translate(VIEW_W / 2, VIEW_H); ctx.scale(hs, hs); ctx.translate(-VIEW_W / 2, -VIEW_H);
         const bw = 520, bx = VIEW_W / 2 - bw / 2, by = VIEW_H - 46 - lbOff;
-        text(boss.phase === 1 ? BOSS.name : level.id === 1 ? 'THE WARDEN · UNBOUND' : BOSS.unbound, VIEW_W / 2, by - 14, 13, '#f0dcc4', { spacing: 5 });
+        text(boss.phase === 1 ? BOSS.name : BOSS.bar2, VIEW_W / 2, by - 14, 13, '#f0dcc4', { spacing: 5 });
         ctx.fillStyle = 'rgba(8,6,6,0.75)'; ctx.fillRect(bx - 3, by - 3, bw + 6, 14);
         const frac = boss.phase === 1 ? boss.armor / BOSS.armor : boss.hp / BOSS.hp;
         const bgr = ctx.createLinearGradient(bx, 0, bx + bw, 0);
@@ -1697,7 +1696,7 @@ export function createAshfall(host, services) {
       get level() { return level; }, get g() { return g; }, get player() { return player; }, get boss() { return boss; }, get enemies() { return enemies; },
       start() { startGame(); }, bot(on = true) { g.bot = on; }, manual(on = true) { g.manual = on; },
       step(n = 1) { for (let i = 0; i < n; i++) if (!userPaused && !shellPaused) tick(DT); }, render() { render(); },
-      warp(x) { player.x = x; player.y = level.id === 2 ? floorY(x) : surfaceY(x, 0) ?? FLOOR; player.safe = { x: player.x, y: player.y }; if (level.id === 2) g.cam.y = player.y - 360; g.cam.x = clamp(x - VIEW_W * 0.42, 0, WORLD_END - VIEW_W); for (let i = CHECKPOINTS.length - 1; i >= 0; i--) if (x >= CHECKPOINTS[i]) { g.cpIdx = Math.max(g.cpIdx, i); break; } },
+      warp(x) { player.x = x; player.y = level.terrain === 'ascent' ? floorY(x) : surfaceY(x, 0) ?? arenaFloorY; player.safe = { x: player.x, y: player.y }; if (level.terrain === 'ascent') g.cam.y = player.y - 360; g.cam.x = clamp(x - VIEW_W * 0.42, 0, WORLD_END - VIEW_W); for (let i = CHECKPOINTS.length - 1; i >= 0; i--) if (x >= CHECKPOINTS[i]) { g.cpIdx = Math.max(g.cpIdx, i); break; } },
       press(a, d = true) { pressAction(a, d); }
     };
   }
