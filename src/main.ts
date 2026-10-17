@@ -20,7 +20,7 @@ if (redirectedPath) {
 const shell = createShellServices();
 let controller: GameController | undefined;
 let viewToken = 0;
-const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena']);
+const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena', 'ashfall']);
 const siteOrigin = 'https://games.integ.life';
 let activeSlug: string | undefined;
 let pendingStart: (() => Promise<void>) | undefined;
@@ -236,7 +236,14 @@ window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && co
 window.addEventListener('blur', pauseActiveGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
 
-function togglePause(show: boolean) { const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]'); if (overlay) overlay.hidden = !show; }
+function togglePause(show: boolean) {
+  const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]');
+  if (!overlay) return;
+  // Ashfall's ribbon stays visible; the pause controls must also remain inside native fullscreen.
+  const screen = appRoot.querySelector<HTMLElement>('.ashfall-screen');
+  if (screen && overlay.parentElement !== screen) screen.append(overlay);
+  overlay.hidden = !show;
+}
 
 function setShareStatus(message: string): void {
   const status = appRoot.querySelector<HTMLElement>('[data-share-status]');

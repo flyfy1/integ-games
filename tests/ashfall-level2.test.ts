@@ -238,7 +238,9 @@ describe('Ashfall rising deep', () => {
     try {
       const d = boot(); expect(document.querySelector('.ashfall-touch.on')).not.toBeNull();
       controller!.pause(); const t = d.g.time; d.step(60); expect(d.g.time).toBe(t);
-      controller!.resume();
+      document.querySelector('[aria-label="jump"]')!.dispatchEvent(new Event('pointerdown'));
+      controller!.resume(); d.step(5); expect(d.player.y).toBe(450);
+      document.querySelector('[aria-label="jump"]')!.dispatchEvent(new Event('pointerup'));
       document.querySelector('[aria-label="jump"]')!.dispatchEvent(new Event('pointerdown'));
       d.step(5); expect(d.player.y).toBeLessThan(450);
       document.querySelector('[aria-label="jump"]')!.dispatchEvent(new Event('pointerup'));

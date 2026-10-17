@@ -116,7 +116,7 @@ export function createAshfall(host, services) {
     if (down) g.usedActions.add(a);
   };
   const onKeyDown = (e) => {
-    if (!root.isConnected || e.target instanceof HTMLInputElement) return;
+    if (!root.isConnected || shellPaused || e.target instanceof HTMLInputElement) return;
     if (g.mode === 'loading') return;
     if (g.mode === 'title') {
       if (/^[123]$/.test(e.key)) { e.preventDefault(); chooseLevel(Number(e.key)); ui.focusSelection(); }
@@ -162,6 +162,7 @@ export function createAshfall(host, services) {
     const knob = pad.querySelector('i');
     let padId = null;
     const padMove = (e) => {
+      if (userPaused || shellPaused) return;
       const r = pad.getBoundingClientRect(), dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
       const dir = Math.abs(dx) < 0.16 ? 0 : Math.sign(dx);
       if (held.left !== (dir < 0)) pressAction('left', dir < 0);
@@ -170,13 +171,13 @@ export function createAshfall(host, services) {
       knob.style.transform = `translateX(${clamp(dx, -1, 1) * r.width * 0.32}px)`;
     };
     const padEnd = (e) => { if (e.pointerId !== padId) return; padId = null; pressAction('left', false); pressAction('right', false); pad.classList.remove('to-l', 'to-r'); knob.style.transform = ''; };
-    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); audio.unlock(); if (g.mode !== 'play') return; padId = e.pointerId; pad.setPointerCapture?.(e.pointerId); padMove(e); });
+    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); audio.unlock(); if (g.mode !== 'play' || userPaused || shellPaused) return; padId = e.pointerId; pad.setPointerCapture?.(e.pointerId); padMove(e); });
     pad.addEventListener('pointermove', (e) => { if (e.pointerId === padId) padMove(e); });
     pad.addEventListener('pointerup', padEnd); pad.addEventListener('pointercancel', padEnd); pad.addEventListener('lostpointercapture', padEnd);
     const mk = (label, action, area) => {
       const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = label; btn.setAttribute('aria-label', action); btn.style.gridArea = area; btn.className = `a-${area}`;
       const up = () => { btn.classList.remove('held'); pressAction(action, false); };
-      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture?.(e.pointerId); btn.classList.add('held'); audio.unlock(); if (g.mode !== 'play') return; pressAction(action, true); navigator.vibrate?.(6); });
+      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture?.(e.pointerId); btn.classList.add('held'); audio.unlock(); if (g.mode !== 'play' || userPaused || shellPaused) return; pressAction(action, true); navigator.vibrate?.(6); });
       btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up); btn.addEventListener('lostpointercapture', up);
       return btn;
     };
@@ -194,7 +195,7 @@ export function createAshfall(host, services) {
   let userPaused = false, shellPaused = false;
   const ui = createLevelUI(root, screen, LEVELS, {
     select: chooseLevel, start: launchSelection, continue: () => continueRun(true),
-    replay: () => launchSelection(runStartLevelId), menu: showMenu, playerX: () => player.x
+    replay: () => launchSelection(runStartLevelId), menu: showMenu, playerX: () => player.x, boss: () => boss, player: () => player
   });
   function syncUI() {
     ui.update(g, level, selectedLevel, runStartLevelId, progress, loadBest(services.storage, selectedLevel.id));

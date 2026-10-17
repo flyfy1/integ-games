@@ -4,6 +4,8 @@ export function createLevelUI(root, screen, levels, actions) {
   ribbon.setAttribute('aria-label', 'Current level and chapter');
   ribbon.innerHTML = '<strong></strong><span></span>';
   root.insertBefore(ribbon, screen);
+  const pattern = document.createElement('div'); pattern.className = 'ashfall-pattern'; pattern.setAttribute('role', 'status');
+  root.insertBefore(pattern, screen);
   const overlay = document.createElement('section'); overlay.className = 'ashfall-overlay';
   overlay.setAttribute('aria-label', 'Ashfall level selection');
   screen.append(overlay);
@@ -16,6 +18,18 @@ export function createLevelUI(root, screen, levels, actions) {
     ribbon.querySelector('strong').textContent = `LEVEL ${display.numeral}`;
     ribbon.querySelector('span').textContent = `CH. ${zone.chapter} · ${zone.name}`;
     root.dataset.mode = g.mode;
+    // Fixed CSS-size cues remain readable when portrait play shrinks the canvas.
+    // Reserve the row throughout III play, so attack warnings never move the scene.
+    pattern.hidden = g.mode !== 'play' || level.BOSS.variant !== 'reforged';
+    const b = actions.boss(), p = actions.player();
+    let cue = '';
+    if (!pattern.hidden && !g.cine && !p.dead) {
+      if (p.hooked) cue = 'CHAIN HOOK · DODGE THE FOLLOW-UP SLAM';
+      else if ((b.state === 'windup' && b.attack === 'hook') || g.hooks.some(h => h.state === 'fly')) cue = 'CHAIN HOOK · JUMP OR ROLL';
+      else if ((b.state === 'windup' && b.attack === 'pillars') || g.pillars.some(pl => pl.t < pl.warn + pl.dur)) cue = 'PILLARS · STEP ASIDE, THEN SWITCH LANES';
+    }
+    if (pattern.textContent !== cue) pattern.textContent = cue;
+    pattern.classList.toggle('is-warning', !!cue);
     const visible = ['title', 'loading', 'interlude', 'victory'].includes(g.mode);
     overlay.hidden = !visible;
     screen.classList.toggle('has-overlay', visible);
@@ -51,6 +65,7 @@ export function createLevelUI(root, screen, levels, actions) {
 function formatTime(time) { return `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, '0')}`; }
 
 export const levelStyles = `
+.ashfall-pattern{box-sizing:border-box;min-height:28px;line-height:20px;padding:4px 8px;width:100%;max-width:1280px;text-align:center;font:700 13px/20px system-ui,sans-serif;color:#c8f0ff;border-radius:5px}.ashfall-pattern.is-warning{background:#132937;border:1px solid #78b8d3;padding:3px 7px}.ashfall-pattern[hidden]{display:none}
 .ashfall-screen{position:relative;width:100%;min-width:0}.ashfall-screen canvas{margin:auto}
 .ashfall-ribbon{display:flex;align-items:center;gap:16px;width:100%;max-width:1280px;min-height:44px;padding:10px 18px;border:1px solid #76604a;background:#100f12;color:#eee3d2;border-radius:8px;font:14px/1.3 Georgia,serif;box-sizing:border-box;z-index:1}
 .ashfall-ribbon strong{flex:0 0 auto;white-space:nowrap;font-size:18px;font-weight:800;letter-spacing:.06em;color:#ffda9a}.ashfall-ribbon span{min-width:0;overflow-wrap:anywhere}
@@ -59,6 +74,13 @@ export const levelStyles = `
 .ashfall[data-mode=title] .ashfall-touch,.ashfall[data-mode=loading] .ashfall-touch,.ashfall[data-mode=interlude] .ashfall-touch,.ashfall[data-mode=victory] .ashfall-touch{display:none}
 .ashfall[data-mode=title] .ashfall-rotate,.ashfall[data-mode=loading] .ashfall-rotate{display:none!important}
 .ashfall canvas{max-width:min(1280px,calc((100dvh - 90px) * 16 / 9))}
+.is-immersive .ashfall:not(.is-touch) .ashfall-ribbon,:fullscreen .ashfall:not(.is-touch) .ashfall-ribbon{max-width:calc(100% - 120px)}
+.is-immersive .ashfall:not(.is-touch) canvas,:fullscreen .ashfall:not(.is-touch) canvas{max-width:min(1280px,calc((100dvh - 150px) * 16 / 9))}
+@media(orientation:portrait){
+.is-immersive:has(.ashfall-screen.has-overlay){align-items:start}
+.is-immersive .ashfall.is-touch:has(.ashfall-screen.has-overlay){height:auto;max-height:none;min-height:100%;justify-content:flex-start;padding-top:58px;gap:12px}
+.ashfall-ribbon,.ashfall-pattern{flex-shrink:0}
+}
 @media(max-width:600px){.ashfall-ribbon{gap:10px;padding:8px 10px;font-size:12px}.ashfall-ribbon strong{font-size:16px}.af-levels{grid-template-columns:1fr;gap:8px}.af-levels button{min-height:78px;display:grid;grid-template-columns:85px 1fr;gap:3px 9px;padding:10px}.af-levels [aria-checked=true]{padding:9px}.af-levels strong{font-size:17px;grid-row:span 2}.af-levels .af-name{font-size:13px}.af-levels small{grid-column:2}.af-levels span{font-size:12px}.af-panel h1{font-size:28px;margin-bottom:10px}.af-panel h2{font-size:23px}.af-panel{font-size:13px}.ashfall-overlay{padding:12px}.ashfall-screen.has-overlay{min-height:470px}.af-help{font-size:11px}.af-complete td,.af-complete th{padding:6px 2px;font-size:11px}}
-@media(orientation:landscape) and (max-height:600px){.ashfall-ribbon{width:calc(100% - 290px);padding:6px 10px;min-height:40px;font-size:11px}.ashfall-ribbon strong{font-size:16px}.ashfall.is-touch canvas{max-width:min(calc((100dvh - 100px) * 16 / 9),calc(100vw - 290px))}.ashfall-screen.has-overlay{min-height:300px}.ashfall-overlay{padding:10px 24px}.af-panel h1{font-size:25px;margin:0 0 8px}.af-panel h2{font-size:22px;margin:6px 0}.af-levels button{min-height:100px;padding:9px}.af-levels [aria-checked=true]{padding:8px}.af-levels strong{font-size:17px}.af-levels .af-name{font-size:13px}.af-panel p{margin:6px 0}.af-help{font-size:11px}.af-eyebrow{font-size:11px}.af-primary,.af-secondary{min-height:44px;padding:8px 18px}.af-complete td,.af-complete th{padding:3px}.af-complete table{margin:4px auto}}
+@media(orientation:landscape) and (max-height:600px){.ashfall-pattern{max-width:calc(100% - 290px);font-size:12px;}.ashfall-ribbon{width:calc(100% - 290px);padding:6px 10px;min-height:40px;font-size:11px}.ashfall-ribbon strong{font-size:16px}.ashfall.is-touch canvas{max-width:min(calc((100dvh - 100px) * 16 / 9),calc(100vw - 290px))}.ashfall-screen.has-overlay{min-height:300px}.ashfall-overlay{padding:10px 24px}.af-panel h1{font-size:25px;margin:0 0 8px}.af-panel h2{font-size:22px;margin:6px 0}.af-levels button{min-height:100px;padding:9px}.af-levels [aria-checked=true]{padding:8px}.af-levels strong{font-size:17px}.af-levels .af-name{font-size:13px}.af-panel p{margin:6px 0}.af-help{font-size:11px}.af-eyebrow{font-size:11px}.af-primary,.af-secondary{min-height:44px;padding:8px 18px}.af-complete td,.af-complete th{padding:3px}.af-complete table{margin:4px auto}}
 `;

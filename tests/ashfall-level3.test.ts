@@ -96,6 +96,15 @@ describe('Level III scoped content and attacks', () => {
     d.press(action); d.step(action === 'jump' ? 30 : 20); d.press(action, false);
     expect(d.player.hp).toBe(100); expect(d.player.hooked).toBe(false);
   });
+  it('explains both new patterns in a readable DOM cue without changing timing', () => {
+    const d = boot(); arena(d, 'pillars'); d.render();
+    const cue = document.querySelector('.ashfall-pattern')!;
+    expect(cue.textContent).toBe('PILLARS · STEP ASIDE, THEN SWITCH LANES');
+    d.g.pillars = []; Object.assign(d.boss, { state: 'idle', cd: 0, next: 'hook' }); d.step(); d.render();
+    expect(cue.textContent).toBe('CHAIN HOOK · JUMP OR ROLL');
+    d.g.hooks = []; d.boss.state = 'idle'; d.boss.cd = 100; d.render(); expect(cue.textContent).toBe('');
+    expect((cue as HTMLElement).hidden).toBe(false);
+  });
   it('clears pillars, capture and scheduled boss events on death and phase-two respawn', () => {
     const d = boot(); arena(d, 'pillars', 2);
     d.g.hooks.push({ state: 'pull' }); d.player.hooked = true;
