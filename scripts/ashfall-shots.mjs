@@ -2,7 +2,7 @@
 /**
  * Ashfall visual spot-checks: warps to named moments and captures canvas frames.
  * Run: CHROMIUM_PATH=... node scripts/ashfall-shots.mjs [scene,...] [--level=2] [--mobile]
- * Scenes: woods, quarter, foundry, aqueduct, archive, crown, combo, shotgun, roll, boss, phase2, conduit
+ * Scenes: water, gate-hold, flood-boss, woods, quarter, foundry, aqueduct, archive, crown, combo, shotgun, roll, boss, phase2, conduit
  */
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,7 +13,8 @@ import { createServer } from 'vite';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const level = process.argv.includes('--level=2') ? 2 : 1;
 const mobile = process.argv.includes('--mobile');
-const out = path.join(root, 'test-results', `ashfall-shots-level${level}${mobile ? '-mobile' : ''}`);
+const label = process.argv.find((a) => a.startsWith('--label='))?.split('=')[1] || '';
+const out = path.join(root, 'test-results', `ashfall-shots-level${level}${mobile ? '-mobile' : ''}${label ? '-' + label : ''}`);
 await mkdir(out, { recursive: true });
 const wanted = (process.argv.slice(2).find((a) => !a.startsWith('--')) || (level === 2 ? 'aqueduct,archive,crown,combo,shotgun,boss,phase2,conduit' : 'woods,quarter,foundry,combo,shotgun,boss,phase2')).split(',');
 
@@ -38,7 +39,25 @@ try {
   const run = (fn, arg) => page.evaluate(fn, arg);
   for (const scene of wanted) {
     await fresh();
-    if (['woods', 'quarter', 'foundry', 'aqueduct', 'archive', 'crown'].includes(scene)) {
+    if (['water', 'gate-hold', 'flood-boss'].includes(scene)) {
+      if (level !== 2) throw new Error('Flood scenes require --level=2');
+      // Visual fixtures only. Completion runs in ashfall-playtest never warp or edit actors.
+      await run((scene) => {
+        const d = __ashfall;
+        d.warp(scene === 'water' ? 1760 : scene === 'gate-hold' ? 3410 : 11250);
+        d.enemies.forEach((e) => { e.dead = true; });
+        d.player.invuln = true;
+        d.step(scene === 'flood-boss' ? 240 : 1);
+        d.g.cards = []; d.g.hintT = 30;
+        d.g.flood.y = d.player.y + (scene === 'water' ? 110 : 25); d.g.flood.grace = 0;
+        if (scene === 'flood-boss') { d.boss.state = 'idle'; d.boss.cd = 20; }
+        d.step(60);
+        if (scene === 'water') { d.press('right'); d.step(8); d.press('right', false); }
+        if (scene === 'gate-hold' && d.g.flood.held !== 'gate') throw new Error('Gate did not hold the flood');
+        if (scene === 'flood-boss' && (d.boss.phase !== 1 || d.g.flood.held !== 'arena')) throw new Error('Phase one summit lock missing');
+      }, scene);
+      await snap(scene);
+    } else if (['woods', 'quarter', 'foundry', 'aqueduct', 'archive', 'crown'].includes(scene)) {
       const x = { woods: 2050, quarter: 4500, foundry: 8150, aqueduct: 2050, archive: 4500, crown: 8150 }[scene];
       await run((x) => { __ashfall.warp(x); __ashfall.step(90); }, x);
       await snap(scene);

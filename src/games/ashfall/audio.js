@@ -154,6 +154,7 @@ export function createAudio() {
     step(t) { noise(t, { type: 'lowpass', freq: 380, dur: 0.05, gain: 0.07 }); },
     roll(t) { noise(t, { type: 'bandpass', freq: 650, freqEnd: 260, q: 0.8, dur: 0.3, gain: 0.22, attack: 0.03 }); },
     hurt(t) { tone(t, { type: 'square', freq: 230, freqEnd: 90, dur: 0.18, gain: 0.16, lp: 900 }); noise(t, { type: 'lowpass', freq: 1400, dur: 0.12, gain: 0.4 }); tone(t, { type: 'sine', freq: 70, freqEnd: 40, dur: 0.2, gain: 0.5 }); },
+    floodWarn(t) { tone(t, { type: 'sine', freq: 220, dur: 0.24, gain: 0.13 }); tone(t + 0.28, { type: 'sine', freq: 330, dur: 0.3, gain: 0.1 }); },
     warn(t) { tone(t, { type: 'triangle', freq: 1320, dur: 0.07, gain: 0.08 }); tone(t + 0.06, { type: 'triangle', freq: 1760, dur: 0.1, gain: 0.07 }); },
     bigWarn(t) { tone(t, { type: 'sawtooth', freq: 220, dur: 0.35, gain: 0.08, lp: 1200 }); tone(t, { type: 'sawtooth', freq: 233, dur: 0.35, gain: 0.08, lp: 1200 }); },
     slam(t) { tone(t, { type: 'sine', freq: 80, freqEnd: 28, dur: 0.9, gain: 1 }); noise(t, { type: 'lowpass', freq: 900, freqEnd: 60, dur: 1.0, gain: 0.85 }); noise(t, { type: 'bandpass', freq: 2400, q: 2, dur: 0.2, gain: 0.25 }); },

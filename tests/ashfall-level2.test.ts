@@ -28,11 +28,11 @@ function arena(d: Debug) {
 function finishBoss(d: Debug) {
   arena(d);
   Object.assign(d.boss, { phase: 2, armor: 0, hp: 1, state: 'idle', cd: 100 });
-  Object.assign(d.player, { x: d.boss.x - 160, y: 450, face: 1, ammo: 4, shootCd: 0, invuln: true });
+  Object.assign(d.player, { x: d.boss.x - 160, y: d.boss.y, face: 1, ammo: 4, shootCd: 0, invuln: true });
   d.press('shoot'); d.step(340);
 }
 
-describe('Ashfall second descent', () => {
+describe('Ashfall rising deep', () => {
   it('retains the default Level 1 world and boss balance for invalid selectors', () => {
     const d = boot('unknown');
     expect(d.g.level).toBe(1);
@@ -45,7 +45,7 @@ describe('Ashfall second descent', () => {
   it('has reachable checkpoints, ground enemies, ambushes and traversable pits', () => {
     const d = boot(), data = d.level, solids = data.buildSolids();
     expect(data.ZONES).toHaveLength(3); expect(data.WORLD_END).toBe(12000);
-    const groundAt = (x: number) => solids.some((s: State) => !s.oneway && x >= s.x && x <= s.x + s.w);
+    const groundAt = (x: number) => solids.some((s: State) => x >= s.x && x <= s.x + s.w);
     for (const x of data.CHECKPOINTS) expect(groundAt(x)).toBe(true);
     for (const [type, x] of data.ENEMIES) if (type !== 'drone') expect(groundAt(x)).toBe(true);
     expect(data.AMBUSHES.length).toBeGreaterThanOrEqual(2);
@@ -82,7 +82,7 @@ describe('Ashfall second descent', () => {
     d.press('right'); d.step(12); d.press('right', false);
     expect(d.g.upgrades.has('edge')).toBe(true); expect(d.g.cpIdx).toBe(2);
     Object.assign(d.player, { dead: true, deadT: 3, hp: 0 }); d.step();
-    expect(d.player.hp).toBe(100); expect(d.player.x).toBe(3970); expect(d.player.safe).toEqual({ x: 3970, y: 450 }); expect(d.g.upgrades.has('edge')).toBe(true);
+    expect(d.player.hp).toBe(100); expect(d.player.x).toBe(3970); expect(d.player.safe).toEqual({ x: 3970, y: d.level.floorAt(3970) }); expect(d.g.upgrades.has('edge')).toBe(true);
     expect(d.g.upgrades.size).toBe(1);
     controller!.restart(); expect(d.g.upgrades.size).toBe(0); expect(d.g.level).toBe(2);
   });
@@ -143,11 +143,92 @@ describe('Ashfall second descent', () => {
     const d = boot(); d.enemies.forEach((e) => { e.dead = true; });
     for (const pit of d.level.PITS) {
       d.warp(pit.x - 45); Object.assign(d.player, { vx: 300, vy: 0, grounded: true, hp: 100 });
-      d.press('right'); d.press('jump'); d.step(48);
+      d.press('right'); d.press('jump'); d.step(28);
       d.press('jump', false); d.press('right', false);
       expect(d.player.x).toBeGreaterThan(pit.x + pit.w);
       expect(d.player.hp).toBe(100);
     }
+  });
+
+  it('climbs every 70px rise with ordinary held-jump input and generous takeoff room', () => {
+    const d = boot(); d.enemies.forEach((e) => { e.dead = true; });
+    d.g.ambushDone = new Set([0, 1, 2]);
+    for (const edge of d.level.RISES) {
+      d.warp(edge - 70); Object.assign(d.player, { vx: 300, vy: 0, grounded: true, hp: 100, atk: null });
+      d.press('right'); d.press('jump'); d.step(36);
+      d.press('jump', false); d.press('right', false);
+      expect(d.player.x, `rise at ${edge}`).toBeGreaterThan(edge + 30);
+      expect(d.player.y, `rise at ${edge}`).toBeLessThanOrEqual(d.level.floorAt(edge));
+      expect(d.player.hp).toBe(100);
+    }
+    expect(d.level.ARENA.floor).toBeLessThan(-1700);
+    expect(d.level.CHECKPOINTS.length).toBeGreaterThanOrEqual(5);
+    expect(d.level.MEDKITS.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('rises in zone bands after the start grace and resets on checkpoint death', () => {
+    const d = boot(); d.enemies.forEach((e) => { e.dead = true; });
+    const initial = d.g.flood.y;
+    d.step(299); expect(d.g.flood.y).toBe(initial);
+    for (const [x, speed] of [[60, 22], [4100, 28], [8000, 34]]) {
+      d.warp(x); d.g.flood.grace = 0; const y = d.g.flood.y;
+      d.step(60); expect(y - d.g.flood.y).toBeCloseTo(speed, 4);
+    }
+    d.g.cpIdx = 4; Object.assign(d.player, { dead: true, deadT: 3, hp: 0 }); d.step();
+    expect(d.player.x).toBe(d.level.CHECKPOINTS[4]);
+    expect(d.g.flood.y).toBe(d.player.y + d.level.FLOOD.baseline);
+    expect(d.g.flood.grace).toBeGreaterThan(2.9);
+    const y = d.g.flood.y; d.step(120); expect(d.g.flood.y).toBe(y);
+  });
+
+  it('pauses three seconds on checkpoint activation without lowering the rising flood', () => {
+    const d = boot(); d.enemies.forEach((e) => { e.dead = true; });
+    d.warp(2820); d.g.cpIdx = 0; d.g.flood.grace = 0;
+    const y = d.g.flood.y;
+    d.press('right'); d.step(12); d.press('right', false);
+    expect(d.g.cpIdx).toBe(1); expect(d.g.flood.grace).toBeGreaterThan(2.8);
+    expect(d.g.flood.y).toBeLessThanOrEqual(y);
+    const held = d.g.flood.y; d.step(120); expect(d.g.flood.y).toBe(held);
+  });
+
+  it('flood contact deals heavy damage and immediately returns to a safe checkpoint even during a roll', () => {
+    const d = boot(); d.warp(3000); d.g.cpIdx = 1;
+    Object.assign(d.player, { hp: 100, rolling: true, rollT: 0.1, iframe: 10 });
+    d.g.flood.y = d.player.y - 2; d.g.flood.grace = 0; d.step();
+    expect(d.player.x).toBe(2830); expect(d.player.dead).toBe(false);
+    expect(d.player.hp).toBe(40); expect(d.g.deaths).toBe(1);
+    expect(d.g.flood.y).toBe(d.player.y + 150);
+    d.g.flood.y = d.player.y; d.step(); // lethal water contact also respawns immediately
+    expect(d.player.hp).toBe(100); expect(d.g.deaths).toBe(2);
+    const y = d.g.flood.y; d.step(120); expect(d.g.flood.y).toBe(y);
+  });
+
+  it('holds flood below each sealed refuge and gives time to leave after clearing', () => {
+    const d = boot();
+    for (const a of d.level.AMBUSHES) {
+      d.warp(a.x); d.step();
+      d.player.invuln = true;
+      d.g.flood.y = d.level.floorAt(a.x) + 20; d.g.flood.grace = 0;
+      d.step(120);
+      expect(d.g.flood.y).toBe(d.level.floorAt(a.x) + 18);
+      expect(d.g.flood.held).toBe('gate'); expect(d.player.dead).toBe(false);
+      d.enemies.forEach((e) => { e.dead = true; }); d.step(2);
+      expect(d.g.ambush).toBeNull(); expect(d.g.flood.held).toBe('grace');
+      expect(d.g.flood.exitGrace).toBe(true); expect(d.g.flood.grace).toBeGreaterThan(4.9);
+      const held = d.g.flood.y; d.step(240); expect(d.g.flood.y).toBe(held);
+      // Leave the flooded floor by normal input within the exit window.
+      d.press('right'); d.press('jump'); d.step(35); d.press('jump', false); d.press('right', false);
+      expect(d.g.deaths).toBe(0);
+      d.g.flood.grace = 0; d.step(); expect(d.g.flood.y).toBeLessThan(held);
+    }
+  });
+
+  it('caps the flood below the summit in phase one and locks it in phase two', () => {
+    const d = boot(); arena(d); d.player.invuln = true;
+    d.g.flood.y = d.boss.y + 40; d.g.flood.grace = 0; d.step(120);
+    expect(d.g.flood.y).toBe(d.boss.y + 18); expect(d.g.flood.held).toBe('arena');
+    d.boss.phase = 2; const y = d.g.flood.y; d.step(180);
+    expect(d.g.flood.y).toBe(y); expect(d.player.hp).toBe(100);
   });
 
   it('pauses simulation and supports the touch control path in Level 2', () => {
