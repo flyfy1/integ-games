@@ -11,35 +11,45 @@ import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const level = process.argv.includes('--level=2') ? 2 : 1;
+const level = Number(process.argv.find(a => a.startsWith('--level='))?.split('=')[1] || 1);
+if (![1, 2, 3].includes(level)) throw new Error('Level must be 1, 2 or 3');
+const portrait = process.argv.includes('--portrait');
 const mobile = process.argv.includes('--mobile');
 const label = process.argv.find((a) => a.startsWith('--label='))?.split('=')[1] || '';
-const out = path.join(root, 'test-results', `ashfall-shots-level${level}${mobile ? '-mobile' : ''}${label ? '-' + label : ''}`);
+const out = path.join(root, 'test-results', `ashfall-shots-level${level}${mobile ? '-mobile' : ''}${portrait ? '-portrait' : ''}${label ? '-' + label : ''}`);
 await mkdir(out, { recursive: true });
-const wanted = (process.argv.slice(2).find((a) => !a.startsWith('--')) || (level === 2 ? 'aqueduct,archive,crown,combo,shotgun,boss,phase2,conduit' : 'woods,quarter,foundry,combo,shotgun,boss,phase2')).split(',');
+const wanted = (process.argv.slice(2).find((a) => !a.startsWith('--')) || (level === 3 ? 'menu,railyard,wastes,cathedral,boss,phase2,pillars,hook,final' : level === 2 ? 'menu,aqueduct,archive,crown,boss,phase2,water,gate-hold,flood-boss,conduit,interlude' : 'menu,woods,quarter,foundry,boss,phase2,interlude')).split(',');
 
 const server = await createServer({ root, logLevel: 'error', server: { port: 0, host: '127.0.0.1' } });
 await server.listen();
 const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
-const page = await browser.newPage({ viewport: mobile ? { width: 900, height: 450 } : { width: 1280, height: 800 }, hasTouch: mobile, isMobile: mobile });
+const page = await browser.newPage({ viewport: portrait ? { width: 390, height: 844 } : mobile ? { width: 900, height: 450 } : { width: 1280, height: 800 }, hasTouch: mobile, isMobile: mobile });
 // The external comments widget is unrelated to the cabinet and disallows localhost CORS.
 await page.route('https://discuss.integ.life/sdk/v1/comments.js', (route) => route.fulfill({ status: 200, contentType: 'application/javascript', headers: { 'access-control-allow-origin': '*' }, body: '/* comments disabled in game verification */' }));
 page.on('pageerror', (e) => { console.error('PAGEERROR', String(e)); process.exitCode = 1; });
 try {
-  const fresh = async () => {
+  const fresh = async (scene) => {
     await page.goto(`${origin}/play/ashfall?ashfall-debug&ashfall-level=${level}`, { waitUntil: 'networkidle' });
     if (mobile) await page.locator('[data-action="start-game"]').tap();
     await page.waitForFunction(() => !!globalThis.__ashfall);
-    await page.evaluate(() => { __ashfall.manual(true); __ashfall.start(); __ashfall.step(400); });
+    await page.evaluate(() => { __ashfall.manual(true); __ashfall.render(); });
+    if (scene === 'menu') return;
+    await page.locator('[data-control=start]').click();
+    await page.waitForFunction(() => __ashfall.g.mode === 'play');
+    await page.evaluate(() => { __ashfall.step(400); __ashfall.render(); });
     if (mobile && await page.locator('.ashfall-touch.on button').count() !== 5) throw new Error('Missing mobile actions');
   };
-  const canvas = page.locator(mobile ? '.ashfall' : '.ashfall canvas');
+  const canvas = page.locator('.ashfall');
   const snap = async (name) => { await page.evaluate(() => __ashfall.render()); await canvas.screenshot({ path: path.join(out, `${name}.png`) }); };
   const run = (fn, arg) => page.evaluate(fn, arg);
   for (const scene of wanted) {
-    await fresh();
-    if (['water', 'gate-hold', 'flood-boss'].includes(scene)) {
+    await fresh(scene);
+    if (scene === 'menu') { await snap('menu'); }
+    else if (/^intro[123]$/.test(scene)) {
+      await run(index => { const d = __ashfall; d.enemies.forEach(e => e.dead = true); d.g.seenZones.delete(index); d.g.cards = []; d.warp(d.level.ZONES[index].start + 100); d.step(90); }, Number(scene.slice(-1)) - 1);
+      await snap(scene);
+    } else if (['water', 'gate-hold', 'flood-boss'].includes(scene)) {
       if (level !== 2) throw new Error('Flood scenes require --level=2');
       // Visual fixtures only. Completion runs in ashfall-playtest never warp or edit actors.
       await run((scene) => {
@@ -57,12 +67,22 @@ try {
         if (scene === 'flood-boss' && (d.boss.phase !== 1 || d.g.flood.held !== 'arena')) throw new Error('Phase one summit lock missing');
       }, scene);
       await snap(scene);
-    } else if (['woods', 'quarter', 'foundry', 'aqueduct', 'archive', 'crown'].includes(scene)) {
-      const x = { woods: 2050, quarter: 4500, foundry: 8150, aqueduct: 2050, archive: 4500, crown: 8150 }[scene];
+    } else if (['woods', 'quarter', 'foundry', 'aqueduct', 'archive', 'crown', 'railyard', 'wastes', 'cathedral'].includes(scene)) {
+      const x = { woods: 2050, quarter: 4500, foundry: 8150, aqueduct: 2050, archive: 4500, crown: 8150, railyard: 2050, wastes: 4500, cathedral: 8650 }[scene];
       await run((x) => { __ashfall.warp(x); __ashfall.step(90); }, x);
       await snap(scene);
+    } else if (scene === 'pillars' || scene === 'hook') {
+      await run(scene => { const d = __ashfall; d.warp(d.level.ARENA.trigger + 70); d.step(240); d.enemies.forEach(e => e.dead = true); d.player.invuln = true; d.g.cards = []; d.g.hintT = 30; Object.assign(d.boss, { phase: 2, armor: 0, state: 'idle', next: scene, cd: 0 }); d.boss.plates.forEach(p => p.gone = true); d.step(30); }, scene);
+      await snap(`${scene}-telegraph`);
+      if (scene === 'pillars') {
+        await run(() => { while (!__ashfall.g.pillars.some(p => p.t > 0.3)) __ashfall.step(); }); await snap('pillars-imminent');
+        await run(() => { while (!__ashfall.g.pillars.some(p => p.t > p.warn + 0.05)) __ashfall.step(); }); await snap('pillars-active');
+      } else { await run(() => { while (!__ashfall.g.hooks.length) __ashfall.step(); __ashfall.step(12); }); await snap('hook-flight'); }
+    } else if (scene === 'interlude' || scene === 'final') {
+      await run(() => { const d = __ashfall; d.warp(d.level.ARENA.trigger + 70); d.step(240); d.enemies.forEach(e => e.dead = true); Object.assign(d.boss, { phase: 2, armor: 0, hp: 1, state: 'idle', cd: 100 }); Object.assign(d.player, { x: d.boss.x - 160, y: d.boss.y, face: 1, ammo: 4, shootCd: 0, invuln: true }); d.press('shoot'); d.step(600); });
+      await snap(scene);
     } else if (scene === 'conduit') {
-      await run(() => { __ashfall.warp(11250); __ashfall.step(300); const b = __ashfall.boss; b.phase = 2; b.armor = 0; b.plates.forEach((p) => p.gone = true); b.state = 'idle'; b.next = 'conduit'; b.cd = 0; __ashfall.step(50); });
+      await run(() => { __ashfall.warp(__ashfall.level.ARENA.trigger + 70); __ashfall.step(300); const b = __ashfall.boss; b.phase = 2; b.armor = 0; b.plates.forEach((p) => p.gone = true); b.state = 'idle'; b.next = 'conduit'; b.cd = 0; __ashfall.step(50); });
       await snap('conduit-warning');
       await run(() => { const b = __ashfall.boss; let n = 0; while (b.state === 'windup' && n++ < 150) __ashfall.step(1); if (b.state === 'windup') throw new Error('Conduit never discharged'); });
       await snap('conduit-first-strike');
@@ -84,10 +104,10 @@ try {
     } else if (scene === 'roll') {
       await run(() => { __ashfall.warp(700); __ashfall.press('roll'); __ashfall.step(8); }); await snap('roll');
     } else if (scene === 'boss' || scene === 'phase2') {
-      await run(() => { __ashfall.warp(11250); __ashfall.step(230); });
+      await run(() => { __ashfall.warp(__ashfall.level.ARENA.trigger + 70); __ashfall.step(140); });
       await snap('boss-intro');
       await run(() => { __ashfall.step(60); });
-      if (scene === 'phase2') { await run(() => { const b = __ashfall.boss; b.armor = 1; __ashfall.press('shoot'); }); await run(() => { __ashfall.player.x = __ashfall.boss.x - 160; __ashfall.player.face = 1; __ashfall.press('shoot'); __ashfall.step(20); }); await snap('transform-a'); await run(() => __ashfall.step(90)); await snap('transform-b'); await run(() => __ashfall.step(200)); }
+      if (scene === 'phase2') { await run(() => { const b = __ashfall.boss; b.armor = 1; __ashfall.press('shoot'); }); await run(() => { __ashfall.player.x = __ashfall.boss.x - 160; __ashfall.player.face = 1; __ashfall.player.shootCd = 0; __ashfall.player.ammo = 4; __ashfall.press('shoot'); __ashfall.step(20); }); await snap('transform-a'); await run(() => __ashfall.step(90)); await snap('transform-b'); await run(() => __ashfall.step(200)); }
       // slam impact frame (hammer head must meet the floor at the danger bar)
       await run(() => { const b = __ashfall.boss; let n = 0; while (n++ < 900 && !(b.attack === 'slam' && b.state === 'recover' && b.t > 0.02)) { if (b.state === 'idle' && b.cd < 0.2) { b.cd = 0; } __ashfall.step(1); __ashfall.player.hp = 100; } });
       await snap(`${scene}-slam-impact`);

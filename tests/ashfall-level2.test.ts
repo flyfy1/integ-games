@@ -4,7 +4,7 @@ import type { GameController } from '../src/core/game-types';
 
 // The opt-in debug interface exposes the live simulation, not a second game implementation.
 type State = Record<string, any>;
-type Debug = { g: State; player: State; boss: State; enemies: State[]; level: State; start(): void; step(n?: number): void; warp(x: number): void; press(key: string, down?: boolean): void };
+type Debug = { g: State; player: State; boss: State; enemies: State[]; level: State; start(): void; continue(): void; step(n?: number): void; warp(x: number): void; press(key: string, down?: boolean): void };
 let controller: GameController | undefined;
 const complete = vi.fn(), reportScore = vi.fn();
 function boot(level = '2') {
@@ -22,7 +22,7 @@ function boot(level = '2') {
 }
 afterEach(() => { controller?.destroy(); document.body.replaceChildren(); history.replaceState({}, '', '/'); vi.clearAllMocks(); });
 function arena(d: Debug) {
-  d.warp(11250); d.step(240);
+  d.warp(d.level.ARENA.trigger + 70); d.step(240);
   d.enemies.forEach((e) => { e.dead = true; });
 }
 function finishBoss(d: Debug) {
@@ -65,12 +65,14 @@ describe('Ashfall rising deep', () => {
     finishBoss(d);
     expect(d.g.mode).toBe('interlude'); expect(complete).not.toHaveBeenCalled();
     const score = d.g.score, time = d.g.playT;
-    d.step(330);
+    d.step(330); expect(d.g.level).toBe(1); expect(d.g.playT).toBe(time); d.continue();
     expect(d.g.level).toBe(2); expect(d.g.mode).toBe('play');
     expect(d.g.score).toBe(score); expect(d.g.kills).toBe(4); expect(d.g.deaths).toBe(2);
     expect(d.g.playT).toBeGreaterThanOrEqual(time);
     expect(d.player.hp).toBe(100); expect(d.g.cpIdx).toBe(0); expect(d.g.ambushDone.size).toBe(0);
     finishBoss(d);
+    expect(d.g.mode).toBe('interlude'); expect(complete).not.toHaveBeenCalled();
+    d.step(180); d.continue(); expect(d.g.level).toBe(3); expect(d.g.upgrades.size).toBe(0); finishBoss(d);
     expect(d.g.mode).toBe('victory'); expect(complete).toHaveBeenCalledTimes(1);
     expect(reportScore).toHaveBeenCalledTimes(1);
     d.step(300); expect(complete).toHaveBeenCalledTimes(1);
