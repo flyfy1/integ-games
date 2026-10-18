@@ -14,7 +14,8 @@ import { createServer } from 'vite';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const level = Number(process.argv.find(a => a.startsWith('--level='))?.split('=')[1] || 1);
-if (![1, 2, 3].includes(level)) throw new Error('Level must be 1, 2 or 3');
+if (!Number.isInteger(level) || level < 1 || level > 20) throw new Error('Level must be 1 to 20');
+const difficulty = process.argv.find(a => a.startsWith('--difficulty='))?.split('=')[1] || 'normal';
 const single = process.argv.includes('--single-level');
 const mobile = process.argv.includes('--mobile');
 const label = process.argv.find((a) => a.startsWith('--label='))?.split('=')[1] || '';
@@ -37,7 +38,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 try {
-  await page.goto(`${origin}/play/ashfall?ashfall-debug&ashfall-level=${level}`, { waitUntil: 'networkidle' });
+  await page.goto(`${origin}/play/ashfall?ashfall-debug&ashfall-level=${level}&difficulty=${difficulty}`, { waitUntil: 'networkidle' });
   if (mobile) await page.locator('[data-action="start-game"]').tap();
   await page.waitForFunction(() => !!globalThis.__ashfall, null, { timeout: 30000 });
   await page.waitForTimeout(600);
@@ -52,7 +53,7 @@ try {
   const shotAt = new Set();
   const marks = [[1500, '02-zone-one'], [2500, '03-first-pits'], [4300, '04-zone-two'], [5900, '05-upper-route'], [8300, '06-zone-three'], [9300, '07-catwalk'], [10500, '08-final-seal']];
   let simSeconds = 0, done = false;
-  const bossShots = { 1: 0, 2: 0, 3: 0 };
+  const bossShots = Object.fromEntries(Array.from({length:20},(_,i)=>[i+1,0]));
   const completed = [];
   while (!done && simSeconds < maxMinutes * 60) {
     const st = await page.evaluate(() => {
@@ -85,7 +86,7 @@ try {
   await writeFile(path.join(out, 'playtest.json'), JSON.stringify({ final, completed, errors, seed, moments: [...shotAt], log }, null, 2));
   console.log('FINAL', JSON.stringify(final), 'errors:', errors.length);
   if (errors.length) console.log(errors.slice(0, 10).join('\n'));
-  if (errors.length || !done || completed.length !== (single ? 1 : 4 - level) || completed.some(c => c.ambushes.length !== 3 || (c.level === 2 && c.upgrades.length !== 2))) process.exitCode = 1;
+  if (errors.length || !done || completed.length !== (single ? 1 : 21 - level) || completed.some(c => c.ambushes.length !== (c.level <= 3 ? 3 : 2) || (c.level === 2 && c.upgrades.length !== 2))) process.exitCode = 1;
 } finally {
   await browser.close();
   await server.close();

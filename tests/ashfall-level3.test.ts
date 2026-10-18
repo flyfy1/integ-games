@@ -99,10 +99,10 @@ describe('Level III scoped content and attacks', () => {
   it('explains both new patterns in a readable DOM cue without changing timing', () => {
     const d = boot(); arena(d, 'pillars'); d.render();
     const cue = document.querySelector('.ashfall-pattern')!;
-    expect(cue.textContent).toBe('PILLARS · STEP ASIDE, THEN SWITCH LANES');
+    expect(cue.textContent).toBe('PILLARS · step aside, then switch lanes');
     d.g.pillars = []; Object.assign(d.boss, { state: 'idle', cd: 0, next: 'hook' }); d.step(); d.render();
-    expect(cue.textContent).toBe('CHAIN HOOK · JUMP OR ROLL');
-    d.g.hooks = []; d.boss.state = 'idle'; d.boss.cd = 100; d.render(); expect(cue.textContent).toBe('');
+    expect(cue.textContent).toBe('CHAIN HOOK · jump or roll');
+    d.g.hooks = []; d.boss.state = 'idle'; d.boss.cd = 100; d.render(); expect(cue.textContent).toContain('Build heat');
     expect((cue as HTMLElement).hidden).toBe(false);
   });
   it('clears pillars, capture and scheduled boss events on death and phase-two respawn', () => {

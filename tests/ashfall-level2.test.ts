@@ -73,9 +73,9 @@ describe('Ashfall rising deep', () => {
     finishBoss(d);
     expect(d.g.mode).toBe('interlude'); expect(complete).not.toHaveBeenCalled();
     d.step(180); d.continue(); expect(d.g.level).toBe(3); expect(d.g.upgrades.size).toBe(0); finishBoss(d);
-    expect(d.g.mode).toBe('victory'); expect(complete).toHaveBeenCalledTimes(1);
-    expect(reportScore).toHaveBeenCalledTimes(1);
-    d.step(300); expect(complete).toHaveBeenCalledTimes(1);
+    expect(d.g.mode).toBe('interlude'); expect(complete).not.toHaveBeenCalled();
+    expect(reportScore).not.toHaveBeenCalled();
+    d.step(300); expect(complete).not.toHaveBeenCalled();
     controller!.restart(); expect(d.g.level).toBe(1); expect(d.g.score).toBe(0);
   });
 

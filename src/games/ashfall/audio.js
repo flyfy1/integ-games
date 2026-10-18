@@ -19,6 +19,7 @@ const SCORES = {
 
 export function createAudio() {
   let ctx = null, master, sfxBus, musicBus, comp, noiseBuf, ambience = null, distCurve;
+  const lastCue = new Map();
   let muted = false, mode = 'title', intensity = 0, targetIntensity = 0, step = 0, nextTime = 0, timer = 0;
 
   const ensure = () => {
@@ -46,15 +47,15 @@ export function createAudio() {
     const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
     const f = ctx.createBiquadFilter(); f.type = o.type || 'bandpass'; f.frequency.setValueAtTime(o.freq || 1000, t); if (o.freqEnd) f.frequency.exponentialRampToValueAtTime(o.freqEnd, t + o.dur); f.Q.value = o.q ?? 1;
     const g = ctx.createGain(); env(g, t, o.gain ?? 0.3, o.attack ?? 0.003, o.dur);
-    src.connect(f); f.connect(g); g.connect(o.bus || sfxBus); src.start(t, Math.random() * 1.5); src.stop(t + o.dur + 0.05);
+    src.connect(f); f.connect(g); g.connect(o.bus || sfxBus); src.start(t, Math.random() * 1.5); src.stop(t + o.dur + 0.05); src.onended = () => { src.disconnect(); f.disconnect(); g.disconnect(); };
   }
   function tone(t, o) {
     const osc = ctx.createOscillator(); osc.type = o.type || 'sine'; osc.frequency.setValueAtTime(o.freq, t); if (o.freqEnd) osc.frequency.exponentialRampToValueAtTime(o.freqEnd, t + o.dur); if (o.detune) osc.detune.value = o.detune;
     const g = ctx.createGain(); env(g, t, o.gain ?? 0.3, o.attack ?? 0.004, o.dur);
-    let node = osc;
-    if (o.lp) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(o.lp, t); if (o.lpEnd) f.frequency.exponentialRampToValueAtTime(o.lpEnd, t + o.dur); f.Q.value = o.q ?? 0.8; node.connect(f); node = f; }
-    if (o.dist) { const w = ctx.createWaveShaper(); w.curve = distCurve; node.connect(w); node = w; }
-    node.connect(g); g.connect(o.bus || sfxBus); osc.start(t); osc.stop(t + o.dur + 0.05);
+    let node = osc; const nodes = [osc, g];
+    if (o.lp) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(o.lp, t); if (o.lpEnd) f.frequency.exponentialRampToValueAtTime(o.lpEnd, t + o.dur); f.Q.value = o.q ?? 0.8; node.connect(f); node = f; nodes.push(f); }
+    if (o.dist) { const w = ctx.createWaveShaper(); w.curve = distCurve; node.connect(w); node = w; nodes.push(w); }
+    node.connect(g); g.connect(o.bus || sfxBus); osc.start(t); osc.stop(t + o.dur + 0.05); osc.onended = () => nodes.forEach(n => n.disconnect());
   }
 
   function startAmbience() {
@@ -75,6 +76,7 @@ export function createAudio() {
     intensity += (targetIntensity - intensity) * 0.06;
     const score = SCORES[mode] || SCORES.title;
     const stepDur = 60 / score.bpm / 4;
+    if (nextTime < ctx.currentTime - .2) nextTime = ctx.currentTime + .02;
     while (nextTime < ctx.currentTime + 0.14) { playStep(score, step, nextTime, stepDur); step++; nextTime += stepDur; }
   }
   function playStep(score, s, t, sd) {
@@ -117,6 +119,10 @@ export function createAudio() {
 
   // ---------- sound effects ----------
   const SFX = {
+    evade(t) { [880,1320,1760].forEach((freq,i)=>tone(t+i*.035,{type:'triangle',freq,dur:.2,gain:.09})); },
+    chain(t,v=1) { [60,64,67].forEach((n,i)=>tone(t+i*.055,{type:'triangle',freq:NOTE(n+v*3),dur:.25,gain:.1})); },
+    overdrive(t) { [48,55,60,64,67].forEach((n,i)=>tone(t+i*.06,{type:'sawtooth',freq:NOTE(n),dur:.4,gain:.07,lp:1800})); tone(t,{freq:100,freqEnd:40,dur:.3,gain:.45}); },
+    clear(t) { [60,64,67,72].forEach((n,i)=>tone(t+i*.12,{type:'triangle',freq:NOTE(n),dur:.7,gain:.1})); },
     shot(t) {
       noise(t, { type: 'lowpass', freq: 5200, freqEnd: 300, dur: 0.32, gain: 0.9, q: 0.6 });
       noise(t, { type: 'highpass', freq: 3500, dur: 0.045, gain: 0.55 });
@@ -187,8 +193,14 @@ export function createAudio() {
   return {
     unlock() { const c = ensure(); if (c && c.state === 'suspended') c.resume().catch(() => {}); },
     get ready() { return !!ctx; },
-    setMuted(m) { muted = m; if (master) master.gain.setTargetAtTime(m ? 0 : 0.85, ctx.currentTime, 0.05); },
-    play(name, v) { if (!ctx || muted || ctx.state !== 'running') return; const fn = SFX[name]; if (fn) fn(ctx.currentTime + 0.005, v); },
+    setMuted(m) { if (m === muted) return; muted = m; if (master) master.gain.setTargetAtTime(m ? 0 : 0.85, ctx.currentTime, 0.05); },
+    play(name, v) {
+      if (!ctx || muted || ctx.state !== 'running') return;
+      const now=ctx.currentTime, cooldown={hit:.035,kill:.07,explode:.12,plate:.06,step:.08}[name]||.025;
+      if(now-(lastCue.get(name)??-Infinity)<cooldown)return;lastCue.set(name,now);
+      if(['shot','armorBreak','overdrive','clear'].includes(name)){musicBus.gain.cancelScheduledValues(now);musicBus.gain.setTargetAtTime(.17,now,.015);musicBus.gain.setTargetAtTime(.42,now+.25,.14);}
+      const fn=SFX[name];if(fn)fn(now+.005,v);
+    },
     setMode(m) {
       if (m === mode) return; mode = m; targetIntensity = Math.max(targetIntensity, MUSIC_INT[m] ?? 0);
       if (ambience && ctx) {

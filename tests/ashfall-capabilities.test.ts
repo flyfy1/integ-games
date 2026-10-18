@@ -4,9 +4,9 @@ import { createAshfall } from '../src/games/ashfall/game.js';
 import type { GameController } from '../src/core/game-types';
 let controller: GameController;
 afterEach(() => { controller?.destroy(); document.body.replaceChildren(); vi.restoreAllMocks(); });
-// Captured before the capability refactor. Gameplay and cosmetic RNG streams are seeded.
+// Campaign v3 baseline includes intentional momentum/overdrive rewards. Gameplay and cosmetic RNG streams are seeded.
 // Exercise exploration, checkpoint rescue, seals, both boss phases and their normal choices.
-for (const level of [1, 2]) it(`preserves the seeded Level ${level} simulation`, () => {
+for (const level of [1, 2]) it(`locks the seeded campaign-v3 Level ${level} simulation`, () => {
   let seed = 779;
   vi.spyOn(Math, 'random').mockImplementation(() => ((seed = seed * 16807 % 2147483647) / 2147483647));
   history.replaceState({}, '', `/play/ashfall?ashfall-debug&ashfall-level=${level}`);

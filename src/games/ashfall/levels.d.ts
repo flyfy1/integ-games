@@ -3,13 +3,14 @@ export interface Zone { id: string; name: string; sub: string; chapter: string; 
 export interface Flood { speeds: number[]; baseline: number; startGrace: number; checkpointGrace: number; exitGrace: number; damage: number; warning: number; lockOffset: number }
 export interface Upgrade { checkpoint: number; id: string; title: string; sub: string; detail: string }
 export interface LevelDefinition {
-  id: number; numeral: string; title: string; descriptor: string;
+  id: number; numeral: string; title: string; titleZh: string; descriptor: string; act: number; story: [string, string]; aftermath: [string, string];
+  hazards?: { x: number; w: number; offset: number; period: number; warning: number; active: number; damage: number }[];
   terrain: 'descent' | 'ascent' | 'raised-descent';
   flood: Flood | null; upgrades: Upgrade[]; enemyHpMultiplier: number; containDrones: boolean;
   artBuilder(seed: number): Record<string, unknown>; buildSeed: number;
   visuals: { pits: 'original' | 'storm' | 'aftermath'; fog: string[]; grade: string[]; ambient: number[]; ember: string };
   completion: { title: string; sub?: string; bridge?: string };
-  BOSS: { variant: 'warden' | 'tempest' | 'reforged'; armor: number; hp: number; w: number; h: number; name: string; unbound: string; bar2: string; sub: string; sub2: string };
+  BOSS: { variant: 'warden' | 'tempest' | 'reforged'; armor: number; hp: number; w: number; h: number; name: string; unbound: string; bar2: string; sub: string; sub2: string; scripts?: string[][]; color?: string; crest?: number };
   WORLD_END: number; ARENA: { left: number; right: number; trigger: number; floor?: number };
   ZONES: Zone[]; zoneIndexAt(x: number): number; buildSolids(): Solid[]; floorAt?(x: number): number;
   PITS: { x: number; w: number; zone: number }[];

@@ -1,3 +1,4 @@
+import { buildCampaignLevels, ORIGINAL_STORIES } from './campaign.js';
 import * as descent from './level.js';
 import * as aftermath from './level3.js';
 import * as storm from './level2.js';
@@ -35,5 +36,7 @@ export const LEVELS = [
     completion: { title: 'THE ASH SETTLES', sub: '灰 烬 落 定' }
   }
 ];
+LEVELS.forEach((l, i) => { l.act = 0; l.story = ORIGINAL_STORIES[i][0]; l.aftermath = ORIGINAL_STORIES[i][1]; l.titleZh = ['初次下降','上涨的深渊','最后的下降'][i]; });
+LEVELS.push(...buildCampaignLevels());
 export const levelFromParam = (value) => LEVELS.find(level => String(level.id) === value) || LEVELS[0];
 export const nextLevel = (level) => LEVELS[LEVELS.indexOf(level) + 1] || null;

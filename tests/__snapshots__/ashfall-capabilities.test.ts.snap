@@ -1,5 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`preserves the seeded Level 1 simulation 1`] = `"430c8e2f638f6c67b501637304b8c9e60220209d9439fddfd9db775d17afa6dd"`;
+exports[`locks the seeded campaign-v3 Level 1 simulation 1`] = `"1211a07c726bb3cbda487794adad60b66ae960eb8d933b002726e52a8ddc4f11"`;
 
-exports[`preserves the seeded Level 2 simulation 1`] = `"97d9444b50afa10d8b5c7ced62217d692d99274d7bb7d697e902b997928bd09c"`;
+exports[`locks the seeded campaign-v3 Level 2 simulation 1`] = `"8e1c0f62913daac1375b357c27901680354edcf7591d304737b781128f7a11a7"`;

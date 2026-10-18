@@ -6,10 +6,10 @@ export const ashfall: GameModule = {
     slug: 'ashfall',
     title: 'Ashfall',
     category: 'action',
-    description: 'Three cinematic levels: the First Descent, the Rising Deep and the Last Descent. Choose your starting level and face three guardians.',
-    instructions: 'Select Level I, II or III with 1/2/3, arrows or touch, then Start. Runs continue forward through Level III. Enter continues between levels. A/D move, W or Space jump, J slash (tap for a 3-hit combo), K shotgun, L or Shift roll, R reload. Touch buttons on mobile.',
+    description: 'Twenty stages. Twenty guardians. Five acts to reclaim the sun. Choose Easy, Normal or Hard; chain kills, forge upgrades and resume your campaign.',
+    instructions: 'Choose an act, stage and difficulty, then Start. Runs continue through Level XX; Resume restores the next saved stage. Choose a forge blessing after each boss. Build heat with hits for Overdrive. A/D move, W or Space jump, J slash (tap for a 3-hit combo), K shotgun, L or Shift roll, R reload. Touch buttons on mobile.',
     accent: '#ff9a4a',
-    mechanic: 'Slash, shoot, roll, topple the Warden'
+    mechanic: 'Slash, shoot, roll, reclaim the sun'
   },
   mount(host: HTMLElement, services: GameServices): GameController {
     return createAshfall(host, services);

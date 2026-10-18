@@ -37,3 +37,21 @@ client-side navigation. Query strings, login fragments, referrers, player
 names and scores are excluded; unknown paths become `/not-found`. The tag
 only loads on `games.integ.life` in the top-level window. Enhanced
 measurement, Google signals and ad personalization are disabled.
+
+## Ashfall campaign
+
+Ashfall has 20 stages across five acts, with Easy/Normal/Hard, twenty named boss
+encounters using three animated chassis, bilingual story and controls, momentum
+and Overdrive, and capped forge upgrades. Clears and stage-boundary resumes are
+stored locally per difficulty; old three-level records are preserved. Campaign
+scores remain local rather than mixing with historical leaderboard scores.
+
+```bash
+node scripts/ashfall-acceptance.mjs
+node scripts/ashfall-playtest.mjs --level=1 --max-minutes=65
+node scripts/ashfall-playtest.mjs --level=20 --difficulty=hard --single-level
+```
+
+See [design decisions](docs/ashfall/design-contract.md),
+[content and play evidence](docs/ashfall/content-matrix.md), and
+[verification limits](docs/ashfall/verification.md).
