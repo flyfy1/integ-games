@@ -15,7 +15,7 @@ Ashfall injected CSS: 10819 uncompressed bytes. No new raster/audio/font downloa
 
 ## Local evidence
 
-- Baseline 107 unit tests. Expanded suite includes 60 stage/difficulty settlement fixtures, malformed-save/prototype-key regressions, geometry/jump checks, difficulty damage/timing and forge caps. Fixtures force boss HP to isolate lifecycle; they are not combat proof.
+- Baseline 107 unit tests; final suite: 179 passed across 20 files, with typecheck, build and diff checks passing. Expanded suite includes 60 stage/difficulty settlement fixtures, malformed-save/prototype-key regressions, geometry/jump checks, difficulty damage/timing and forge caps. Fixtures force boss HP to isolate lifecycle; they are not combat proof.
 - Ordinary-input combat/traversal evidence: [twenty-row matrix](content-matrix.md).
 - Browser acceptance: 228 assertions, zero runtime errors, English/Chinese × desktop 1280×900, portrait 390×844, narrow portrait 320×568, landscape 900×450. Uses real DOM controls for selection, difficulty, pause, touch jump and refresh/resume; explicitly manipulated actors only for hit/result/lifecycle scenes.
 - Reduced-motion assertions: zero camera shake and full-screen flash on confirmed hits.
@@ -33,6 +33,10 @@ Actual phone hardware ergonomics and subjective audio/engagement are unverified.
 
 ## Release
 
-Pending publication verification. The rollback is the previous Pages commit a33bed5fc4c95c0f2e10eaddf9eb02b1ba64b835; legacy v2 saves remain intact.
+Published gameplay commit `c6ac6cacc8d684411843303f8f2b9bdfaa7366d7` through [Pages run 39119938452](https://github.com/flyfy1/integ-games/actions/runs/39119938452). Both ordinary and cache-busted public `build-version.json` returned this exact commit with `dirty: false`. Public browser acceptance repeated all 228 assertions with zero runtime errors. The returning profile successfully started stage XX on Hard, preserved its storage sentinel, then loaded all five acts offline. Evidence is generated in `test-results/ashfall-release/` and `test-results/ashfall-campaign-acceptance/` by the checked-in scripts. The rollback is the previous Pages commit a33bed5fc4c95c0f2e10eaddf9eb02b1ba64b835; legacy v2 saves remain intact.
 
 Service-worker audit: `https://games.integ.life/sw.js`, root scope `/`, manifest start `.` and scope `/`, Workbox shell/hash-asset precache with `index.html` navigation fallback. Existing shell calls `updateSW(true)` on a waiting update (automatic reload); this release does not change that policy or clear user stores. Public pre-release worker returned 200 JavaScript, `Cache-Control: max-age=14400`, Cloudflare REVALIDATED. A dedicated returning-profile was warmed before publication to test actual update and offline startup. Installed standalone windows and multiple simultaneous tabs are not part of this evidence. Shared arcade CSS is unchanged at 27.57 KB and exceeds the inherited global budget; Ashfall's own CSS is 10.8 KB.
+
+### Publication cache diagnosis
+
+The first returning-profile check timed out while fresh browsers passed. The fast red-capable loop fetched `/sw.js` and `/sw.js?release=c6ac6ca` then compared their bodies: `cmp` exited 1. Their SHA-256 values were respectively `616b4d3a107c6777f12dd23012732e240436d552268897d443f1c31f3133e061` and `30d9bc848d0ee8e6d8c83db2442e52c10bd0f28a3a39caf242e81517d4885880`. Ranked hypotheses were CDN staleness, browser HTTP cache, then worker installation failure. After normal CDN propagation the same unmodified command exited 0. The original returning-profile test then passed without clearing caches or storage, and the visible old IAB tab also showed all 20 stages. This confirms transient stale public worker delivery during rollout; no worker-code fix or CDN purge was needed. A green workflow alone remains insufficient: retain the public body comparison and controlled-profile acceptance on future releases.
