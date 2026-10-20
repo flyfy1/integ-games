@@ -21,16 +21,16 @@ export function storageFor(scope: string): GameStorage {
 class Sound implements GameSound {
   private context: AudioContext | undefined;
   private lastCue = new Map<string, number>();
-  private active = new Set<OscillatorNode>();
+  private active = new Map<OscillatorNode, GainNode>();
   constructor(private mutedState: boolean, private readonly theme: 'puzzle' | 'arcade' | 'action' | 'calm') {}
   get muted() { return this.mutedState; }
   setMuted(muted: boolean) { this.mutedState = muted; }
-  stop() { this.active.forEach((node) => { try { node.stop(); } catch { /* already stopped */ } }); this.active.clear(); }
+  stop() { this.active.forEach((gain, node) => { try { node.stop(); } catch { /* already stopped */ } node.disconnect(); gain.disconnect(); }); this.active.clear(); this.lastCue.clear(); }
   play(kind: 'tap' | 'move' | 'merge' | 'collect' | 'clear' | 'jump' | 'shoot' | 'hit' | 'upgrade' | 'success' | 'fail') {
     if (this.mutedState || typeof AudioContext === 'undefined') return;
     try {
       this.context ??= new AudioContext();
-      if (this.context.state === 'suspended') void this.context.resume();
+      if (this.context.state === 'suspended') void this.context.resume().catch(() => undefined);
       const now = this.context.currentTime;
       const previous = this.lastCue.get(kind) ?? -Infinity;
       if (now - previous < (kind === 'move' ? .075 : .045)) return;
@@ -44,8 +44,8 @@ class Sound implements GameSound {
       gain.gain.setValueAtTime(kind === 'move' ? .025 : .05, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
       oscillator.connect(gain).connect(this.context.destination);
-      oscillator.onended = () => this.active.delete(oscillator);
-      this.active.add(oscillator); oscillator.start(); oscillator.stop(now + duration);
+      oscillator.onended = () => { this.active.delete(oscillator); oscillator.disconnect(); gain.disconnect(); };
+      this.active.set(oscillator, gain); oscillator.start(); oscillator.stop(now + duration);
     } catch { /* Audio activation can be unavailable; gameplay remains intact. */ }
   }
 }
