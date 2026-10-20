@@ -6,6 +6,8 @@ Give every cabinet clear, restrained feedback and make every real-time game comf
 
 ## Shared sound system
 
+The catalog now has 21 games: the original 20 use `GameSound`; Ashfall keeps its private procedural audio provider and touch UI.
+
 Expose semantic cues through `GameSound.play`: `tap`, `move`, `merge`, `collect`, `clear`, `jump`, `shoot`, `hit`, `upgrade`, `success`, and `fail`.
 
 - Generate sound locally with Web Audio; no downloaded audio assets and no network dependency.
@@ -13,7 +15,7 @@ Expose semantic cues through `GameSound.play`: `tap`, `move`, `merge`, `collect`
 - Give games a lightweight sound theme selected by slug: puzzle (soft/sine), arcade (bright/square), action (punchy/triangle plus restrained noise), calm/cards (soft/triangle).
 - Rate-limit repeat cues so held controls and collision loops cannot produce harsh audio.
 - Resume a suspended AudioContext on the first user gesture. Respect the existing global mute state and `prefers-reduced-motion` does not affect audio.
-- Use appropriate semantics in all 20 games: movement is quiet; collect/merge/clear is rewarding; jump/shoot is distinct; damage/failure is unmistakable; completion uses success.
+- Use appropriate semantics in the 20 shared-sound games: movement is quiet; collect/merge/clear is rewarding; jump/shoot is distinct; damage/failure is unmistakable; completion uses success.
 
 ## Shared mobile-control library
 
@@ -56,11 +58,11 @@ The library must expose pressed/held state and callbacks, support simultaneous p
 
 ## Pause behavior
 
-The continuously advancing games are Block Drop, Neon Snake, Perfect Stack, Sky Flap, Brick Pulse, Pixel Defense, Metro Dash, Trap Trail, Tiny Wheels, Fruit Orbit, Bubble Pop, Orbit Knife, and Pocket Survivor.
+The 13 continuously advancing games using shared controls are Block Drop, Neon Snake, Perfect Stack, Sky Flap, Brick Pulse, Pixel Defense, Metro Dash, Trap Trail, Tiny Wheels, Fruit Orbit, Bubble Pop, Orbit Knife, and Pocket Survivor. Ashfall is a fourteenth continuous game with its own touch controls and in-stage pause shortcut.
 
 - Add a compact in-stage pause button to those games. It sits in the safe-area-aware top-right corner of the stage and remains above the canvas.
 - The shell owns the pause overlay and controller lifecycle. Both the header action and in-stage button call the same pause/resume path.
-- On mobile, automatically pause a running game when the document becomes hidden or the window loses focus. Never auto-resume.
+- Automatically pause every mounted game when the document becomes hidden or the window loses focus. Never auto-resume.
 - Turn-based games retain the existing page-level Pause action but do not need the in-stage shortcut.
 - Pause clears held virtual controls and audio tails. Restart clears pause state and control state.
 
@@ -73,8 +75,8 @@ The continuously advancing games are Block Drop, Neon Snake, Perfect Stack, Sky 
 
 ## Acceptance
 
-- All 20 games emit at least one action cue and success/failure cues where those states exist.
-- Every mapped real-time game is fully playable with the shared mobile controls without relying on keyboard events.
-- All 13 continuous games expose an in-stage pause shortcut; all others do not.
+- The 20 shared-sound games emit at least one action cue and success/failure cues where those states exist.
+- Every mapped shared-control game is playable through touch controls that dispatch keyboard events to its existing handlers; Ashfall uses private touch input.
+- All 13 shared-control continuous games plus Ashfall expose an in-stage pause shortcut; turn-based games do not.
 - Pause, restart, route navigation, blur, and destroy cannot leave a held input, RAF, timer, listener, or sound active.
 - Unit tests cover cue synthesis/rate limiting and mobile-control held-state/cleanup. Playwright covers representative d-pad, single-action, dual-action, pause, blur, desktop-hidden, portrait, and landscape flows.

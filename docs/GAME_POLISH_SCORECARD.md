@@ -26,3 +26,5 @@ Review date: 2026-08-10. Scores reflect the current implementation, checked agai
 | Pocket Survivor | n/a → 4/4/4/4/4/4/4 | The canvas stick has visible direction feedback; attacks/damage burst, kills collect, upgrades flash, and fail state is explicit. | Meets floor |
 
 Shared verification: `tests/polish-shared.test.ts` asserts the reduced-motion override, the 2048 stable-ID/animation contract, and draw/step/reset usage for Metro Dash, Hexa Fit, Orbit Knife and Pocket Survivor. The lifecycle catalog test mounts and destroys all 20 modules with reduced-motion services. Playwright opens all 20 routes on desktop and mobile and fails on page errors. CSS suppresses nonessential animation under `prefers-reduced-motion` while preserving state feedback.
+
+Catalog update (2026-10-20): the current catalog and lifecycle/route test loops include 21 games, including Ashfall; the dated scores above cover the original 20.

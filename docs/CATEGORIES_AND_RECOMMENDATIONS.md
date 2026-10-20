@@ -39,6 +39,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 | Trap Trail | Action & Adventure | `Platformer`, `Levels` | Metro Dash, Pocket Survivor, Tiny Wheels, Pixel Defense |
 | Tiny Wheels | Action & Adventure | `Driving`, `Physics` | Metro Dash, Trap Trail, Fruit Orbit, Perfect Stack |
 | Pocket Survivor | Action & Adventure | `Survival`, `Upgrades` | Pixel Defense, Trap Trail, Metro Dash, Orbit Knife |
+| Ashfall | Action & Adventure | `Story`, `Boss` | Pocket Survivor, Trap Trail, Pixel Defense, Metro Dash |
 
 ## Page behavior
 
@@ -66,7 +67,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 
 ## Acceptance checks
 
-- All 20 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
+- All 21 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
 - Every category has at least four games.
 - Home filtering, search-within-filter, query persistence, and empty states work on desktop and mobile.
 - Every `/play/:slug` page renders the right category, traits, breadcrumb, and four recommendations.

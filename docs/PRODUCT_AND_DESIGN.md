@@ -2,7 +2,7 @@
 
 ## Product goal
 
-Build a static browser arcade at `https://games.integ.life` containing 20 complete games. Every game must work without accounts or a backend, support both touch and keyboard/pointer input, persist progress locally, and be deployable to GitHub Pages.
+Build a static browser arcade at `https://games.integ.life` containing 21 complete games. Every game must remain playable without accounts or the optional login/leaderboard backend, support both touch and keyboard/pointer input, persist progress locally, and be deployable to GitHub Pages.
 
 “Replication” means high-fidelity recreation of a popular gameplay pattern and its expected feel. Names, code, graphics, audio, copy, characters, level data, and branding must be original.
 
@@ -30,6 +30,7 @@ Build a static browser arcade at `https://games.integ.life` containing 20 comple
 | 18 | `hex-puzzle` | Hexa Fit | Block fitting | Place pieces and clear lines | Drag / click |
 | 19 | `knife` | Orbit Knife | Knife hit | Time throws without collisions | Tap / space |
 | 20 | `arena` | Pocket Survivor | Survivor-like arena | Move, auto-attack, choose upgrades | Virtual stick / WASD |
+| 21 | `ashfall` | Ashfall | Action campaign | Slash, shoot, roll through 20 stages | Touch controls / keys |
 
 ## Definition of complete
 
@@ -51,12 +52,12 @@ Every catalog entry must include:
 - `/`: featured rail, all-games grid, category filters, search, recently played.
 - `/play/:slug`: focused game page with title bar, responsive stage, help sheet, related games.
 - Static fallback compatible with GitHub Pages deep links.
-- Categories: Puzzle, Arcade, Action, Cards & Logic.
+- Visitor categories: Puzzle & Strategy, Match & Build, Quick Reflex, Action & Adventure. Internal module metadata retains Puzzle, Arcade, Action, Cards & Logic.
 - Game cards show title, concise mechanic label, best score/progress, and original cover art.
 
 ## Visual direction
 
-The arcade should feel like a coherent modern collection, not 20 embedded projects.
+The arcade should feel like a coherent modern collection, not 21 embedded projects.
 
 - Mood: playful, crisp, calm between games; energetic inside the stage.
 - Canvas: deep ink background `#090D18`; raised surfaces `#12192A`; borders `#273149`.
@@ -98,7 +99,7 @@ type GameController = {
 
 ## Technical constraints
 
-- Vite + TypeScript, with no runtime backend and no runtime CDN dependency.
+- Vite + TypeScript gameplay, with an optional Go backend for login and leaderboards; the current family comments component loads an external script.
 - Prefer Canvas 2D and DOM; use a physics library only if bundled and justified.
 - Lazy-load each game so the landing page does not download all game code.
 - Store settings, recent games, best scores, and saves in local storage under versioned keys.
@@ -109,8 +110,8 @@ type GameController = {
 ## Quality gates
 
 - `npm run typecheck`, `npm test`, and `npm run build` pass.
-- Automated catalog check confirms exactly 20 unique slugs and importable modules.
-- Playwright smoke coverage at desktop and mobile viewports for all 20 routes.
+- Automated catalog check confirms exactly 21 unique slugs and importable modules.
+- Playwright smoke coverage at desktop and mobile viewports for all 21 routes.
 - No uncaught console errors during route cycling through all games.
 - Lighthouse targets: Performance ≥ 85, Accessibility ≥ 90, Best Practices ≥ 90 on the arcade home page.
 - Manual verification on current Chrome and Safari, including touch audio activation and orientation changes.
