@@ -20,7 +20,8 @@ if (redirectedPath) {
 const shell = createShellServices();
 let controller: GameController | undefined;
 let viewToken = 0;
-const continuousGames = new Set(['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena', 'ashfall']);
+let paused = false;
+let updateReady = false;
 const siteOrigin = 'https://games.integ.life';
 let activeSlug: string | undefined;
 let pendingStart: (() => Promise<void>) | undefined;
@@ -65,7 +66,7 @@ function applyPageMetadata(game?: GameCatalogEntry): void {
 
 function layout(content: string): string {
   const player = currentPlayer();
-  return `<integ-family-bar product="games" home-href="${href()}" default-theme="dark"><div data-il-actions>${player ? `<details class="game-account-menu"><summary class="il-control" aria-label="Account" title="Account"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg></summary><div><strong>${escapeHTML(player.name)}</strong><button class="il-control" data-action="logout">Log out</button></div></details>` : '<button class="il-control" data-il-compact="account" aria-label="Log in" title="Log in" data-action="login">Log in</button>'}<button class="il-control" data-action="mute" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></div></integ-family-bar><main class="app-shell">${loginError ? `<p class="auth-notice" role="alert">${escapeHTML(loginError)}</p>` : ''}${content}</main>`;
+  return `<integ-family-bar product="games" home-href="${href()}" default-theme="dark"><div data-il-actions>${player ? `<details class="game-account-menu"><summary class="il-control" aria-label="Account" title="Account"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg></summary><div><strong>${escapeHTML(player.name)}</strong><button class="il-control" data-action="logout">Log out</button></div></details>` : '<button class="il-control" data-il-compact="account" aria-label="Log in" title="Log in" data-action="login">Log in</button>'}<button class="il-control" data-action="mute" aria-pressed="${shell.getMuted()}" aria-label="${shell.getMuted() ? 'Enable sound' : 'Mute sound'}">${shell.getMuted() ? '◌' : '♪'}</button></div></integ-family-bar><main class="app-shell">${loginError ? `<p class="auth-notice" role="alert">${escapeHTML(loginError)}</p>` : ''}${content}</main>`;
 }
 
 function home(): string {
@@ -151,6 +152,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
   activeSlug = slug;
   const recommended = recommendationsFor(game);
   appRoot.innerHTML = layout(`<section class="play-page"><div class="play-bar"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="play-actions"><button class="primary-button" data-action="fullscreen" aria-label="Play in full screen">Full screen</button><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="secondary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
+  setGameActions(false);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
     if (stage) stage.innerHTML = '<p class="stage-message">This game is on its way. Pick another cabinet while it arrives.</p>';
@@ -159,15 +161,16 @@ async function gamePage(slug: string, token: number): Promise<void> {
   try {
     const module = await loadGame(slug);
     if (token !== viewToken) return;
+    const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]')!;
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
       score: (score) => { void submitScore(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
-    })); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
+    })); stage.append(overlay); setGameActions(true); if (document.hidden) pauseActiveGame(); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
     const mobileStart = isMobilePlay();
     if (mobileStart) {
       stage.removeAttribute('aria-busy');
       stage.innerHTML = `<div class="start-screen"><img src="${gameArt(slug, 'icon')}" width="96" height="96" alt="" /><h2>${game.title}</h2><p>Play in full screen for the best controls.</p><button class="primary-button" data-action="start-game">Start game</button></div>`;
-      pendingStart = async () => { pendingStart = undefined; await enterImmersive(stage); stage.innerHTML = ''; mountGame(); };
+      pendingStart = async () => { pendingStart = undefined; await enterImmersive(stage); if (token !== viewToken || !stage.isConnected) return; stage.innerHTML = ''; mountGame(); };
     } else mountGame();
   } catch (error) {
     console.error(error);
@@ -178,7 +181,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
 function notFound(): string { return '<section class="not-found"><p class="eyebrow">404</p><h1>That cabinet is elsewhere.</h1><a class="primary-button" href="' + href() + '" data-route>Back to arcade</a></section>'; }
 
 async function render(): Promise<void> {
-  shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
+  paused = false; shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
   void exitImmersive();
   pendingStart = undefined;
   const token = ++viewToken;
@@ -186,6 +189,7 @@ async function render(): Promise<void> {
   if (current === '/' || current === '') { applyPageMetadata(); appRoot.innerHTML = home(); void hydrateLeaderboard(); }
   else if (current.startsWith('/play/')) { const slug = decodeURIComponent(current.slice('/play/'.length)); applyPageMetadata(findGame(slug)); await gamePage(slug, token); }
   else { applyPageMetadata(); appRoot.innerHTML = layout(notFound()); }
+  showUpdatePrompt();
 }
 
 document.addEventListener('click', (event) => {
@@ -199,7 +203,13 @@ document.addEventListener('click', (event) => {
   }
   const action = target.dataset.action;
   if (action === 'retry-leaderboard') void hydrateLeaderboard();
-  if (action === 'mute') { shell.setMuted(!shell.getMuted()); void render(); }
+  if (action === 'mute') {
+    shell.setMuted(!shell.getMuted());
+    target.textContent = shell.getMuted() ? '◌' : '♪';
+    target.setAttribute('aria-pressed', String(shell.getMuted()));
+    target.setAttribute('aria-label', shell.getMuted() ? 'Enable sound' : 'Mute sound');
+  }
+  if (action === 'update' && !activeSlug && updateReady) void updateSW(true);
   if (action === 'login') login();
   if (action === 'logout') { void logout().then(() => render()); }
   if (action === 'start-game') void pendingStart?.();
@@ -208,9 +218,9 @@ document.addEventListener('click', (event) => {
   if (action === 'share') void shareCurrentGame();
   if (action === 'copy-share-link') void copyDisplayedShareLink();
   if (action === 'close-share-fallback') hideManualShare();
-  if (action === 'pause') { controller?.pause(); shell.stopActiveSound(); togglePause(true); }
-  if (action === 'resume') { controller?.resume(); togglePause(false); }
-  if (action === 'restart') { controller?.restart(); appRoot.querySelector<HTMLElement>('[data-stage]')?.dispatchEvent(new Event('integ:clear-controls')); togglePause(false); }
+  if (action === 'pause') pauseActiveGame();
+  if (action === 'resume' && !document.hidden) { controller?.resume(); togglePause(false); }
+  if (action === 'restart' && controller) { controller.restart(); appRoot.querySelector<HTMLElement>('[data-stage]')?.dispatchEvent(new Event('integ:clear-controls')); togglePause(false); }
   if (action === 'help') { const help = appRoot.querySelector<HTMLElement>('[data-help]'); if (help) help.hidden = !help.hidden; }
   const filter = target.dataset.filter;
   if (filter) navigate(filter === 'all' ? '' : `?category=${filter}`);
@@ -230,18 +240,20 @@ document.addEventListener('input', (event) => {
 window.addEventListener('popstate', () => void render());
 // Leaving native fullscreen (Esc, back gesture) also leaves the CSS immersive layout.
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && immersiveStage) void exitImmersive(); });
-const pauseActiveGame = () => { if (controller && activeSlug && continuousGames.has(activeSlug)) { controller.pause(); shell.stopActiveSound(); togglePause(true); } };
+const pauseActiveGame = () => { if (controller) { if (!paused) controller.pause(); shell.stopActiveSound(); togglePause(true); } };
 appRoot.addEventListener('integ:pause-request', pauseActiveGame);
-window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && controller) { controller.pause(); togglePause(true); } });
+window.addEventListener('keydown', (event) => { if (event.key === 'Escape') pauseActiveGame(); });
 window.addEventListener('blur', pauseActiveGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
+
+function setGameActions(started: boolean) {
+  appRoot.querySelectorAll<HTMLButtonElement>('.play-actions [data-action=restart], .play-actions [data-action=pause]').forEach(button => { button.hidden = !started; button.disabled = !started; });
+}
 
 function togglePause(show: boolean) {
   const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]');
   if (!overlay) return;
-  // Ashfall's ribbon stays visible; the pause controls must also remain inside native fullscreen.
-  const screen = appRoot.querySelector<HTMLElement>('.ashfall-screen');
-  if (screen && overlay.parentElement !== screen) screen.append(overlay);
+  paused = show;
   overlay.hidden = !show;
 }
 
@@ -312,5 +324,11 @@ function filterGames(query: string) {
   if (empty) empty.hidden = visible.length !== 0;
 }
 
-const updateSW = registerSW({ immediate: true, onNeedRefresh() { document.documentElement.dataset.updateReady = 'true'; void updateSW(true); } });
+function showUpdatePrompt() {
+  if (!updateReady || activeSlug || appRoot.querySelector('[data-action=update]')) return;
+  const notice = document.createElement('p'); notice.setAttribute('role', 'status');
+  notice.innerHTML = 'A new version is ready. <button class="secondary-button" data-action="update">Update now</button>';
+  appRoot.querySelector('main')?.prepend(notice);
+}
+const updateSW = registerSW({ immediate: true, onNeedRefresh() { updateReady = true; document.documentElement.dataset.updateReady = 'true'; showUpdatePrompt(); } });
 void loadPlayer().then(() => render());

@@ -120,16 +120,16 @@ const game: GameModule = {
       });
       transitionTimer = window.setTimeout(() => finishMove(result.gained, spawned.id, result.merges, won, gameOver), MOTION_MS);
     };
-    const onKey = (event: KeyboardEvent) => {
+    const onKey = (event: KeyboardEvent) => { if (paused) return;
       const directions: Record<string, Direction | undefined> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
       const direction = directions[event.key]; if (!direction) return; event.preventDefault(); move(direction);
     };
-    const onPointerDown = (event: PointerEvent) => { touchStart = { x: event.clientX, y: event.clientY }; };
-    const onPointerUp = (event: PointerEvent) => { if (!touchStart) return; const dx = event.clientX - touchStart.x, dy = event.clientY - touchStart.y; touchStart = undefined; if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return; move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')); };
+    const onPointerDown = (event: PointerEvent) => { if (paused) return; touchStart = { x: event.clientX, y: event.clientY }; };
+    const onPointerUp = (event: PointerEvent) => { if (paused) return; if (!touchStart) return; const dx = event.clientX - touchStart.x, dy = event.clientY - touchStart.y; touchStart = undefined; if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return; move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up')); };
     window.addEventListener('keydown', onKey, { passive: false }); boardEl.addEventListener('pointerdown', onPointerDown); boardEl.addEventListener('pointerup', onPointerUp);
     render(); boardEl.focus();
     return {
-      pause() { paused = true; stopVisuals(); render(); },
+      pause() { paused = true; touchStart = undefined; stopVisuals(); render(); },
       resume() { paused = false; boardEl.focus(); },
       restart() { stopVisuals(); state = restore(null, services.random); tiles = tilesFromBoard(state.board, () => nextTileId++); completed = false; lost = false; paused = false; persist(); render(); boardEl.focus(); },
       destroy() { destroyed = true; stopVisuals(); window.removeEventListener('keydown', onKey); boardEl.removeEventListener('pointerdown', onPointerDown); boardEl.removeEventListener('pointerup', onPointerUp); host.classList.remove('merge-game'); host.replaceChildren(); }

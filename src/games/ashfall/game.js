@@ -124,7 +124,7 @@ export function createAshfall(host, services) {
     if (down) g.usedActions.add(a);
   };
   const onKeyDown = (e) => {
-    if (!root.isConnected || shellPaused || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    if (!root.isConnected || shellPaused || visibilityPaused || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     if (g.mode === 'loading') return;
     if (g.mode === 'title') {
       if (/^[123]$/.test(e.key)) { e.preventDefault(); chooseLevel(Number(e.key)); ui.focusSelection(); }
@@ -144,10 +144,11 @@ export function createAshfall(host, services) {
     const a = keyMap[e.key];
     if (a) e.preventDefault();
     if (a && !e.repeat && !userPaused && !shellPaused) pressAction(a, true);
-    audio.unlock();
+    if (!userPaused) audio.unlock();
   };
   const onKeyUp = (e) => { const a = keyMap[e.key]; if (a) pressAction(a, false); };
-  const clearInput = () => { held.left = held.right = held.jump = false; for (const key in buffers) buffers[key] = 0; touch.querySelectorAll('.held').forEach((b) => b.classList.remove('held')); };
+  let clearTouch = () => {};
+  const clearInput = () => { clearTouch(); held.left = held.right = held.jump = false; for (const key in buffers) buffers[key] = 0; touch.querySelectorAll('.held').forEach((b) => b.classList.remove('held')); };
   const onPointer = (e) => {
     if (g.mode !== 'play' || userPaused || shellPaused) return;
     canvas.focus(); audio.unlock();
@@ -169,6 +170,11 @@ export function createAshfall(host, services) {
     pad.innerHTML = '<span class="l">◀</span><i></i><span class="r">▶</span>';
     const knob = pad.querySelector('i');
     let padId = null;
+    clearTouch = () => {
+      const previous = padId; padId = null;
+      if (previous !== null && pad.hasPointerCapture?.(previous)) pad.releasePointerCapture(previous);
+      pad.classList.remove('to-l', 'to-r'); knob.style.transform = '';
+    };
     const padMove = (e) => {
       if (userPaused || shellPaused) return;
       const r = pad.getBoundingClientRect(), dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
@@ -179,13 +185,13 @@ export function createAshfall(host, services) {
       knob.style.transform = `translateX(${clamp(dx, -1, 1) * r.width * 0.32}px)`;
     };
     const padEnd = (e) => { if (e.pointerId !== padId) return; padId = null; pressAction('left', false); pressAction('right', false); pad.classList.remove('to-l', 'to-r'); knob.style.transform = ''; };
-    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); audio.unlock(); if (g.mode !== 'play' || userPaused || shellPaused) return; padId = e.pointerId; pad.setPointerCapture?.(e.pointerId); padMove(e); });
+    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); if (g.mode !== 'play' || userPaused || shellPaused || visibilityPaused) return; audio.unlock(); padId = e.pointerId; pad.setPointerCapture?.(e.pointerId); padMove(e); });
     pad.addEventListener('pointermove', (e) => { if (e.pointerId === padId) padMove(e); });
     pad.addEventListener('pointerup', padEnd); pad.addEventListener('pointercancel', padEnd); pad.addEventListener('lostpointercapture', padEnd);
     const mk = (label, action, area) => {
       const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = label; btn.setAttribute('aria-label', action); btn.style.gridArea = area; btn.className = `a-${area}`;
       const up = () => { btn.classList.remove('held'); pressAction(action, false); };
-      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture?.(e.pointerId); btn.classList.add('held'); audio.unlock(); if (g.mode !== 'play' || userPaused || shellPaused) return; pressAction(action, true); navigator.vibrate?.(6); });
+      btn.addEventListener('pointerdown', (e) => { e.preventDefault(); if (g.mode !== 'play' || userPaused || shellPaused || visibilityPaused) return; btn.setPointerCapture?.(e.pointerId); btn.classList.add('held'); audio.unlock(); pressAction(action, true); navigator.vibrate?.(6); });
       btn.addEventListener('pointerup', up); btn.addEventListener('pointercancel', up); btn.addEventListener('lostpointercapture', up);
       return btn;
     };
@@ -202,7 +208,7 @@ export function createAshfall(host, services) {
   let g, player, enemies, boss, solids, appliedLocale;
   const originalDocumentLang = document.documentElement.lang;
   let userPaused = false, shellPaused = false, visibilityPaused = document.hidden;
-  listen(document, 'visibilitychange', () => { visibilityPaused = document.hidden; clearInput(); last = 0; acc = 0; if (visibilityPaused) audio.suspend(); else if (!userPaused && !shellPaused) audio.resume(); });
+  listen(document, 'visibilitychange', () => { visibilityPaused = document.hidden; clearInput(); last = 0; acc = 0; if (visibilityPaused) { shellPaused = true; audio.suspend(); } });
   const ui = createLevelUI(root, screen, LEVELS, {
     select: chooseLevel, start: launchSelection, continue: () => continueRun(true),
     replay: () => launchSelection(runStartLevelId), menu: showMenu, resume: () => launchSelection(resume?.level, true),
@@ -2009,9 +2015,9 @@ export function createAshfall(host, services) {
   }
 
   return {
-    pause() { shellPaused = true; audio.suspend(); clearInput(); },
+    pause() { shellPaused = true; last = 0; acc = 0; audio.suspend(); clearInput(); },
     resume() { shellPaused = false; last = 0; if (!userPaused && !visibilityPaused) audio.resume(); },
-    restart() { loadRequest++; resetGame(); startGame(); userPaused = false; },
+    restart() { shellPaused = false; audio.resume(); loadRequest++; resetGame(); startGame(); userPaused = false; },
     destroy() {
       destroyed = true; loadRequest++; cancelAnimationFrame(raf); ro?.disconnect(); audio.destroy();
       listeners.forEach(([t, type, fn, opt]) => t.removeEventListener(type, fn, opt));

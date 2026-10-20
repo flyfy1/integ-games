@@ -12,7 +12,7 @@ export const fruitMerge: GameModule = {
     let raf = 0, paused = false, lost = false, score = 0, level = 1, held = 180, next = 0, moveCooldown = 0;
     let fruits: Fruit[] = [];
     const radius = (tier: number) => 12 + tier * 7;
-    const reset = () => { paused = false; lost = false; score = 0; level = 1; held = 180; next = 0; fruits = []; k.fx.clear(); };
+    const reset = () => { paused = false; k.setPaused(false); lost = false; score = 0; level = 1; held = 180; next = 0; fruits = []; k.fx.clear(); };
     const drop = () => { if (lost) { reset(); return; } if (!fruits.some(f => f.y < 85)) { fruits.push({ x: held, y: 62, vy: 0, level: next }); k.fx.burst(held, 62, colors[next], 4); next = Math.floor(services.random() * Math.min(4, level + 2)); services.sound.play('move'); } };
     k.on('pointermove', event => { held = clamp(k.point(event as PointerEvent).x, 18, 342); });
     k.on('pointerup', drop); k.on('pointerdown', () => { if (lost) reset(); });
@@ -27,7 +27,7 @@ export const fruitMerge: GameModule = {
       outer: for (let i = 0; i < fruits.length; i++) for (let j = i + 1; j < fruits.length; j++) { const a = fruits[i], b = fruits[j], d = Math.hypot(a.x - b.x, a.y - b.y), min = radius(a.level) + radius(b.level); if (d < min && d > .01) { const ux = (a.x - b.x) / d, uy = (a.y - b.y) / d, push = (min - d) / 2; a.x += ux * push; a.y += uy * push; b.x -= ux * push; b.y -= uy * push;
         if (a.level === b.level && canMergeFruitTier(a.level) && Math.abs(a.vy - b.vy) < 2.3) { a.x = (a.x + b.x) / 2; a.y = (a.y + b.y) / 2; a.level++; a.vy = -2.4; fruits.splice(j, 1); k.fx.burst(a.x, a.y, colors[a.level], 10); score += (a.level + 1) * 10; k.score(score); services.sound.play('collect'); if (score >= level * 180) { level++; services.reportComplete(level); k.fx.flash('#ff8f70'); services.sound.play('upgrade'); } break outer; } } }
       if (fruits.some(f => f.y - radius(f.level) < 47 && f.vy > .5)) { lost = true; k.fx.flash('#ff6b7a'); services.sound.play('fail'); } k.fx.step(); } draw(); raf = requestAnimationFrame(loop); };
-    loop(); return { pause: () => { paused = true; }, resume: () => { paused = false; }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
+    loop(); return { pause: () => { paused = true; k.setPaused(true); }, resume: () => { paused = false; k.setPaused(false); }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
   }
 };
 export default fruitMerge;

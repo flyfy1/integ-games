@@ -39,7 +39,7 @@ export const bubble: GameModule = {
     const k = makeKit(host, services, 'bubble'); let raf = 0, paused = false, score = 0, level = 1, over = false, next = 0, aim = { x: 180, y: 140 };
     let flying: { x: number; y: number; dx: number; dy: number; color: number } | null = null, field: Bubble[] = [], falling: FallingBubble[] = [];
     const fillBoard = () => { for (let row = 0; row < Math.min(7, 4 + level); row++) for (let col = 0; col < 8; col++) field.push({ x: 27 + col * 43 + (row % 2) * 20, y: 55 + row * 37, color: Math.floor(services.random() * 4) }); };
-    const reset = () => { paused = false; score = 0; level = 1; over = false; next = 0; flying = null; field = []; falling = []; k.fx.clear(); fillBoard(); };
+    const reset = () => { paused = false; k.setPaused(false); score = 0; level = 1; over = false; next = 0; flying = null; field = []; falling = []; k.fx.clear(); fillBoard(); };
     const shoot = () => { if (paused || over || flying) return; const dx = aim.x - 180, dy = aim.y - 510, length = Math.hypot(dx, dy) || 1; flying = { x: 180, y: 510, dx: dx / length * (7 + level * .25), dy: dy / length * (7 + level * .25), color: next }; k.fx.burst(180, 510, palette[next], 4); next = Math.floor(services.random() * 4); services.sound.play('shoot'); };
     const setAim = (event: PointerEvent) => { const point = k.point(event); aim = { x: clamp(point.x, 15, 345), y: clamp(point.y, 45, 480) }; };
     k.on('pointermove', event => setAim(event as PointerEvent)); k.on('pointerup', () => over ? reset() : shoot()); k.on('pointerdown', event => { if (!over) setAim(event as PointerEvent); });
@@ -52,7 +52,7 @@ export const bubble: GameModule = {
     const drawBubble = (item: Bubble, alpha = 1) => { const c = k.ctx; c.globalAlpha = alpha; c.fillStyle = palette[item.color]; c.beginPath(); c.arc(item.x, item.y, 18, 0, 7); c.fill(); c.globalAlpha = 1; };
     const draw = () => { const c = k.ctx; k.clear(); c.fillStyle = '#12192a'; c.fillRect(0, 0, 360, 560); text(c, `POP ${score}  ·  LEVEL ${level}`, 180, 27, 14, '#a8b1c5'); c.strokeStyle = '#273149'; c.setLineDash([6, 6]); c.beginPath(); c.moveTo(180, 510); c.lineTo(aim.x, aim.y); c.stroke(); c.setLineDash([]); field.forEach(item => drawBubble(item)); falling.forEach(item => drawBubble(item, .82)); if (flying) drawBubble(flying); drawBubble({ x: 180, y: 510, color: next }); k.fx.draw(); if (paused) text(c, 'PAUSED', 180, 280, 27); if (over) { text(c, 'BUBBLES DESCENDED', 180, 270, 22, '#ff6b7a'); text(c, 'Tap or Space to retry', 180, 300, 15); } };
     const loop = () => { if (!paused && !over) { if (flying) { flying.x += flying.dx; flying.y += flying.dy; if (flying.x < 18 || flying.x > 342) flying.dx *= -1; if (flying.y < 52 || field.some(item => Math.hypot(item.x - flying!.x, item.y - flying!.y) < 35)) attach(flying); } falling.forEach(item => { item.x += item.vx; item.y += item.vy; item.vy += .24; }); falling = falling.filter(item => item.y < 590); if (field.some(item => item.y > 485)) { over = true; k.fx.flash('#ff6b7a'); services.sound.play('fail'); } k.fx.step(); } draw(); raf = requestAnimationFrame(loop); };
-    reset(); loop(); return { pause: () => { paused = true; }, resume: () => { paused = false; }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
+    reset(); loop(); return { pause: () => { paused = true; k.setPaused(true); }, resume: () => { paused = false; k.setPaused(false); }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
   }
 };
 export default bubble;

@@ -17,3 +17,5 @@
 .play-page>.stage-wrap{min-height:min(72vh,640px)}.play-page>.stage-wrap .game-stage{min-height:min(72vh,640px)}
 .play-page>.game-title{margin:22px 0 0;align-items:center}.play-page>.game-title h1{font-size:clamp(1.8rem,3.4vw,2.6rem)}
 @media(max-width:720px){.play-page{padding-top:4px}.play-bar{gap:8px}.play-bar .breadcrumb{font-size:.82rem}.play-bar .play-actions{width:100%;display:grid;grid-template-columns:1.6fr repeat(4,1fr);gap:6px}.play-bar .primary-button,.play-bar .secondary-button{padding:8px 6px;font-size:.78rem}.play-page>.stage-wrap,.play-page>.stage-wrap .game-stage{min-height:min(62vh,520px)}.play-page>.stage-wrap .game-stage{padding:8px}.play-page>.game-title{margin-top:16px}}
+
+.game-stage{position:relative}

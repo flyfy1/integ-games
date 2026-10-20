@@ -37,6 +37,21 @@ describe('shared mobile controls', () => {
     expect(changes).toEqual([['right', true], ['right', false]]);
   });
 
+  it('ends the captured stick gesture on clear so an old pointer cannot reactivate movement', () => {
+    globalThis.matchMedia = vi.fn(() => ({ matches: true })) as unknown as typeof matchMedia;
+    const changes: Array<[string, boolean]> = [];
+    const host = document.createElement('div'); document.body.append(host);
+    const controls = createMobileControls(host, { shape: 'stick-action', labels: [], onChange: (action, held) => changes.push([action, held]) });
+    const stick = host.querySelector<HTMLElement>('.mobile-stick')!;
+    stick.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100 }) as DOMRect;
+    stick.setPointerCapture = vi.fn(); stick.hasPointerCapture = () => true; stick.releasePointerCapture = vi.fn();
+    const event = (type: string) => { const e = new Event(type); Object.assign(e, { pointerId: 1, clientX: 95, clientY: 50 }); return e; };
+    stick.dispatchEvent(event('pointerdown')); controls.clear();
+    expect(stick.releasePointerCapture).toHaveBeenCalledWith(1);
+    stick.dispatchEvent(event('pointermove'));
+    expect(changes).toEqual([['right', true], ['right', false]]); controls.destroy();
+  });
+
   it('keeps an action held until every pointer on that action is released', () => {
     globalThis.matchMedia = vi.fn(() => ({ matches: true })) as unknown as typeof matchMedia;
     const changes: Array<[string, boolean]> = [];

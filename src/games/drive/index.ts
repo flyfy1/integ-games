@@ -7,7 +7,7 @@ export const drive: GameModule = {
     const k = makeKit(host, services, 'drive', 360, 420);
     let raf = 0, paused = false, crashed = false, distance = 0, speed = 0, input = 0, lean = 0, nextMilestone = 250;
     const ground = (world: number) => 315 - Math.sin(world * .024) * 24 - Math.sin(world * .077) * 17 - Math.sin(world * .14) * Math.min(10, distance / 70);
-    const reset = () => { paused = false; crashed = false; distance = 0; speed = 0; input = 0; lean = 0; nextMilestone = 250; k.fx.clear(); };
+    const reset = () => { paused = false; k.setPaused(false); crashed = false; distance = 0; speed = 0; input = 0; lean = 0; nextMilestone = 250; k.fx.clear(); };
     const setPedal = (x: number) => { const next = x < 180 ? -1 : 1; if (input === 0) { k.fx.burst(next < 0 ? 89 : 271, 380, '#ffcb6b', 4); services.sound.play('move'); } input = next; };
     k.on('pointerdown', event => setPedal(k.point(event as PointerEvent).x));
     k.on('pointermove', event => { if ((event as PointerEvent).buttons) setPedal(k.point(event as PointerEvent).x); });
@@ -23,7 +23,7 @@ export const drive: GameModule = {
     };
     const loop = () => { if (!paused && !crashed) { speed = clamp(speed + input * .045 - speed * .012, -.8, 3.5); distance = Math.max(0, distance + speed); const slope = Math.atan2(ground(distance + 4) - ground(distance - 4), 8); lean += (slope - lean) * .08 + input * .006 * Math.max(0, speed); if (Math.abs(lean) > 1.15 && distance > 45) { crashed = true; k.fx.flash('#ff6b7a'); services.sound.play('fail'); k.score(Math.floor(distance)); }
         if (distance >= nextMilestone) { services.reportComplete(nextMilestone / 250); nextMilestone += 250; k.fx.flash('#ffcb6b'); services.sound.play('upgrade'); } k.fx.step(); } draw(); raf = requestAnimationFrame(loop); };
-    loop(); return { pause: () => { paused = true; }, resume: () => { paused = false; }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
+    loop(); return { pause: () => { paused = true; k.setPaused(true); input = 0; }, resume: () => { paused = false; k.setPaused(false); }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
   }
 };
 export default drive;
