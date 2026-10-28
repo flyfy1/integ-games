@@ -113,7 +113,7 @@ function traitChips(game: GameCatalogEntry): string { return game.traits.map((tr
 function resultMessage(count: number, label: string): string { return `${count} ${count === 1 ? 'game' : 'games'} in ${label}`; }
 
 function coverGlyph(slug: string): string {
-  const glyphs: Record<string, string> = { 'merge-2048': '2×2', 'block-drop': '▦', snake: '〰', mines: '✦', solitaire: '♠', sudoku: '9', 'word-grid': 'ABC', memory: '◒', stack: '▤', flap: '◓', breakout: '▰', invaders: '⌁', runner: '↗', platformer: '⌂', drive: '◉', 'fruit-merge': '◍', bubble: '●', 'hex-puzzle': '⬡', knife: '✣', arena: '✹' };
+  const glyphs: Record<string, string> = { 'merge-2048': '2×2', 'block-drop': '▦', snake: '〰', mines: '✦', solitaire: '♠', sudoku: '9', 'word-grid': 'ABC', memory: '◒', stack: '▤', flap: '◓', breakout: '▰', invaders: '⌁', runner: '↗', platformer: '⌂', drive: '◉', 'fruit-merge': '◍', bubble: '●', 'hex-puzzle': '⬡', knife: '✣', arena: '✹', ashfall: '⚔' };
   return glyphs[slug] ?? '•';
 }
 function gameArt(slug: string, kind: 'cover' | 'icon'): string { return href(`game-art/${slug}-${kind}.jpg`); }
