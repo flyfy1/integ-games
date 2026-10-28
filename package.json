@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "test:lighthouse": "lhci autorun",
     "capture:art": "node scripts/capture-game-art.mjs",
+    "fx:sheet": "node scripts/fx-contact-sheet.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {
