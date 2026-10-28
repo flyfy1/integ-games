@@ -17,7 +17,7 @@ describe('static deployment assets', () => {
 
   it('runs all verification gates and deploys Pages from the built arcade', () => {
     const workflow = read('.github/workflows/pages.yml');
-    for (const command of ['npm ci', 'npm run typecheck', 'npm test', 'npm run test:e2e', 'npm run build']) expect(workflow).toContain(command);
+    for (const command of ['go test ./...', 'npm ci', 'npm run typecheck', 'npm test', 'npm run test:e2e', 'npm run build']) expect(workflow).toContain(command);
     expect(workflow).toContain('actions/upload-pages-artifact@v3');
     expect(workflow).toContain('actions/deploy-pages@v4');
     expect(workflow).toContain('VITE_BASE: ${{ vars.PAGES_BASE_PATH || \'/\' }}');

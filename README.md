@@ -1,6 +1,6 @@
 # Integ Games
 
-A static, touch-friendly browser arcade with 21 original games. It has no account system or backend; scores, settings, saves, and recently played games stay in local storage.
+A static, touch-friendly browser arcade with 21 original games. It also ships an optional Go backend in [`backend/`](backend/README.md) (integ-auth sign-in, best scores for signed-in players, and a public overall leaderboard). When signed out, scores, settings, saves, and recently played games stay in local storage.
 
 ## Games
 
@@ -27,7 +27,7 @@ npm run test:lighthouse
 
 ## GitHub Pages
 
-The workflow in `.github/workflows/pages.yml` installs dependencies, runs type/unit/end-to-end/Lighthouse checks, builds the site, and deploys Pages from `dist/`. `public/CNAME` configures `games.integ.life`. Set the `PAGES_BASE_PATH` repository variable when deploying to a project-page preview path; leave it unset for the custom domain root.
+The workflow in `.github/workflows/pages.yml` installs dependencies, runs backend Go tests and type/unit/end-to-end checks (Lighthouse is local-only via `npm run test:lighthouse`), builds the site, and deploys Pages from `dist/`. `public/CNAME` configures `games.integ.life`. Set the `PAGES_BASE_PATH` repository variable when deploying to a project-page preview path; leave it unset for the custom domain root.
 
 ## Google Analytics page counts
 
