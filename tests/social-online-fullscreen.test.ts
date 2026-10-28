@@ -22,7 +22,8 @@ describe('social, online scores, and mobile launch', () => {
     expect(main).toContain('data-action="start-game"');
   });
   it('connects login, score submission, and the overall leaderboard', () => {
-    expect(main).toContain('submitScore(slug, score)');
+    expect(main).toContain('createScoreSync(submitScore)');
+    expect(main).toContain('scoreSync.report(slug, score)');
     expect(main).toContain('data-leaderboard');
     expect(read('src/core/online.ts')).toContain('https://games-api.integ.life');
     expect(read('src/core/online.ts')).toContain('/api/auth/integ/start');

@@ -1,6 +1,7 @@
 import { registerSW } from 'virtual:pwa-register';
 import { catalog, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, loadGame, recommendationsFor } from './core/catalog';
 import { createShellServices } from './core/services';
+import { createScoreSync } from './core/score-sync';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
 import './styles/app.css';
@@ -18,6 +19,7 @@ if (redirectedPath) {
   history.replaceState({}, '', redirectedPath);
 }
 const shell = createShellServices();
+const scoreSync = createScoreSync(submitScore);
 let controller: GameController | undefined;
 let viewToken = 0;
 let paused = false;
@@ -163,7 +165,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
     if (token !== viewToken) return;
     const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]')!;
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
-      score: (score) => { void submitScore(slug, score); },
+      score: (score) => { scoreSync.report(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
     })); stage.append(overlay); setGameActions(true); if (document.hidden) pauseActiveGame(); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
     const mobileStart = isMobilePlay();
@@ -181,6 +183,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
 function notFound(): string { return '<section class="not-found"><p class="eyebrow">404</p><h1>That cabinet is elsewhere.</h1><a class="primary-button" href="' + href() + '" data-route>Back to arcade</a></section>'; }
 
 async function render(): Promise<void> {
+  scoreSync.flush();
   paused = false; shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
   void exitImmersive();
   pendingStart = undefined;
@@ -244,7 +247,8 @@ const pauseActiveGame = () => { if (controller) { if (!paused) controller.pause(
 appRoot.addEventListener('integ:pause-request', pauseActiveGame);
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape') pauseActiveGame(); });
 window.addEventListener('blur', pauseActiveGame);
-document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { scoreSync.flush(); pauseActiveGame(); } });
+addEventListener('pagehide', () => scoreSync.flush());
 
 function setGameActions(started: boolean) {
   appRoot.querySelectorAll<HTMLButtonElement>('.play-actions [data-action=restart], .play-actions [data-action=pause]').forEach(button => { button.hidden = !started; button.disabled = !started; });
