@@ -40,7 +40,7 @@ const userKey contextKey = "user"
 
 func main() {
 	dbPath := env("GAMES_DB_PATH", "games.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openDB(dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -50,7 +50,17 @@ func main() {
 	s := &server{db: db, auth: authConfig{strings.TrimRight(env("INTEG_AUTH_ISSUER", "https://auth.integ.life"), "/"), os.Getenv("INTEG_AUTH_CLIENT_ID"), os.Getenv("INTEG_AUTH_CLIENT_SECRET"), os.Getenv("INTEG_AUTH_REDIRECT_URI"), env("GAMES_FRONTEND_URI", "https://games.integ.life/")}}
 	addr := env("GAMES_ADDR", "127.0.0.1:8104")
 	log.Printf("games backend listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, s.routes()))
+	srv := &http.Server{Addr: addr, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second}
+	log.Fatal(srv.ListenAndServe())
+}
+
+// openDB opens the SQLite database with a busy timeout so concurrent writers wait instead of failing with SQLITE_BUSY.
+func openDB(path string) (*sql.DB, error) {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return sql.Open("sqlite", path+sep+"_pragma=busy_timeout(5000)")
 }
 
 func (s *server) routes() http.Handler {
@@ -265,8 +275,15 @@ func (s *server) leaderboard(w http.ResponseWriter, _ *http.Request) {
 	out := []entry{}
 	for rows.Next() {
 		var e entry
-		rows.Scan(&e.Name, &e.Score, &e.Games)
+		if err := rows.Scan(&e.Name, &e.Score, &e.Games); err != nil {
+			problem(w, 500, "could not load leaderboard")
+			return
+		}
 		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		problem(w, 500, "could not load leaderboard")
+		return
 	}
 	writeJSON(w, 200, out)
 }

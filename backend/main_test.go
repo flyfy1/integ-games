@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +11,7 @@ import (
 
 func testServer(t *testing.T) *server {
 	t.Helper()
-	db, err := sql.Open("sqlite", t.TempDir()+"/games.db")
+	db, err := openDB(t.TempDir() + "/games.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,5 +73,20 @@ func TestScoreRequiresLogin(t *testing.T) {
 		if w.Code != test.want {
 			t.Fatalf("status %d, want %d", w.Code, test.want)
 		}
+	}
+}
+
+func TestOpenDBSetsBusyTimeout(t *testing.T) {
+	db, err := openDB(t.TempDir() + "/g.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	var ms int
+	if err := db.QueryRow(`PRAGMA busy_timeout`).Scan(&ms); err != nil {
+		t.Fatal(err)
+	}
+	if ms != 5000 {
+		t.Fatalf("busy_timeout = %d, want 5000", ms)
 	}
 }
