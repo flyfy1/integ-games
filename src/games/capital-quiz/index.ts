@@ -2,12 +2,12 @@ import type { GameController, GameModule } from '../../core/game-types';
 import { COUNTRIES, REGION_COLORS, flagEmoji, type CountryEntry, type Difficulty, type ShapeEntry } from './data';
 import { SHAPE_VIEWBOX } from './shapes';
 import { LANGS, capitalLabel, capitalName, countryLabel, countryName, defaultLang, isLang, regionName, t, type Key, type Lang } from './i18n';
-import { BASE_POINTS, MODES, ROUND_LENGTH, answerOf, buildRound, isMode, poolFor, pointsFor, type Mode, type Question } from './logic';
+import { BASE_POINTS, MODES, QuestionClock, ROUND_LENGTH, TIME_LIMIT_MS, answerOf, buildRound, isMode, poolFor, pointsFor, timedBase, timedPointsFor, type Mode, type Question } from './logic';
 
 /** `results[i]` is whether question i was answered correctly; null when unknown (saves from before results were kept). */
 type Result = boolean | null;
-type State = { mode: Mode; round: Question[]; index: number; score: number; streak: number; correct: number; missed: string[]; results: Result[] };
-type Saved = { mode?: Mode; round: Array<{ country: string; options: string[] }>; index: number; score: number; streak: number; correct: number; missed: string[]; results?: Result[] };
+type State = { mode: Mode; round: Question[]; index: number; score: number; streak: number; correct: number; missed: string[]; results: Result[]; timeLost: number };
+type Saved = { mode?: Mode; round: Array<{ country: string; options: string[] }>; index: number; score: number; streak: number; correct: number; missed: string[]; results?: Result[]; timeLost?: number };
 
 const STYLE_ID = 'capital-quiz-style';
 const CSS = `
@@ -40,6 +40,19 @@ const CSS = `
 .cq-segs i{height:7px;border-radius:99px;background:var(--line);transition:background .25s}
 .cq-segs i.is-ok{background:var(--ok)}.cq-segs i.is-bad{background:var(--bad)}.cq-segs i.is-done{background:#52617f}
 .cq-segs i.is-now{background:#F7F9FF80}
+.cq-timer{--tc:#70F0C2;display:grid;grid-template-columns:auto 1fr 1fr;align-items:center;gap:12px;padding:6px 14px 6px 12px;border-radius:18px;border:1px solid color-mix(in srgb,var(--tc) 50%,var(--line));background:linear-gradient(100deg,color-mix(in srgb,var(--tc) 14%,#182039),#12192A 75%);transition:border-color .3s,background .3s}
+.cq-timer.is-warn{--tc:#FFDA74}.cq-timer.is-low{--tc:#FF6B7A}.cq-timer.is-done{--tc:#8C97B0}
+.cq-glass{width:40px;height:56px;display:block;filter:drop-shadow(0 3px 6px rgba(0,0,0,.4))}
+.cq-glass .g-frame{fill:#ffffff10;stroke:#A8B1C5;stroke-width:2;stroke-linejoin:round}
+.cq-glass .g-cap{stroke:#A8B1C5;stroke-width:3.5;stroke-linecap:round}
+.cq-glass .g-sand{fill:var(--tc);transition:fill .3s}
+.cq-glass .g-stream{stroke:var(--tc);stroke-width:1.6;stroke-linecap:round;transition:stroke .3s}
+.cq-clock,.cq-worth{display:grid;line-height:1.05;min-width:0}
+.cq-clock small,.cq-worth small{font-size:.64rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);white-space:nowrap}
+.cq-clock b{font-size:1.7rem;font-variant-numeric:tabular-nums;color:var(--tc);transition:color .3s;white-space:nowrap}
+.cq-worth{justify-items:end;text-align:right}
+.cq-worth b{font-size:1.55rem;font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap}
+.cq-timer.is-done .cq-worth b{color:var(--tc)}
 .cq-card{--region:#59C9FF;position:relative;display:grid;justify-items:center;align-content:center;gap:6px;min-height:clamp(150px,30vh,200px);padding:26px 14px 14px;border-radius:20px;border:1px solid color-mix(in srgb,var(--region) 55%,var(--line));background:radial-gradient(circle at 50% 0,color-mix(in srgb,var(--region) 30%,#182039),#12192A 72%);text-align:center;overflow:hidden}
 .cq-diff{position:absolute;top:9px;left:10px;padding:2px 8px;border-radius:99px;background:#090D18aa;color:#FFDA74;font-size:.68rem;font-weight:800;letter-spacing:.04em;white-space:nowrap}
 .cq-diff span{color:var(--muted);font-weight:700}
@@ -94,6 +107,7 @@ const CSS = `
 .cq-vs{margin:0;padding:5px 12px;border-radius:99px;background:#273149;color:var(--ink);font-size:.85rem;font-weight:700}
 .cq-vs.is-best{background:color-mix(in srgb,#FFDA74 22%,#182039);color:#FFDA74}
 .cq-break{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;margin:0}
+.cq-break div:last-child:nth-child(odd){grid-column:1/-1}
 .cq-break div{display:grid;gap:2px;padding:8px 6px;border-radius:12px;background:#182039;border:1px solid var(--line)}
 .cq-break dt{font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .cq-break dd{margin:0;font-size:1.15rem;font-weight:900;font-variant-numeric:tabular-nums}
@@ -103,6 +117,8 @@ const CSS = `
 .cq-missed li{padding:3px 8px;border-left:3px solid var(--bad);background:#182039;border-radius:4px;overflow-wrap:anywhere}
 .cq-perfect{margin:0;color:var(--ok);font-weight:700}
 .cq-result-actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.cq.is-motion .cq-glass .g-stream{stroke-dasharray:2 3;animation:cq-stream .5s linear infinite}
+.cq.is-motion .cq-timer.is-low:not(.is-done){animation:cq-alarm .8s ease-in-out infinite}
 .cq.is-motion .cq-card.pop{animation:cq-in .3s ease-out}
 .cq.is-motion .cq-option.is-wrong{animation:cq-shake .3s ease}
 .cq.is-motion .cq-option.is-right.is-picked{animation:cq-pop .3s ease}
@@ -113,6 +129,8 @@ const CSS = `
 .cq.is-motion .cq-segs i.is-now{animation:cq-blink 1.4s ease-in-out infinite}
 .cq.is-motion .cq-vs.is-best{animation:cq-pop .5s ease .6s both}
 .cq:not(.is-motion) .cq-float{display:none}
+@keyframes cq-stream{to{stroke-dashoffset:-5}}
+@keyframes cq-alarm{50%{box-shadow:0 0 0 3px color-mix(in srgb,#FF6B7A 40%,transparent)}}
 @keyframes cq-pop{50%{transform:scale(1.06)}}
 @keyframes cq-in{from{opacity:0;transform:translateY(8px)}}
 @keyframes cq-shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
@@ -120,7 +138,7 @@ const CSS = `
 @keyframes cq-float{0%{opacity:0;transform:translate(-50%,-10%) scale(.8)}20%{opacity:1;transform:translate(-50%,-60%) scale(1.1)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-115%) scale(1)}}
 @keyframes cq-up{0%{transform:scale(1)}40%{transform:scale(1.22) rotate(-3deg)}100%{transform:scale(1)}}
 @keyframes cq-blink{50%{background:#F7F9FF30}}
-@media(max-height:700px){.cq{gap:6px}.cq-body{gap:8px}.cq-card{min-height:136px;padding:24px 10px 10px}.cq-globe{width:112px}.cq-flag.is-hero{font-size:4.2rem}.cq-option{min-height:56px}.cq-mode{min-height:66px}.cq-mode-icon{width:44px;height:44px}.cq-result{gap:8px;padding:14px 12px}.cq-total strong{font-size:2.5rem}}
+@media(max-height:700px){.cq-glass{width:32px;height:44px}.cq-timer{padding-top:4px;padding-bottom:4px}.cq-clock b,.cq-worth b{font-size:1.35rem}.cq{gap:6px}.cq-body{gap:8px}.cq-card{min-height:136px;padding:24px 10px 10px}.cq-globe{width:112px}.cq-flag.is-hero{font-size:4.2rem}.cq-option{min-height:56px}.cq-mode{min-height:66px}.cq-mode-icon{width:44px;height:44px}.cq-result{gap:8px;padding:14px 12px}.cq-total strong{font-size:2.5rem}}
 `;
 
 const LANG_KEY = 'lang';
@@ -145,15 +163,17 @@ const game: GameModule = {
     let lang: Lang = isLang(storedLang) ? storedLang : defaultLang();
     const tr = (key: Key, params?: Record<string, string | number>) => t(lang, key, params);
     let mode: Mode | null = null;
-    let round: Question[] = [], index = 0, score = 0, streak = 0, correct = 0, missed: string[] = [], results: Result[] = [];
-    let answered = false, paused = false, destroyed = false, timer: number | undefined, raf: number | undefined;
+    let round: Question[] = [], index = 0, score = 0, streak = 0, correct = 0, missed: string[] = [], results: Result[] = [], timeLost = 0;
+    let answered = false, paused = false, destroyed = false, timer: number | undefined, raf: number | undefined, tick: number | undefined;
+    /** The countdown of the question on screen; a fresh full clock is made every time a question is shown, so a restored save restarts it. */
+    let clock: QuestionClock | null = null;
     /** What the player just did on the question on screen, kept so a language switch can repaint the feedback. */
-    let last: { picked: number; right: boolean; gained: number; lostStreak: number } | null = null;
+    let last: { picked: number; right: boolean; gained: number; lostStreak: number; left: number } | null = null;
     let view: 'menu' | 'question' | 'result' = 'menu';
     let resultInfo = { prior: 0, newBest: false };
 
     const saved = restore(services.storage.get<Saved | null>('save', null));
-    if (saved) ({ mode, round, index, score, streak, correct, missed, results } = saved);
+    if (saved) ({ mode, round, index, score, streak, correct, missed, results, timeLost } = saved);
 
     host.innerHTML = '<div class="cq" data-cq><div class="cq-langbar"><div class="cq-lang" role="group" data-langbar></div></div><div class="cq-body" data-body></div></div>';
     const root = host.firstElementChild as HTMLElement;
@@ -166,8 +186,9 @@ const game: GameModule = {
       bar.innerHTML = LANGS.map((l) => `<button type="button" data-lang="${l}" lang="${l}" aria-pressed="${l === lang}">${t(l, `lang.${l}`)}</button>`).join('');
     };
 
-    const persist = () => services.storage.set<Saved | null>('save', !mode || index >= ROUND_LENGTH ? null : { mode, round: round.map((q) => ({ country: q.entry.country, options: q.options })), index, score, streak, correct, missed, results });
+    const persist = () => services.storage.set<Saved | null>('save', !mode || index >= ROUND_LENGTH ? null : { mode, round: round.map((q) => ({ country: q.entry.country, options: q.options })), index, score, streak, correct, missed, results, timeLost });
     const clearTimer = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
+    const stopTick = () => { if (tick !== undefined) { clearInterval(tick); tick = undefined; } };
     const stopRoll = () => { if (raf !== undefined) { cancelAnimationFrame(raf); raf = undefined; } };
 
     /** Count a number up from `from` to `to` inside `target`; instant when motion is off. */
@@ -200,16 +221,56 @@ const game: GameModule = {
     /** The question on screen: after an answer `index` has already advanced. */
     const current = () => round[answered ? index - 1 : index];
 
+    /** The clock runs only while an unanswered question is on screen and the game is neither paused nor destroyed. */
+    function syncClock() {
+      const now = performance.now();
+      if (clock && view === 'question' && !answered && !paused && !destroyed) {
+        clock.resume(now);
+        if (tick === undefined) tick = window.setInterval(onTick, motion ? 100 : 250);
+      } else { clock?.pause(now); stopTick(); }
+    }
+    function onTick() {
+      if (!clock) return;
+      clock.tick(performance.now());
+      paintTimer();
+      if (clock.expired) resolve(-1);
+    }
+    const GLASS = '<svg class="cq-glass" viewBox="0 0 40 56" aria-hidden="true"><defs><clipPath id="cq-gt"><path d="M6 6H34L22 28H18Z"/></clipPath><clipPath id="cq-gb"><path d="M18 28H22L34 50H6Z"/></clipPath></defs><path d="M6 6H34L22 28L34 50H6L18 28Z" fill="#ffffff12"/><rect class="g-sand" data-sand-top x="0" width="40" clip-path="url(#cq-gt)"/><rect class="g-sand" data-sand-bot x="0" width="40" clip-path="url(#cq-gb)"/><line class="g-stream" data-stream x1="20" x2="20" y1="28"/><path class="g-frame" fill="none" d="M6 6H34L22 28L34 50H6L18 28Z"/><path class="g-cap" d="M4 4H36M4 52H36"/></svg>';
+    const timerHtml = () => `<div class="cq-timer" role="timer" data-timer>${GLASS}<span class="cq-clock"><small data-clock-label></small><b data-clock></b></span><span class="cq-worth"><small data-worth-label></small><b data-worth></b></span></div>`;
+    const setText = (sel: string, text: string) => { const n = el<HTMLElement>(sel); if (n.textContent !== text) n.textContent = text; };
+    /** Draws the hourglass and the two numbers from the clock; the sand level and digits are live state, not decoration, so they stay with reduced motion. */
+    function paintTimer() {
+      const box = root.querySelector<HTMLElement>('[data-timer]');
+      if (!box || !clock || !mode) return;
+      const q = current(), d = q.entry.difficulty, rem = clock.remainingMs, frac = rem / clock.limitMs;
+      const timedOut = answered && !!last && last.picked < 0;
+      const worth = answered ? (last?.right ? last.gained : 0) : timedPointsFor(d, streak + 1, rem);
+      const cls = `cq-timer${answered ? ' is-done' : frac <= 0.25 ? ' is-low' : frac <= 0.5 ? ' is-warn' : ''}`;
+      if (box.className !== cls) box.className = cls;
+      const top = 22 * frac, bottom = 22 - top;
+      const setRect = (sel: string, y: number, h: number) => { const r = root.querySelector<SVGElement>(sel) as SVGElement; r.setAttribute('y', y.toFixed(2)); r.setAttribute('height', h.toFixed(2)); };
+      setRect('[data-sand-top]', 28 - top, top); setRect('[data-sand-bot]', 50 - bottom, bottom);
+      const stream = root.querySelector<SVGElement>('[data-stream]') as SVGElement;
+      stream.setAttribute('y2', (50 - bottom).toFixed(2)); stream.style.display = !answered && rem > 0 ? '' : 'none';
+      const secs = answered ? (rem / 1000).toFixed(1) : String(Math.ceil(rem / 1000));
+      setText('[data-clock-label]', tr('timer.label'));
+      setText('[data-clock]', timedOut ? tr('timer.expired') : tr('timer.secs', { n: secs }));
+      setText('[data-worth-label]', tr(answered ? 'timer.earned' : 'timer.worth'));
+      setText('[data-worth]', answered ? (worth ? `+${worth}` : '0') : `+${worth}`);
+      const aria = tr('timer.aria', { n: Math.ceil(rem / 1000), pts: worth });
+      if (box.getAttribute('aria-label') !== aria) box.setAttribute('aria-label', aria);
+    }
+
     function showMenu() {
-      clearTimer(); stopRoll(); answered = false; mode = null; last = null; view = 'menu'; persist();
+      clearTimer(); stopRoll(); answered = false; mode = null; last = null; view = 'menu'; persist(); syncClock();
       body.innerHTML = `<div class="cq-menu"><div class="cq-menu-head"><span aria-hidden="true">🌍</span><h2>${tr('menu.title')}</h2><p>${tr('menu.sub')}</p></div>${MODES.map((m) => {
         const best = services.storage.get<number>(bestKey(m), 0);
         return `<button type="button" class="cq-mode" data-mode="${m}" style="--accent:${MODE_ACCENT[m]}"><span class="cq-mode-icon" aria-hidden="true">${MODE_ICON[m]}</span><span class="cq-mode-text"><strong>${tr(`mode.${m}.name`)}</strong><span>${tr(`mode.${m}.blurb`)}</span></span><span class="cq-best${best ? '' : ' is-new'}"><small>${tr('menu.best')}</small><b>${best ? fmt(best) : tr('menu.notYet')}</b></span></button>`;
-      }).join('')}<p class="cq-rules">${tr('menu.rules', { a: BASE_POINTS[1], b: BASE_POINTS[2], c: BASE_POINTS[3] })}</p></div>`;
+      }).join('')}<p class="cq-rules">${tr('menu.rules', { a: BASE_POINTS[1], b: BASE_POINTS[2], c: BASE_POINTS[3] })}</p><p class="cq-rules">${tr('menu.timer', { a: TIME_LIMIT_MS[1] / 1000, b: TIME_LIMIT_MS[2] / 1000, c: TIME_LIMIT_MS[3] / 1000 })}</p></div>`;
     }
 
     function start(m: Mode) {
-      clearTimer(); stopRoll(); mode = m; round = buildRound(services.random, poolFor(m), m); index = 0; score = 0; streak = 0; correct = 0; missed = []; results = []; paused = false; last = null;
+      clearTimer(); stopRoll(); mode = m; round = buildRound(services.random, poolFor(m), m); index = 0; score = 0; streak = 0; correct = 0; missed = []; results = []; timeLost = 0; paused = false; last = null;
       services.reportScore(0); persist(); showQuestion();
     }
 
@@ -226,11 +287,14 @@ const game: GameModule = {
       clearTimer(); stopRoll(); view = 'question';
       if (pop) { answered = false; last = null; }
       const q = current(), m = mode as Mode;
+      if (pop) clock = new QuestionClock(TIME_LIMIT_MS[q.entry.difficulty]);
       body.innerHTML = `${hud()}
+        ${timerHtml()}
         ${card(q, m, pop)}
         <div class="cq-options" role="group" aria-label="${tr(`mode.${m}.choices`)}">${q.options.map((o, i) => `<button type="button" class="cq-option" data-i="${i}">${optionLabel(o, m)}</button>`).join('')}</div>
         <p class="cq-feedback" data-fb aria-live="polite"></p><div class="cq-next-slot" data-next></div>`;
       if (!pop && answered && last) paintAnswer(q, false);
+      paintTimer(); syncClock();
     }
 
     /** Marks the options and writes prompt, feedback and the next button for the answer in `last`. */
@@ -240,34 +304,43 @@ const game: GameModule = {
       const buttons = [...root.querySelectorAll<HTMLButtonElement>('.cq-option')];
       buttons.forEach((b) => { b.disabled = true; });
       buttons[q.answerIndex].classList.add('is-right');
-      buttons[picked].classList.add('is-picked');
+      if (picked >= 0) buttons[picked].classList.add('is-picked');
       const fb = el<HTMLElement>('[data-fb]'), prompt = el<HTMLElement>('[data-prompt]');
       prompt.className = `is-reveal${right ? ' is-ok' : ''}`;
       prompt.textContent = m === 'capital' ? tr('reveal.capital', { name: capitalName(e, lang) }) : m === 'flag' ? countryName(e, lang) : `${flagEmoji(e.iso)} ${countryName(e, lang)}`;
       if (right) {
-        const bonus = gained - BASE_POINTS[e.difficulty];
+        const base = BASE_POINTS[e.difficulty], timed = timedBase(e.difficulty, last.left), bonus = gained - timed, left = (last.left / 1000).toFixed(1);
         fb.className = 'cq-feedback is-right';
-        fb.innerHTML = `<strong>${tr('fb.correct', { n: gained })}</strong><small>${bonus ? tr('fb.bonus', { base: BASE_POINTS[e.difficulty], bonus, streak }) : tr('fb.plain', { diff: tr(`diff.${e.difficulty}`), base: BASE_POINTS[e.difficulty] })}</small>`;
+        fb.innerHTML = `<strong>${tr('fb.correct', { n: gained })}</strong><small>${bonus ? tr('fb.bonus', { base, timed, left, bonus, streak }) : tr('fb.plain', { diff: tr(`diff.${e.difficulty}`), base, timed, left })}</small>`;
         if (fresh) { const float = document.createElement('span'); float.className = 'cq-float'; float.setAttribute('aria-hidden', 'true'); float.textContent = `+${gained}`; buttons[picked].append(float); }
       } else {
-        buttons[picked].classList.add('is-wrong');
+        const timedOut = picked < 0, name = m === 'capital' ? capitalName(e, lang) : countryName(e, lang);
+        if (!timedOut) buttons[picked].classList.add('is-wrong');
         fb.className = 'cq-feedback is-wrong';
-        fb.innerHTML = `<strong>${m === 'capital' ? tr('fb.wrongCapital', { name: capitalName(e, lang) }) : tr('fb.wrongCountry', { name: countryName(e, lang) })}</strong><small>${lostStreak >= 2 ? tr('fb.lostRun', { n: lostStreak }) : tr('fb.hint')}</small>`;
+        fb.innerHTML = `<strong>${tr(timedOut ? (m === 'capital' ? 'fb.timeoutCapital' : 'fb.timeoutCountry') : m === 'capital' ? 'fb.wrongCapital' : 'fb.wrongCountry', { name })}</strong><small>${lostStreak >= 2 ? tr('fb.lostRun', { n: lostStreak }) : tr(timedOut ? 'fb.timeoutHint' : 'fb.hint')}</small>`;
       }
       el<HTMLElement>('[data-next]').innerHTML = `<button type="button" class="cq-action" data-next-btn>${index >= ROUND_LENGTH ? tr('btn.results') : tr('btn.next')}</button>`;
     }
 
     function answer(i: number) {
       if (answered || paused || destroyed || !mode) return;
+      if (i < 0 || i >= round[index].options.length) return;
+      resolve(i);
+    }
+
+    /** Settles the current question: option `i`, or -1 when the clock ran out (counted as a miss that scores nothing). */
+    function resolve(i: number) {
+      if (answered || paused || destroyed || !mode || !clock) return;
       const q = round[index];
-      if (i < 0 || i >= q.options.length) return;
-      answered = true;
-      const right = i === q.answerIndex;
+      answered = true; syncClock(); // stops the clock with the time that was really left
+      const left = i < 0 ? 0 : clock.remainingMs;
+      const right = i >= 0 && i === q.answerIndex;
       const before = score, lostStreak = streak, e = q.entry;
       let gained = 0;
       if (right) {
         streak++; correct++;
-        gained = pointsFor(e.difficulty, streak);
+        gained = timedPointsFor(e.difficulty, streak, left);
+        timeLost += BASE_POINTS[e.difficulty] - timedBase(e.difficulty, left);
         score += gained;
         // A new streak tier gets the brighter "upgrade" cue; plain correct answers keep "success".
         services.sound.play(tierOf(streak) > tierOf(streak - 1) ? 'upgrade' : 'success');
@@ -275,10 +348,11 @@ const game: GameModule = {
         streak = 0; missed.push(e.iso);
         services.sound.play('fail');
       }
-      last = { picked: i, right, gained, lostStreak };
+      last = { picked: i, right, gained, lostStreak, left };
       results.push(right);
       services.reportScore(score); index++; persist();
       paintAnswer(q, true);
+      paintTimer();
       updateHud(before, right, lostStreak);
       if (right) scheduleNext();
     }
@@ -323,6 +397,7 @@ const game: GameModule = {
       view = 'result';
       const m = mode as Mode, { prior, newBest } = resultInfo;
       const known = results.every((r) => r !== null);
+      syncClock();
       const base = results.reduce<number>((sum, r, i) => sum + (r ? BASE_POINTS[round[i].entry.difficulty] : 0), 0);
       let run = 0, bestRun = 0;
       for (const r of results) { run = r ? run + 1 : 0; bestRun = Math.max(bestRun, run); }
@@ -338,7 +413,8 @@ const game: GameModule = {
           <div><dt>${tr('result.correct')}</dt><dd>${correct}/${ROUND_LENGTH}</dd></div>
           <div><dt>${tr('result.bestStreak')}</dt><dd>${known ? `${bestRun >= 2 ? '🔥 ' : ''}${bestRun}` : '—'}</dd></div>
           <div><dt>${tr('result.base')}</dt><dd>${known ? fmt(base) : '—'}</dd></div>
-          <div><dt>${tr('result.bonus')}</dt><dd>${known ? `+${fmt(score - base)}` : '—'}</dd></div>
+          <div><dt>${tr('result.timeLoss')}</dt><dd>${known ? `−${fmt(timeLost)}` : '—'}</dd></div>
+          <div><dt>${tr('result.bonus')}</dt><dd>${known ? `+${fmt(score - base + timeLost)}` : '—'}</dd></div>
         </dl>
         ${missed.length ? `<div class="cq-recap"><p>${tr('result.recap')}</p><ul class="cq-missed">${missed.map((x) => `<li>${missedLine(x, m)}</li>`).join('')}</ul></div>` : `<p class="cq-perfect">${tr('result.perfect')}</p>`}
         <div class="cq-result-actions"><button type="button" class="cq-action" data-again>${tr('btn.again')}</button><button type="button" class="cq-action cq-secondary" data-menu>${tr('btn.menu')}</button></div></div>`;
@@ -378,10 +454,10 @@ const game: GameModule = {
     paintLangBar();
     if (mode) showQuestion(); else showMenu();
     return {
-      pause() { paused = true; clearTimer(); },
-      resume() { paused = false; if (answered && index < ROUND_LENGTH && root.querySelector('.cq-feedback.is-right')) scheduleNext(); },
+      pause() { paused = true; clearTimer(); syncClock(); },
+      resume() { paused = false; syncClock(); if (answered && index < ROUND_LENGTH && root.querySelector('.cq-feedback.is-right')) scheduleNext(); },
       restart,
-      destroy() { destroyed = true; clearTimer(); stopRoll(); host.removeEventListener('keydown', onKey); host.replaceChildren(); }
+      destroy() { destroyed = true; syncClock(); clearTimer(); stopRoll(); host.removeEventListener('keydown', onKey); host.replaceChildren(); }
     };
   }
 };
@@ -401,7 +477,7 @@ function restore(s: Saved | null): State | null {
   // Per-question results only drive the progress strip and result breakdown; older saves lack them, so mark those answers unknown.
   const results: Result[] = Array.isArray(s.results) && s.results.length === s.index && s.results.every((r) => typeof r === 'boolean') && s.results.filter(Boolean).length === correct
     ? s.results : Array.from({ length: s.index }, () => null);
-  return { mode, round, index: s.index, score: num(s.score), streak: num(s.streak), correct, missed: Array.isArray(s.missed) ? s.missed.filter((m) => typeof m === 'string') : [], results };
+  return { mode, round, index: s.index, score: num(s.score), streak: num(s.streak), correct, missed: Array.isArray(s.missed) ? s.missed.filter((m) => typeof m === 'string') : [], results, timeLost: num(s.timeLost) };
 }
 
 export { game };

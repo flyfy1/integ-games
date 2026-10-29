@@ -18,6 +18,47 @@ export const BASE_POINTS: Record<Difficulty, number> = { 1: 100, 2: 150, 3: 200 
 export const STREAK_STEP = 25;
 export const STREAK_CAP = 100;
 
+/** Seconds allowed per question: easy questions get the most reading time, hard ones the least (still ample for 4 options on a phone). */
+export const TIME_LIMIT_MS: Record<Difficulty, number> = { 1: 20000, 2: 16000, 3: 12000 };
+/** Share of the base points still on offer when the clock is about to run out. */
+export const MIN_TIME_FACTOR = 0.4;
+/** The first slice of the clock is free so reading the question never costs points. */
+export const TIME_GRACE = 0.15;
+
+/** Base points left after `remainingMs` of the question's clock: full during the grace slice, then falling linearly to MIN_TIME_FACTOR at zero. */
+export function timedBase(difficulty: Difficulty, remainingMs: number): number {
+  const limit = TIME_LIMIT_MS[difficulty];
+  const frac = Math.max(0, Math.min(1, remainingMs / limit));
+  const live = Math.min(1, frac / (1 - TIME_GRACE));
+  return Math.round(BASE_POINTS[difficulty] * (MIN_TIME_FACTOR + (1 - MIN_TIME_FACTOR) * live));
+}
+
+/** Points for a correct answer given at `remainingMs`: time-decayed base plus the unchanged streak bonus. */
+export function timedPointsFor(difficulty: Difficulty, streak: number, remainingMs: number): number {
+  return pointsFor(difficulty, streak) - BASE_POINTS[difficulty] + timedBase(difficulty, remainingMs);
+}
+
+/**
+ * A question's countdown. It only advances while running, and a single step is capped so a frozen or
+ * throttled tab can never burn time the player could not see.
+ */
+export const MAX_CLOCK_STEP_MS = 250;
+export class QuestionClock {
+  private spent = 0;
+  private last = 0;
+  running = false;
+  constructor(readonly limitMs: number) {}
+  /** Fold the time since the previous call into the clock (no-op while paused). */
+  tick(now: number) {
+    if (this.running) this.spent = Math.min(this.limitMs, this.spent + Math.max(0, Math.min(MAX_CLOCK_STEP_MS, now - this.last)));
+    this.last = now;
+  }
+  resume(now: number) { if (!this.running) { this.last = now; this.running = true; } }
+  pause(now: number) { this.tick(now); this.running = false; }
+  get remainingMs() { return this.limitMs - this.spent; }
+  get expired() { return this.spent >= this.limitMs; }
+}
+
 type Random = () => number;
 const pick = (rand: Random, count: number) => Math.floor(rand() * count);
 
