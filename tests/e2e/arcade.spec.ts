@@ -5,7 +5,7 @@ test('all catalog routes render without a page error', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   const routes = await page.locator('article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(routes).toHaveLength(21);
+  expect(routes).toHaveLength(22);
   for (const gameRoute of routes) {
     await page.goto(gameRoute ?? '/');
     await expect(page.locator('.game-stage')).toBeVisible();
@@ -31,7 +31,7 @@ test('category filters persist in the URL and search stays within the active cat
   await page.goto('/play/merge-2048');
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(7);
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(8);
 });
 
 test('game navigation updates canonical and social metadata', async ({ page }, testInfo) => {
@@ -83,7 +83,7 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
   const primaryKey: Record<string, string> = {
     'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
     'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
-    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight'
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1'
   };
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
