@@ -1,10 +1,12 @@
 /**
- * Capital Quiz question bank. Static, offline, and limited to uncontested current capitals.
+ * Geo Quiz (slug capital-quiz) question bank, shared by the capital, flag and outline modes. Static, offline, and limited to uncontested current capitals.
  * Skipped on purpose: countries with split/disputed/recently changed capitals (e.g. Bolivia, South Africa,
  * Israel, Indonesia, Côte d'Ivoire, Benin, Tanzania, Sri Lanka, Yemen, Eswatini, Netherlands, Kosovo, Taiwan).
  *
  * Difficulty: 1 = widely known, 2 = known to a keen traveller or geography fan, 3 = genuinely tricky.
  */
+import { SHAPE_ROWS } from './shapes';
+
 export type Region = 'Europe' | 'Asia' | 'Africa' | 'North America' | 'South America' | 'Oceania';
 export type Difficulty = 1 | 2 | 3;
 export type CountryEntry = { country: string; capital: string; region: Region; difficulty: Difficulty; iso: string };
@@ -68,3 +70,12 @@ export const flagEmoji = (iso: string): string => String.fromCodePoint(...[...is
 export const REGION_COLORS: Record<Region, string> = {
   Europe: '#59C9FF', Asia: '#FF9F6E', Africa: '#FFDA74', 'North America': '#70F0C2', 'South America': '#8EE58C', Oceania: '#B18CFF',
 };
+
+/** Countries that have a silhouette in shapes.ts, with the outline difficulty (not the capital difficulty). */
+export type ShapeEntry = CountryEntry & { path: string };
+const byIso = new Map(COUNTRIES.map((c) => [c.iso, c]));
+export const SHAPE_COUNTRIES: readonly ShapeEntry[] = SHAPE_ROWS.map(([iso, difficulty, path]) => {
+  const c = byIso.get(iso);
+  if (!c) throw new Error(`Outline ${iso} has no matching country`);
+  return { ...c, difficulty, path };
+});
