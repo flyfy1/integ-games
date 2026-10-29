@@ -67,7 +67,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 
 ## Acceptance checks
 
-- All 21 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
+- All 22 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
 - Every category has at least four games.
 - Home filtering, search-within-filter, query persistence, and empty states work on desktop and mobile.
 - Every `/play/:slug` page renders the right category, traits, breadcrumb, and four recommendations.

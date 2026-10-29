@@ -23,7 +23,7 @@ npm run build
 npm run test:lighthouse
 ```
 
-Expected catalog count: exactly 21 unique game routes.
+Expected catalog count: exactly 22 unique game routes.
 
 ## GitHub Pages
 
@@ -51,7 +51,7 @@ Do not guess `<github-owner>`; derive it from the final repository remote.
 - Open `https://games.integ.life` in a private browser session.
 - Confirm there is no certificate warning and HTTP redirects to HTTPS.
 - Open at least one deep link directly, such as `/play/arena`, and refresh it.
-- Run through all 21 routes at desktop and mobile viewports.
+- Run through all 22 routes at desktop and mobile viewports.
 - Confirm no console errors, missing chunks, cross-origin failures, or unexpected horizontal scrolling.
 - Confirm a played score remains after reload.
 - Confirm sound starts only after user interaction and mute persists.

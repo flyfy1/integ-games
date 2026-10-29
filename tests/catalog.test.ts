@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { catalog, categoryInfo, findGame, recommendationsFor } from '../src/core/catalog';
 
 describe('arcade catalog', () => {
-  it('contains exactly the 21 launch cabinets with unique slugs', () => {
-    expect(catalog).toHaveLength(21);
-    expect(new Set(catalog.map((game) => game.slug)).size).toBe(21);
+  it('contains exactly the 22 launch cabinets with unique slugs', () => {
+    expect(catalog).toHaveLength(22);
+    expect(new Set(catalog.map((game) => game.slug)).size).toBe(22);
   });
 
   it('finds the reference game by route slug', () => {
