@@ -1,6 +1,7 @@
 import type { GameController, GameModule } from '../../core/game-types';
-import { REGION_COLORS, flagEmoji, type Difficulty, type ShapeEntry } from './data';
+import { COUNTRIES, REGION_COLORS, flagEmoji, type CountryEntry, type Difficulty, type ShapeEntry } from './data';
 import { SHAPE_VIEWBOX } from './shapes';
+import { LANGS, capitalLabel, capitalName, countryLabel, countryName, defaultLang, isLang, regionName, t, type Key, type Lang } from './i18n';
 import { BASE_POINTS, MODES, ROUND_LENGTH, answerOf, buildRound, isMode, poolFor, pointsFor, type Mode, type Question } from './logic';
 
 /** `results[i]` is whether question i was answered correctly; null when unknown (saves from before results were kept). */
@@ -12,11 +13,19 @@ const STYLE_ID = 'capital-quiz-style';
 const CSS = `
 .cq{--ok:#70F0C2;--bad:#FF6B7A;--ink:#F7F9FF;--muted:#A8B1C5;--line:#273149;width:min(100%,460px);max-width:100%;display:grid;gap:10px;color:var(--ink);touch-action:manipulation;min-width:0}
 .cq *{box-sizing:border-box}
+.cq-langbar{display:flex;justify-content:flex-end}
+.cq-lang{display:inline-flex;border:1px solid #52617f;border-radius:12px;overflow:hidden}
+.cq-lang button{min-width:48px;min-height:44px;padding:0 12px;border:0;background:#182039;color:var(--muted);font-weight:800;font-size:.9rem;touch-action:manipulation}
+.cq-lang button+button{border-left:1px solid #52617f}
+.cq-lang button[aria-pressed=true]{background:var(--ok);color:#071712}
+.cq-lang button:focus-visible{outline:3px solid var(--ok);outline-offset:-3px}
+.cq-body{display:grid;gap:10px;min-width:0}
 .cq-hud{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px}
 /* Clear the immersive exit button pinned to the top-left corner. */
 .game-stage.is-immersive .cq-hud{padding-left:50px}
 .cq-hud-q,.cq-hud-score{display:grid;line-height:1.05}
 .cq-hud small{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+.cq-streak small{white-space:nowrap}
 .cq-hud strong{font-size:1.3rem;font-variant-numeric:tabular-nums}
 .cq-hud-score{justify-items:center}
 .cq-hud-score strong{position:relative;font-size:1.55rem;color:var(--ink)}
@@ -71,7 +80,7 @@ const CSS = `
 .cq-mode-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:color-mix(in srgb,var(--accent) 28%,#0f1628);font-size:1.8rem;line-height:1}
 .cq-mode-text{display:grid;gap:2px;min-width:0}
 .cq-mode strong{font-size:1.06rem}
-.cq-mode-text span{color:var(--muted);font-size:.82rem}
+.cq-mode-text span{color:var(--muted);font-size:.82rem;overflow-wrap:anywhere}
 .cq-best{display:grid;justify-items:end;line-height:1.05}
 .cq-best small{font-size:.62rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
 .cq-best b{font-size:1.05rem;font-variant-numeric:tabular-nums;color:var(--accent)}
@@ -111,12 +120,12 @@ const CSS = `
 @keyframes cq-float{0%{opacity:0;transform:translate(-50%,-10%) scale(.8)}20%{opacity:1;transform:translate(-50%,-60%) scale(1.1)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-115%) scale(1)}}
 @keyframes cq-up{0%{transform:scale(1)}40%{transform:scale(1.22) rotate(-3deg)}100%{transform:scale(1)}}
 @keyframes cq-blink{50%{background:#F7F9FF30}}
-@media(max-height:700px){.cq{gap:8px}.cq-card{min-height:136px;padding:24px 10px 10px}.cq-globe{width:112px}.cq-flag.is-hero{font-size:4.2rem}.cq-option{min-height:56px}.cq-mode{min-height:66px}.cq-mode-icon{width:44px;height:44px}.cq-result{gap:8px;padding:14px 12px}.cq-total strong{font-size:2.5rem}}
+@media(max-height:700px){.cq{gap:6px}.cq-body{gap:8px}.cq-card{min-height:136px;padding:24px 10px 10px}.cq-globe{width:112px}.cq-flag.is-hero{font-size:4.2rem}.cq-option{min-height:56px}.cq-mode{min-height:66px}.cq-mode-icon{width:44px;height:44px}.cq-result{gap:8px;padding:14px 12px}.cq-total strong{font-size:2.5rem}}
 `;
 
+const LANG_KEY = 'lang';
 const fmt = (n: number) => n.toLocaleString('en-US');
 const STARS: Record<Difficulty, string> = { 1: '★☆☆', 2: '★★☆', 3: '★★★' };
-const DIFF_NAME: Record<Difficulty, string> = { 1: 'Easy', 2: 'Medium', 3: 'Hard' };
 /** Streak tier 0..4: tier n means this answer earned +25×n bonus (tier 4 is the +100 cap). */
 const tierOf = (streak: number) => Math.max(0, Math.min(4, streak - 1));
 
@@ -132,17 +141,30 @@ const game: GameModule = {
     // The capital mode keeps the original key so existing best scores carry over.
     const bestKey = (m: Mode) => (m === 'capital' ? 'capital-quiz-best' : `capital-quiz-best-${m}`);
     const motion = !services.isReducedMotion && typeof requestAnimationFrame === 'function';
+    const storedLang = services.storage.get<unknown>(LANG_KEY, null);
+    let lang: Lang = isLang(storedLang) ? storedLang : defaultLang();
+    const tr = (key: Key, params?: Record<string, string | number>) => t(lang, key, params);
     let mode: Mode | null = null;
     let round: Question[] = [], index = 0, score = 0, streak = 0, correct = 0, missed: string[] = [], results: Result[] = [];
     let answered = false, paused = false, destroyed = false, timer: number | undefined, raf: number | undefined;
+    /** What the player just did on the question on screen, kept so a language switch can repaint the feedback. */
+    let last: { picked: number; right: boolean; gained: number; lostStreak: number } | null = null;
+    let view: 'menu' | 'question' | 'result' = 'menu';
+    let resultInfo = { prior: 0, newBest: false };
 
     const saved = restore(services.storage.get<Saved | null>('save', null));
     if (saved) ({ mode, round, index, score, streak, correct, missed, results } = saved);
 
-    host.innerHTML = '<div class="cq" data-cq></div>';
+    host.innerHTML = '<div class="cq" data-cq><div class="cq-langbar"><div class="cq-lang" role="group" data-langbar></div></div><div class="cq-body" data-body></div></div>';
     const root = host.firstElementChild as HTMLElement;
     root.classList.toggle('is-motion', motion);
     const el = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
+    const body = el<HTMLElement>('[data-body]');
+    const paintLangBar = () => {
+      const bar = el<HTMLElement>('[data-langbar]');
+      bar.setAttribute('aria-label', tr('lang.label'));
+      bar.innerHTML = LANGS.map((l) => `<button type="button" data-lang="${l}" lang="${l}" aria-pressed="${l === lang}">${t(l, `lang.${l}`)}</button>`).join('');
+    };
 
     const persist = () => services.storage.set<Saved | null>('save', !mode || index >= ROUND_LENGTH ? null : { mode, round: round.map((q) => ({ country: q.entry.country, options: q.options })), index, score, streak, correct, missed, results });
     const clearTimer = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
@@ -166,45 +188,73 @@ const game: GameModule = {
       return `<i class="${i < results.length ? (r === true ? 'is-ok' : r === false ? 'is-bad' : 'is-done') : i === index && !answered ? 'is-now' : ''}"></i>`;
     }).join('');
     const streakChip = (s: number, reset = false) => {
-      const t = tierOf(s);
-      const label = reset ? 'Fresh start' : t === 4 ? 'Max +100' : t > 0 ? `Bonus +${25 * t}` : 'Streak';
-      return `<span class="cq-streak${reset ? ' is-reset' : t ? ` t${t}` : ''}" data-streak aria-label="Streak ${s}"><b>${s >= 2 ? `🔥 ${s}` : s}</b><small>${label}</small></span>`;
+      const tier = tierOf(s);
+      const label = reset ? tr('streak.fresh') : tier === 4 ? tr('streak.max') : tier > 0 ? tr('streak.bonus', { n: 25 * tier }) : tr('streak.none');
+      return `<span class="cq-streak${reset ? ' is-reset' : tier ? ` t${tier}` : ''}" data-streak aria-label="${tr('streak.aria', { n: s })}"><b>${s >= 2 ? `🔥 ${s}` : s}</b><small>${label}</small></span>`;
     };
-    const hud = () => `<div data-hud><div class="cq-hud"><span class="cq-hud-q"><small>Question</small><strong data-q>${answered ? index : Math.min(index + 1, ROUND_LENGTH)}/${ROUND_LENGTH}</strong></span><span class="cq-hud-score" data-score-box><small>Score</small><strong data-score aria-label="Score">${fmt(score)}</strong></span>${streakChip(streak)}</div><div class="cq-segs" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="${ROUND_LENGTH}" aria-valuenow="${index}" data-segs>${segs()}</div></div>`;
+    const hud = () => `<div data-hud><div class="cq-hud"><span class="cq-hud-q"><small>${tr('hud.question')}</small><strong data-q>${answered ? index : Math.min(index + 1, ROUND_LENGTH)}/${ROUND_LENGTH}</strong></span><span class="cq-hud-score" data-score-box><small>${tr('hud.score')}</small><strong data-score aria-label="${tr('hud.score')}">${fmt(score)}</strong></span>${streakChip(streak, view === 'question' && !!last && !last.right && last.lostStreak >= 2)}</div><div class="cq-segs" role="progressbar" aria-label="${tr('hud.progress')}" aria-valuemin="0" aria-valuemax="${ROUND_LENGTH}" aria-valuenow="${index}" data-segs>${segs()}</div></div>`;
 
-    const MODE_INFO: Record<Mode, { icon: string; name: string; blurb: string; choices: string; again: string; accent: string }> = {
-      capital: { icon: '🏛️', name: 'Guess the capital', blurb: 'A country, four capitals', choices: 'Capital choices', again: 'Capital genius!', accent: '#59C9FF' },
-      flag: { icon: '🚩', name: 'Guess the flag', blurb: 'A flag, four countries', choices: 'Country choices', again: 'Flag master!', accent: '#FFB06B' },
-      shape: { icon: '🗺️', name: 'Guess the outline', blurb: 'A silhouette, four countries', choices: 'Country choices', again: 'Cartographer!', accent: '#70F0C2' }
-    };
+    const MODE_ACCENT: Record<Mode, string> = { capital: '#59C9FF', flag: '#FFB06B', shape: '#70F0C2' };
+    const MODE_ICON: Record<Mode, string> = { capital: '🏛️', flag: '🚩', shape: '🗺️' };
+    const optionLabel = (o: string, m: Mode) => (m === 'capital' ? capitalLabel(o, lang) : countryLabel(o, lang));
+    /** The question on screen: after an answer `index` has already advanced. */
+    const current = () => round[answered ? index - 1 : index];
 
     function showMenu() {
-      clearTimer(); stopRoll(); answered = false; mode = null; persist();
-      root.innerHTML = `<div class="cq-menu"><div class="cq-menu-head"><span aria-hidden="true">🌍</span><h2>Geo Quiz</h2><p>10 questions, easy to hard. Pick a mode.</p></div>${MODES.map((m) => {
+      clearTimer(); stopRoll(); answered = false; mode = null; last = null; view = 'menu'; persist();
+      body.innerHTML = `<div class="cq-menu"><div class="cq-menu-head"><span aria-hidden="true">🌍</span><h2>${tr('menu.title')}</h2><p>${tr('menu.sub')}</p></div>${MODES.map((m) => {
         const best = services.storage.get<number>(bestKey(m), 0);
-        return `<button type="button" class="cq-mode" data-mode="${m}" style="--accent:${MODE_INFO[m].accent}"><span class="cq-mode-icon" aria-hidden="true">${MODE_INFO[m].icon}</span><span class="cq-mode-text"><strong>${MODE_INFO[m].name}</strong><span>${MODE_INFO[m].blurb}</span></span><span class="cq-best${best ? '' : ' is-new'}"><small>Best</small><b>${best ? fmt(best) : 'Not yet'}</b></span></button>`;
-      }).join('')}<p class="cq-rules">Right answers score ${BASE_POINTS[1]} / ${BASE_POINTS[2]} / ${BASE_POINTS[3]} by difficulty · 🔥 answers in a row add +25 more each, up to +100</p></div>`;
+        return `<button type="button" class="cq-mode" data-mode="${m}" style="--accent:${MODE_ACCENT[m]}"><span class="cq-mode-icon" aria-hidden="true">${MODE_ICON[m]}</span><span class="cq-mode-text"><strong>${tr(`mode.${m}.name`)}</strong><span>${tr(`mode.${m}.blurb`)}</span></span><span class="cq-best${best ? '' : ' is-new'}"><small>${tr('menu.best')}</small><b>${best ? fmt(best) : tr('menu.notYet')}</b></span></button>`;
+      }).join('')}<p class="cq-rules">${tr('menu.rules', { a: BASE_POINTS[1], b: BASE_POINTS[2], c: BASE_POINTS[3] })}</p></div>`;
     }
 
     function start(m: Mode) {
-      clearTimer(); stopRoll(); mode = m; round = buildRound(services.random, poolFor(m), m); index = 0; score = 0; streak = 0; correct = 0; missed = []; results = []; paused = false;
+      clearTimer(); stopRoll(); mode = m; round = buildRound(services.random, poolFor(m), m); index = 0; score = 0; streak = 0; correct = 0; missed = []; results = []; paused = false; last = null;
       services.reportScore(0); persist(); showQuestion();
     }
 
-    function card(q: Question, m: Mode) {
-      const e = q.entry, diff = `<span class="cq-diff" aria-label="${DIFF_NAME[e.difficulty]}, ${BASE_POINTS[e.difficulty]} points">${STARS[e.difficulty]} <span>${BASE_POINTS[e.difficulty]} pts</span></span>`;
-      if (m === 'flag') return `<div class="cq-card pop" style="--region:${MODE_INFO.flag.accent}">${diff}<span class="cq-flag is-hero" role="img" aria-label="A national flag">${flagEmoji(e.iso)}</span><p data-prompt>Which country's flag is this?</p></div>`;
-      if (m === 'shape') return `<div class="cq-card pop" style="--region:${MODE_INFO.shape.accent}">${diff}<span class="cq-globe"><svg class="cq-shape" viewBox="0 0 ${SHAPE_VIEWBOX} ${SHAPE_VIEWBOX}" role="img" aria-label="A country outline"><defs><linearGradient id="cq-land" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BFFD9"/><stop offset="1" stop-color="#3FBF9A"/></linearGradient></defs><path d="${(e as ShapeEntry).path}" fill="url(#cq-land)" stroke="#071712" stroke-width="1" stroke-linejoin="round"/></svg></span><p data-prompt>Which country has this outline?</p></div>`;
-      return `<div class="cq-card pop" style="--region:${REGION_COLORS[e.region]}">${diff}<span class="cq-flag" aria-hidden="true">${flagEmoji(e.iso)}</span><h2>${e.country}</h2><p data-prompt>What is its capital?</p><span class="cq-chip">${e.region}</span></div>`;
+    function card(q: Question, m: Mode, pop: boolean) {
+      const e = q.entry, pts = BASE_POINTS[e.difficulty], cls = `cq-card${pop ? ' pop' : ''}`;
+      const diff = `<span class="cq-diff" aria-label="${tr('diff.aria', { name: tr(`diff.${e.difficulty}`), pts })}">${STARS[e.difficulty]} <span>${tr('diff.pts', { pts })}</span></span>`;
+      if (m === 'flag') return `<div class="${cls}" style="--region:${MODE_ACCENT.flag}">${diff}<span class="cq-flag is-hero" role="img" aria-label="${tr('card.flagAria')}">${flagEmoji(e.iso)}</span><p data-prompt>${tr('prompt.flag')}</p></div>`;
+      if (m === 'shape') return `<div class="${cls}" style="--region:${MODE_ACCENT.shape}">${diff}<span class="cq-globe"><svg class="cq-shape" viewBox="0 0 ${SHAPE_VIEWBOX} ${SHAPE_VIEWBOX}" role="img" aria-label="${tr('card.shapeAria')}"><defs><linearGradient id="cq-land" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BFFD9"/><stop offset="1" stop-color="#3FBF9A"/></linearGradient></defs><path d="${(e as ShapeEntry).path}" fill="url(#cq-land)" stroke="#071712" stroke-width="1" stroke-linejoin="round"/></svg></span><p data-prompt>${tr('prompt.shape')}</p></div>`;
+      return `<div class="${cls}" style="--region:${REGION_COLORS[e.region]}">${diff}<span class="cq-flag" aria-hidden="true">${flagEmoji(e.iso)}</span><h2>${countryName(e, lang)}</h2><p data-prompt>${tr('prompt.capital')}</p><span class="cq-chip">${regionName(e.region, lang)}</span></div>`;
     }
 
-    function showQuestion() {
-      clearTimer(); stopRoll(); answered = false;
-      const q = round[index], m = mode as Mode;
-      root.innerHTML = `${hud()}
-        ${card(q, m)}
-        <div class="cq-options" role="group" aria-label="${MODE_INFO[m].choices}">${q.options.map((o, i) => `<button type="button" class="cq-option" data-i="${i}">${o}</button>`).join('')}</div>
+    /** Draws the current question; when it was already answered (language switch) the feedback is repainted without animation. */
+    function showQuestion(pop = true) {
+      clearTimer(); stopRoll(); view = 'question';
+      if (pop) { answered = false; last = null; }
+      const q = current(), m = mode as Mode;
+      body.innerHTML = `${hud()}
+        ${card(q, m, pop)}
+        <div class="cq-options" role="group" aria-label="${tr(`mode.${m}.choices`)}">${q.options.map((o, i) => `<button type="button" class="cq-option" data-i="${i}">${optionLabel(o, m)}</button>`).join('')}</div>
         <p class="cq-feedback" data-fb aria-live="polite"></p><div class="cq-next-slot" data-next></div>`;
+      if (!pop && answered && last) paintAnswer(q, false);
+    }
+
+    /** Marks the options and writes prompt, feedback and the next button for the answer in `last`. */
+    function paintAnswer(q: Question, fresh: boolean) {
+      if (!last) return;
+      const { picked, right, gained, lostStreak } = last, e = q.entry, m = mode as Mode;
+      const buttons = [...root.querySelectorAll<HTMLButtonElement>('.cq-option')];
+      buttons.forEach((b) => { b.disabled = true; });
+      buttons[q.answerIndex].classList.add('is-right');
+      buttons[picked].classList.add('is-picked');
+      const fb = el<HTMLElement>('[data-fb]'), prompt = el<HTMLElement>('[data-prompt]');
+      prompt.className = `is-reveal${right ? ' is-ok' : ''}`;
+      prompt.textContent = m === 'capital' ? tr('reveal.capital', { name: capitalName(e, lang) }) : m === 'flag' ? countryName(e, lang) : `${flagEmoji(e.iso)} ${countryName(e, lang)}`;
+      if (right) {
+        const bonus = gained - BASE_POINTS[e.difficulty];
+        fb.className = 'cq-feedback is-right';
+        fb.innerHTML = `<strong>${tr('fb.correct', { n: gained })}</strong><small>${bonus ? tr('fb.bonus', { base: BASE_POINTS[e.difficulty], bonus, streak }) : tr('fb.plain', { diff: tr(`diff.${e.difficulty}`), base: BASE_POINTS[e.difficulty] })}</small>`;
+        if (fresh) { const float = document.createElement('span'); float.className = 'cq-float'; float.setAttribute('aria-hidden', 'true'); float.textContent = `+${gained}`; buttons[picked].append(float); }
+      } else {
+        buttons[picked].classList.add('is-wrong');
+        fb.className = 'cq-feedback is-wrong';
+        fb.innerHTML = `<strong>${m === 'capital' ? tr('fb.wrongCapital', { name: capitalName(e, lang) }) : tr('fb.wrongCountry', { name: countryName(e, lang) })}</strong><small>${lostStreak >= 2 ? tr('fb.lostRun', { n: lostStreak }) : tr('fb.hint')}</small>`;
+      }
+      el<HTMLElement>('[data-next]').innerHTML = `<button type="button" class="cq-action" data-next-btn>${index >= ROUND_LENGTH ? tr('btn.results') : tr('btn.next')}</button>`;
     }
 
     function answer(i: number) {
@@ -212,35 +262,24 @@ const game: GameModule = {
       const q = round[index];
       if (i < 0 || i >= q.options.length) return;
       answered = true;
-      const right = i === q.answerIndex, buttons = [...root.querySelectorAll<HTMLButtonElement>('.cq-option')];
+      const right = i === q.answerIndex;
       const before = score, lostStreak = streak, e = q.entry;
-      buttons.forEach((b) => { b.disabled = true; });
-      buttons[q.answerIndex].classList.add('is-right');
-      buttons[i].classList.add('is-picked');
-      const fb = el<HTMLElement>('[data-fb]'), prompt = el<HTMLElement>('[data-prompt]');
-      prompt.className = `is-reveal${right ? ' is-ok' : ''}`;
-      prompt.textContent = mode === 'capital' ? `Capital: ${e.capital}` : mode === 'flag' ? e.country : `${flagEmoji(e.iso)} ${e.country}`;
+      let gained = 0;
       if (right) {
         streak++; correct++;
-        const gained = pointsFor(e.difficulty, streak), bonus = gained - BASE_POINTS[e.difficulty];
+        gained = pointsFor(e.difficulty, streak);
         score += gained;
-        fb.className = 'cq-feedback is-right';
-        fb.innerHTML = `<strong>Correct! +${gained}</strong><small>${bonus ? `${BASE_POINTS[e.difficulty]} base + ${bonus} streak bonus · ${streak} in a row` : `${DIFF_NAME[e.difficulty]} · ${BASE_POINTS[e.difficulty]} base points`}</small>`;
-        const float = document.createElement('span'); float.className = 'cq-float'; float.setAttribute('aria-hidden', 'true'); float.textContent = `+${gained}`;
-        buttons[i].append(float);
         // A new streak tier gets the brighter "upgrade" cue; plain correct answers keep "success".
         services.sound.play(tierOf(streak) > tierOf(streak - 1) ? 'upgrade' : 'success');
       } else {
-        buttons[i].classList.add('is-wrong'); streak = 0; missed.push(mode === 'capital' ? `${e.country} — ${e.capital}` : mode === 'flag' ? `${flagEmoji(e.iso)} ${e.country}` : e.country);
-        fb.className = 'cq-feedback is-wrong';
-        fb.innerHTML = `<strong>${mode === 'capital' ? `Not quite — it's ${e.capital}.` : `Not quite — that was ${e.country}.`}</strong><small>${lostStreak >= 2 ? `Your ${lostStreak}-in-a-row run ends here — a new streak starts next question.` : 'The right answer is lit up in green.'}</small>`;
+        streak = 0; missed.push(e.iso);
         services.sound.play('fail');
       }
+      last = { picked: i, right, gained, lostStreak };
       results.push(right);
       services.reportScore(score); index++; persist();
+      paintAnswer(q, true);
       updateHud(before, right, lostStreak);
-      const slot = el<HTMLElement>('[data-next]');
-      slot.innerHTML = `<button type="button" class="cq-action" data-next-btn>${index >= ROUND_LENGTH ? 'See results' : 'Next'}</button>`;
       if (right) scheduleNext();
     }
 
@@ -262,41 +301,66 @@ const game: GameModule = {
     function scheduleNext() { clearTimer(); if (!paused) timer = window.setTimeout(next, 1150); }
     function next() { clearTimer(); if (!answered || destroyed) return; if (index >= ROUND_LENGTH) finish(); else showQuestion(); }
 
+    /** A missed question is stored as its ISO code; anything else is a pre-i18n saved line shown as written. */
+    const missedLine = (x: string, m: Mode) => {
+      const e: CountryEntry | undefined = COUNTRIES.find((c) => c.iso === x);
+      if (!e) return x;
+      return m === 'capital' ? `${countryName(e, lang)} — ${capitalName(e, lang)}` : m === 'flag' ? `${flagEmoji(e.iso)} ${countryName(e, lang)}` : countryName(e, lang);
+    };
+
     function finish() {
       stopRoll();
       const m = mode as Mode, prior = services.storage.get<number>(bestKey(m), 0), best = Math.max(prior, score);
       if (best !== prior) services.storage.set(bestKey(m), best);
       services.reportScore(score); services.reportComplete(1);
+      resultInfo = { prior, newBest: score > prior };
+      services.sound.play(resultInfo.newBest ? 'clear' : 'success');
+      answered = true;
+      showResult(true);
+    }
+
+    function showResult(fresh: boolean) {
+      view = 'result';
+      const m = mode as Mode, { prior, newBest } = resultInfo;
       const known = results.every((r) => r !== null);
       const base = results.reduce<number>((sum, r, i) => sum + (r ? BASE_POINTS[round[i].entry.difficulty] : 0), 0);
       let run = 0, bestRun = 0;
       for (const r of results) { run = r ? run + 1 : 0; bestRun = Math.max(bestRun, run); }
       const max = round.reduce((sum, q, i) => sum + pointsFor(q.entry.difficulty, i + 1), 0);
-      const newBest = score > prior;
-      const vs = prior === 0 ? (score > 0 ? `🏆 First ${MODE_INFO[m].name.toLowerCase().replace('guess the ', '')} best: ${fmt(score)}` : 'No best yet — every round is practice') : newBest ? `🏆 New best! +${fmt(score - prior)} over ${fmt(prior)}` : score === prior ? `Matched your best of ${fmt(prior)}` : `Best ${fmt(prior)} · ${fmt(prior - score)} to beat it`;
-      services.sound.play(newBest ? 'clear' : 'success');
-      answered = true;
-      root.innerHTML = `${hud()}<div class="cq-result">
-        <h2>${correct >= 9 ? MODE_INFO[m].again : correct >= 6 ? 'Nicely navigated!' : 'Good start — keep exploring!'}</h2>
-        <p class="cq-result-mode">${MODE_INFO[m].icon} ${MODE_INFO[m].name}</p>
-        <div class="cq-total"><strong data-total aria-label="Total score ${score}">${fmt(motion ? 0 : score)}</strong><small>/ ${fmt(max)}</small></div>
+      const vs = prior === 0 ? (score > 0 ? tr('vs.first', { mode: tr(`mode.${m}.short`), score: fmt(score) }) : tr('vs.none')) : newBest ? tr('vs.new', { gain: fmt(score - prior), prior: fmt(prior) }) : score === prior ? tr('vs.match', { prior: fmt(prior) }) : tr('vs.behind', { prior: fmt(prior), gap: fmt(prior - score) });
+      const animate = fresh && motion;
+      body.innerHTML = `${hud()}<div class="cq-result">
+        <h2>${correct >= 9 ? tr(`mode.${m}.again`) : correct >= 6 ? tr('result.mid') : tr('result.low')}</h2>
+        <p class="cq-result-mode">${MODE_ICON[m]} ${tr(`mode.${m}.name`)}</p>
+        <div class="cq-total"><strong data-total aria-label="${tr('result.totalAria', { n: score })}">${fmt(animate ? 0 : score)}</strong><small>/ ${fmt(max)}</small></div>
         <p class="cq-vs${newBest && score > 0 ? ' is-best' : ''}">${vs}</p>
         <dl class="cq-break">
-          <div><dt>Correct</dt><dd>${correct}/${ROUND_LENGTH}</dd></div>
-          <div><dt>Best streak</dt><dd>${known ? `${bestRun >= 2 ? '🔥 ' : ''}${bestRun}` : '—'}</dd></div>
-          <div><dt>Base points</dt><dd>${known ? fmt(base) : '—'}</dd></div>
-          <div><dt>Streak bonus</dt><dd>${known ? `+${fmt(score - base)}` : '—'}</dd></div>
+          <div><dt>${tr('result.correct')}</dt><dd>${correct}/${ROUND_LENGTH}</dd></div>
+          <div><dt>${tr('result.bestStreak')}</dt><dd>${known ? `${bestRun >= 2 ? '🔥 ' : ''}${bestRun}` : '—'}</dd></div>
+          <div><dt>${tr('result.base')}</dt><dd>${known ? fmt(base) : '—'}</dd></div>
+          <div><dt>${tr('result.bonus')}</dt><dd>${known ? `+${fmt(score - base)}` : '—'}</dd></div>
         </dl>
-        ${missed.length ? `<div class="cq-recap"><p>Worth remembering</p><ul class="cq-missed">${missed.map((x) => `<li>${x}</li>`).join('')}</ul></div>` : '<p class="cq-perfect">A perfect round — no misses!</p>'}
-        <div class="cq-result-actions"><button type="button" class="cq-action" data-again>Play again</button><button type="button" class="cq-action cq-secondary" data-menu>Change mode</button></div></div>`;
-      roll(el<HTMLElement>('[data-total]'), 0, score, 900);
+        ${missed.length ? `<div class="cq-recap"><p>${tr('result.recap')}</p><ul class="cq-missed">${missed.map((x) => `<li>${missedLine(x, m)}</li>`).join('')}</ul></div>` : `<p class="cq-perfect">${tr('result.perfect')}</p>`}
+        <div class="cq-result-actions"><button type="button" class="cq-action" data-again>${tr('btn.again')}</button><button type="button" class="cq-action cq-secondary" data-menu>${tr('btn.menu')}</button></div></div>`;
+      if (animate) roll(el<HTMLElement>('[data-total]'), 0, score, 900);
+    }
+
+    /** Switch language and repaint the current screen; round, score and streak are untouched. */
+    function setLang(l: Lang) {
+      if (l === lang) return;
+      lang = l; services.storage.set(LANG_KEY, l); paintLangBar();
+      if (view === 'menu') showMenu();
+      else if (view === 'question') showQuestion(false);
+      else showResult(false);
     }
 
     /** Replays the current mode, or returns to the menu when none is chosen. */
     function restart() { paused = false; if (mode) start(mode); else showMenu(); }
 
     root.addEventListener('click', (ev) => {
-      const t = (ev.target as HTMLElement).closest<HTMLElement>('button'); if (!t || paused) return;
+      const t = (ev.target as HTMLElement).closest<HTMLElement>('button'); if (!t) return;
+      if (t.dataset.lang !== undefined && isLang(t.dataset.lang)) { setLang(t.dataset.lang); return; }
+      if (paused) return;
       if (t.dataset.mode !== undefined && isMode(t.dataset.mode)) { services.sound.play('tap'); start(t.dataset.mode); }
       else if (t.hasAttribute('data-menu')) showMenu();
       else if (t.dataset.i !== undefined) { services.sound.play('tap'); answer(Number(t.dataset.i)); }
@@ -311,6 +375,7 @@ const game: GameModule = {
     };
     host.addEventListener('keydown', onKey);
 
+    paintLangBar();
     if (mode) showQuestion(); else showMenu();
     return {
       pause() { paused = true; clearTimer(); },
