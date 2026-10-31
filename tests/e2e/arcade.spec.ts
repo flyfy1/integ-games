@@ -212,3 +212,17 @@ test('a controller drives keyboard cabinets through the bridge and Start pauses'
   await setButton(9, true); await page.waitForTimeout(100); await setButton(9, false);
   await expect(page.locator('[data-overlay]')).toBeHidden();
 });
+
+test('Pad Pals fills a 16:10 screen in full screen and keeps the shell controls on top', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop full-screen layout');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/play/pad-pals');
+  await page.getByRole('button', { name: 'Play in full screen' }).click();
+  const canvas = page.locator('[data-pad-pals] canvas');
+  await expect.poll(async () => (await canvas.boundingBox())?.width).toBe(1440);
+  expect(await canvas.boundingBox()).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+  await page.keyboard.press('Space');
+  await page.getByRole('button', { name: 'Exit full screen' }).click({ trial: true });
+  await page.getByRole('button', { name: 'Exit full screen' }).click();
+  await expect.poll(async () => (await canvas.boundingBox())?.width).toBeLessThan(1000);
+});

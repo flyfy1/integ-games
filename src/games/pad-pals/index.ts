@@ -8,6 +8,7 @@ import { createTouchPad, drawPad, HEIGHT, PLAY_HEIGHT, WIDTH, type GlyphSet, typ
 const ACCENT = '#ffb547';
 const SCALE = [523, 587, 659, 784, 880, 1047, 1175, 1319, 1568, 1760];
 const CALIBRATION: readonly ButtonName[] = ['south', 'east', 'west', 'north', 'l1', 'r1', 'l2', 'r2', 'select', 'start'];
+const MAX_HEIGHT = 960; // 4:3. Anything taller would shrink the pad too much to use.
 const ROW_Y = [130, 222, 314, 406], COLUMN_X = [310, 520, 730, 940];
 
 type Screen = 'title' | 'map' | 'ready' | 'play' | 'result' | 'lab' | 'calibrate';
@@ -51,6 +52,25 @@ function mount(host: HTMLElement, services: GameServices) {
   host.replaceChildren(root);
   canvas.focus({ preventScroll: true });
   const g = canvas.getContext('2d')!;
+  const rootStyle = root.style.cssText, canvasStyle = canvas.style.cssText, barStyle = bar.style.cssText;
+  /** Rows added above the scene on screens taller than 16:9, so full screen has no bars there. */
+  let headroom = 0, fullscreen = false, barLeft = 0;
+  function fitScreen() {
+    const full = Boolean(root.closest('.is-immersive'));
+    const nextHeight = full ? Math.round(Math.min(MAX_HEIGHT, Math.max(HEIGHT, WIDTH * innerHeight / Math.max(1, innerWidth)))) : HEIGHT;
+    if (full !== fullscreen) {
+      fullscreen = full;
+      root.style.cssText = full ? `${rootStyle};position:fixed;inset:0;max-width:none;align-items:center;justify-content:center;background:#1a2036` : rootStyle;
+      bar.style.cssText = full ? `${barStyle};position:absolute;top:8px;left:0;right:0;z-index:2;transition:opacity .2s` : barStyle;
+    }
+    if (full) {
+      canvas.style.cssText = `${canvasStyle};width:min(100vw,calc(100dvh*${WIDTH}/${nextHeight}));aspect-ratio:${WIDTH}/${nextHeight};border:0;border-radius:0`;
+      bar.style.opacity = barLeft > 0 ? '1' : '0';
+      bar.style.pointerEvents = barLeft > 0 ? 'auto' : 'none';
+    } else if (canvas.height !== HEIGHT) canvas.style.cssText = canvasStyle;
+    if (canvas.height !== nextHeight) canvas.height = nextHeight;
+    headroom = nextHeight - HEIGHT;
+  }
 
   const touch = createTouchPad();
   const sound = createSound(() => services.sound.muted);
@@ -191,10 +211,11 @@ function mount(host: HTMLElement, services: GameServices) {
 
   const toWorld = (event: PointerEvent) => {
     const box = canvas.getBoundingClientRect();
-    return { x: (event.clientX - box.left) * WIDTH / box.width, y: (event.clientY - box.top) * HEIGHT / box.height };
+    return { x: (event.clientX - box.left) * WIDTH / box.width, y: (event.clientY - box.top) * canvas.height / box.height - headroom };
   };
+  root.addEventListener('pointermove', () => { barLeft = 3; }, { signal });
   canvas.addEventListener('pointerdown', (event) => {
-    event.preventDefault(); sound.unlock(); canvas.focus({ preventScroll: true });
+    event.preventDefault(); sound.unlock(); barLeft = 3; canvas.focus({ preventScroll: true });
     const { x, y } = toWorld(event);
     if (touch.down(event.pointerId, x, y)) { canvas.setPointerCapture?.(event.pointerId); return; }
     if (screen === 'title') go('map');
@@ -260,6 +281,7 @@ function mount(host: HTMLElement, services: GameServices) {
 
   function update(dt: number) {
     time += dt;
+    barLeft = Math.max(0, barLeft - dt);
     bannerLeft = Math.max(0, bannerLeft - dt);
     statusClock -= dt;
     if (statusClock <= 0) { statusClock = 0.5; refreshStatus(); }
@@ -379,7 +401,8 @@ function mount(host: HTMLElement, services: GameServices) {
     return [];
   }
   function render() {
-    g.setTransform(1, 0, 0, 1, 0, 0);
+    fitScreen();
+    g.setTransform(1, 0, 0, 1, 0, headroom);
     g.fillStyle = '#1a2036'; g.fillRect(0, 0, WIDTH, HEIGHT);
     ({ title: drawTitle, map: drawMap, ready: drawReady, play: drawPlay, result: drawResult, lab: drawLab, calibrate: drawCalibration })[screen]();
     sparks.forEach((item) => { g.globalAlpha = Math.min(1, item.life * 2); icon(item.icon, item.x, item.y, 44); g.globalAlpha = 1; });
@@ -388,6 +411,7 @@ function mount(host: HTMLElement, services: GameServices) {
       write(banner, 640, 238, 32);
     }
     drawPad(g, lastPad, highlights(), time, glyphs);
+    if (headroom) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(canvas, 0, headroom, WIDTH, 1, 0, 0, WIDTH, headroom); } // The sky simply continues upward.
   }
 
   renderBar();
