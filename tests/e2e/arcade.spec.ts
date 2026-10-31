@@ -190,3 +190,25 @@ test('Pad Pals plays through its first level with a standard controller', async 
   await expect(page.locator('[data-pad=skip]')).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+test('a controller drives keyboard cabinets through the bridge and Start pauses', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop controller coverage');
+  await page.addInitScript(() => {
+    const pad = { id: 'Test Pad (STANDARD GAMEPAD)', mapping: 'standard', connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) };
+    (window as unknown as { testPad: typeof pad }).testPad = pad;
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [pad] });
+    (window as unknown as { keysSeen: string[] }).keysSeen = [];
+    window.addEventListener('keydown', (event) => (window as unknown as { keysSeen: string[] }).keysSeen.push(event.key));
+  });
+  await page.goto('/play/snake');
+  await expect(page.locator('[data-stage] canvas')).toBeVisible();
+  const setButton = (index: number, pressed: boolean) => page.evaluate(([i, on]) => { (window as unknown as { testPad: { buttons: Array<{ pressed: boolean }> } }).testPad.buttons[i as number].pressed = on as boolean; }, [index, pressed]);
+  await setButton(13, true); await page.waitForTimeout(100); await setButton(13, false);
+  await expect.poll(() => page.evaluate(() => (window as unknown as { keysSeen: string[] }).keysSeen)).toContain('ArrowDown');
+  await page.waitForTimeout(100);
+  await setButton(9, true); await page.waitForTimeout(100); await setButton(9, false);
+  await expect(page.locator('[data-overlay]')).toBeVisible();
+  await page.waitForTimeout(100);
+  await setButton(9, true); await page.waitForTimeout(100); await setButton(9, false);
+  await expect(page.locator('[data-overlay]')).toBeHidden();
+});

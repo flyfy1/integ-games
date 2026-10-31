@@ -3,6 +3,7 @@ import { catalog, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCat
 import { createShellServices } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
+import { createGamepadBridge, type GamepadBridge } from './games/_shared/gamepad-bridge';
 import './styles/app.css';
 import '@integ-life/ui/static';
 import '@integ-life/ui/styles.css';
@@ -19,6 +20,7 @@ if (redirectedPath) {
 }
 const shell = createShellServices();
 let controller: GameController | undefined;
+let gamepad: GamepadBridge | undefined;
 let viewToken = 0;
 let paused = false;
 let updateReady = false;
@@ -151,7 +153,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
   if (!game) { appRoot.innerHTML = layout(notFound()); return; }
   activeSlug = slug;
   const recommended = recommendationsFor(game);
-  appRoot.innerHTML = layout(`<section class="play-page"><div class="play-bar"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="play-actions"><button class="primary-button" data-action="fullscreen" aria-label="Play in full screen">Full screen</button><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="secondary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
+  appRoot.innerHTML = layout(`<section class="play-page"><div class="play-bar"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="play-actions"><button class="primary-button" data-action="fullscreen" aria-label="Play in full screen">Full screen</button><button class="secondary-button" data-action="gamepad" hidden>🎮 Connect 2-in-1 receiver</button><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="secondary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
   setGameActions(false);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
@@ -165,7 +167,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
       score: (score) => { void submitScore(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
-    })); stage.append(overlay); setGameActions(true); if (document.hidden) pauseActiveGame(); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); };
+    })); stage.append(overlay); setGameActions(true); if (document.hidden) pauseActiveGame(); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); attachGamepad(slug, stage); };
     const mobileStart = isMobilePlay();
     if (mobileStart) {
       stage.removeAttribute('aria-busy');
@@ -181,7 +183,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
 function notFound(): string { return '<section class="not-found"><p class="eyebrow">404</p><h1>That cabinet is elsewhere.</h1><a class="primary-button" href="' + href() + '" data-route>Back to arcade</a></section>'; }
 
 async function render(): Promise<void> {
-  paused = false; shell.stopActiveSound(); controller?.destroy(); controller = undefined; activeSlug = undefined;
+  paused = false; shell.stopActiveSound(); gamepad?.destroy(); gamepad = undefined; controller?.destroy(); controller = undefined; activeSlug = undefined;
   void exitImmersive();
   pendingStart = undefined;
   const token = ++viewToken;
@@ -215,6 +217,7 @@ document.addEventListener('click', (event) => {
   if (action === 'start-game') void pendingStart?.();
   if (action === 'exit-fullscreen') void exitImmersive();
   if (action === 'fullscreen') { const stage = appRoot.querySelector<HTMLElement>('[data-stage]'); if (stage) { if (pendingStart) void pendingStart(); else void enterImmersive(stage); } }
+  if (action === 'gamepad') void gamepad?.connect().then(syncGamepadButton);
   if (action === 'share') void shareCurrentGame();
   if (action === 'copy-share-link') void copyDisplayedShareLink();
   if (action === 'close-share-fallback') hideManualShare();
@@ -245,6 +248,25 @@ appRoot.addEventListener('integ:pause-request', pauseActiveGame);
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape') pauseActiveGame(); });
 window.addEventListener('blur', pauseActiveGame);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseActiveGame(); });
+
+/** Pad Pals reads the controller itself; every other cabinet gets its keys from the bridge. */
+function attachGamepad(slug: string, stage: HTMLElement) {
+  if (slug === 'pad-pals') return;
+  gamepad?.destroy();
+  gamepad = createGamepadBridge({
+    slug,
+    target: () => stage.querySelector('canvas') ?? stage,
+    isPaused: () => paused,
+    togglePause: () => { if (paused) { if (!document.hidden) { controller?.resume(); togglePause(false); } } else pauseActiveGame(); },
+    onChange: syncGamepadButton
+  });
+  syncGamepadButton();
+}
+function syncGamepadButton() {
+  const button = appRoot.querySelector<HTMLButtonElement>('[data-action=gamepad]');
+  const state = gamepad?.status();
+  if (button) button.hidden = !state?.hidAvailable || state.connected;
+}
 
 function setGameActions(started: boolean) {
   appRoot.querySelectorAll<HTMLButtonElement>('.play-actions [data-action=restart], .play-actions [data-action=pause]').forEach(button => { button.hidden = !started; button.disabled = !started; });

@@ -47,6 +47,26 @@ describe('gamepad kit', () => {
     expect(input.read()[0].dirPressed).toBe('right');
     input.destroy();
   });
+  it('splits a Twin USB receiver into two players over WebHID, then forgets them on unplug', async () => {
+    const device = Object.assign(new EventTarget(), { opened: false, vendorId: 0x0810, productId: 0x0001, open: async () => undefined, close: async () => undefined });
+    const hid = Object.assign(new EventTarget(), { requestDevice: async () => [device], getDevices: async () => [] });
+    Object.defineProperty(navigator, 'hid', { configurable: true, value: hid });
+    const events: string[] = [];
+    const input = createInput({ onChange: (event, player) => events.push(`${event}${player ?? ''}`) });
+    expect(await input.connect()).toEqual({ ok: true });
+    const send = (reportId: number, bytes: number[]) => device.dispatchEvent(Object.assign(new Event('inputreport'), { reportId, data: report(bytes) }));
+    send(2, [0x7f, 0x7f, 0x80, 0x7f, 0x4f, 0x00, 0]); // Raw button 3 on the second pad: the usual bottom button.
+    const [first, second] = input.read();
+    expect(first.btn).toBe(false);
+    expect(second.justPressed[BUTTON_INDEX.south]).toBe(true);
+    input.setButtonMap('hid', [0, 1, 2, 3]);
+    expect(input.read()[1].buttons[2]).toBe(true);
+    hid.dispatchEvent(Object.assign(new Event('disconnect'), { device }));
+    expect(input.read()[1].btn).toBe(false);
+    expect(events).toEqual(['connected', 'seen1', 'disconnected']);
+    input.destroy();
+    Reflect.deleteProperty(navigator, 'hid');
+  });
   it('asks for a browser with WebHID instead of throwing', async () => {
     const input = createInput();
     expect((await input.connect()).ok).toBe(false);
