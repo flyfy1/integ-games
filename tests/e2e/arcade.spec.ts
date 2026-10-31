@@ -5,7 +5,7 @@ test('all catalog routes render without a page error', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   const routes = await page.locator('article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(routes).toHaveLength(22);
+  expect(routes).toHaveLength(23);
   for (const gameRoute of routes) {
     await page.goto(gameRoute ?? '/');
     await expect(page.locator('.game-stage')).toBeVisible();
@@ -83,7 +83,7 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
   const primaryKey: Record<string, string> = {
     'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
     'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
-    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1'
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space'
   };
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -163,4 +163,30 @@ test('merge-2048 HUD spans the board so Score and Best never touch (UX-20261014-
   expect(m.hud).toBeGreaterThanOrEqual(m.board - 1);
   expect(m.gap).toBeGreaterThanOrEqual(24);
   await hud.screenshot({ path: testInfo.outputPath('merge-2048-hud.png') });
+});
+
+test('Pad Pals plays through its first level with a standard controller', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop controller coverage');
+  await page.addInitScript(() => {
+    const pad = { id: 'Test Pad (STANDARD GAMEPAD)', mapping: 'standard', connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) };
+    (window as Window & { testPad?: typeof pad }).testPad = pad;
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [pad] });
+  });
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/play/pad-pals');
+  await expect(page.locator('[data-pad-pals] canvas')).toBeVisible();
+  const tap = async () => {
+    await page.evaluate(() => { (window as unknown as { testPad: { buttons: Array<{ pressed: boolean }> } }).testPad.buttons[0].pressed = true; });
+    await page.waitForTimeout(80);
+    await page.evaluate(() => { (window as unknown as { testPad: { buttons: Array<{ pressed: boolean }> } }).testPad.buttons[0].pressed = false; });
+    await page.waitForTimeout(80);
+  };
+  await tap(); await tap();
+  await expect(page.locator('[data-pad=skip]')).toBeVisible();
+  await page.waitForTimeout(1800);
+  const saved = () => page.evaluate(() => localStorage.getItem('integ-games:v1:game:pad-pals:progress'));
+  await expect.poll(async () => { await tap(); await page.waitForTimeout(350); return saved(); }, { timeout: 15000 }).toContain('hello:0');
+  await expect(page.locator('[data-pad=skip]')).toBeHidden();
+  expect(errors).toEqual([]);
 });

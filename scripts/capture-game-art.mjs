@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
@@ -38,6 +38,7 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
+  'pad-pals': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(200); await page.keyboard.press('Space'); await page.waitForTimeout(2200); await page.keyboard.press('Space'); await page.waitForTimeout(250); await page.keyboard.press('Space'); await page.waitForTimeout(250); },
   'merge-2048': async (page) => { await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(180); },
   'block-drop': async (page) => { await page.keyboard.press('ArrowUp'); for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown'); },
   snake: async (page) => { await page.keyboard.press('ArrowDown'); },

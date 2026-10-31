@@ -34,6 +34,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 | Sky Flap | Quick Reflex | `One-touch`, `Endless` | Neon Snake, Orbit Knife, Perfect Stack, Metro Dash |
 | Brick Pulse | Quick Reflex | `Classic`, `Aim` | Pixel Defense, Bubble Pop, Neon Snake, Orbit Knife |
 | Orbit Knife | Quick Reflex | `Timing`, `One-touch` | Perfect Stack, Sky Flap, Brick Pulse, Neon Snake |
+| Pad Pals | Quick Reflex | `Kids`, `Controller` | Memory Flip, Sky Flap, Neon Snake, Geo Quiz |
 | Pixel Defense | Action & Adventure | `Shooter`, `Waves` | Pocket Survivor, Brick Pulse, Metro Dash, Trap Trail |
 | Metro Dash | Action & Adventure | `Runner`, `Endless` | Trap Trail, Sky Flap, Neon Snake, Tiny Wheels |
 | Trap Trail | Action & Adventure | `Platformer`, `Levels` | Metro Dash, Pocket Survivor, Tiny Wheels, Pixel Defense |
@@ -67,7 +68,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 
 ## Acceptance checks
 
-- All 22 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
+- All 23 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
 - Every category has at least four games.
 - Home filtering, search-within-filter, query persistence, and empty states work on desktop and mobile.
 - Every `/play/:slug` page renders the right category, traits, breadcrumb, and four recommendations.

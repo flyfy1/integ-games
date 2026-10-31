@@ -1,10 +1,10 @@
 # Integ Games
 
-A static, touch-friendly browser arcade with 22 original games. It has no account system or backend; scores, settings, saves, and recently played games stay in local storage.
+A static, touch-friendly browser arcade with 23 original games. It has no account system or backend; scores, settings, saves, and recently played games stay in local storage.
 
 ## Games
 
-Merge 2048, Block Drop, Neon Snake, Pocket Mines, Daily Solitaire, Calm Sudoku, Word Trail, Memory Flip, Geo Quiz, Perfect Stack, Sky Flap, Brick Pulse, Pixel Defense, Metro Dash, Trap Trail, Tiny Wheels, Fruit Orbit, Bubble Pop, Hexa Fit, Orbit Knife, Pocket Survivor, and Ashfall (a cinematic side-scrolling action game with a two-phase boss).
+Merge 2048, Block Drop, Neon Snake, Pocket Mines, Daily Solitaire, Calm Sudoku, Word Trail, Memory Flip, Geo Quiz, Pad Pals, Perfect Stack, Sky Flap, Brick Pulse, Pixel Defense, Metro Dash, Trap Trail, Tiny Wheels, Fruit Orbit, Bubble Pop, Hexa Fit, Orbit Knife, Pocket Survivor, and Ashfall (a cinematic side-scrolling action game with a two-phase boss).
 
 ## Development
 
