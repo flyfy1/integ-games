@@ -121,6 +121,8 @@ const game: GameModule = {
       transitionTimer = window.setTimeout(() => finishMove(result.gained, spawned.id, result.merges, won, gameOver), MOTION_MS);
     };
     const onKey = (event: KeyboardEvent) => { if (paused) return;
+      // Split-screen versus runs two boards on one window: leave the other seat's keys alone.
+      const seat = (event.target as Element | null)?.closest?.('[data-versus-seat]'); if (seat && !seat.contains(host)) return;
       const directions: Record<string, Direction | undefined> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right' };
       const direction = directions[event.key]; if (!direction) return; event.preventDefault(); move(direction);
     };

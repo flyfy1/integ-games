@@ -3,7 +3,7 @@
  * Gamepad Kit once per frame and sends the matching key events, like the mobile controls do for touch.
  * Pad Pals reads the kit directly because it needs every stick and trigger, so it stays out of this list.
  */
-import { BUTTON_INDEX, createInput, startLoop, type ButtonName, type Direction, type PadState, type PadStatus } from './gamepad-kit';
+import { BUTTON_INDEX, createInput, startLoop, syntheticKeys, type ButtonName, type Direction, type PadState, type PadStatus } from './gamepad-kit';
 
 export type BridgeControl = Exclude<ButtonName, 'start'> | Direction;
 export type BridgeProfile = Partial<Record<BridgeControl, string>>;
@@ -71,6 +71,35 @@ export function pressedControl(pad: PadState): BridgeControl | null {
   return name && name !== 'start' ? name : null;
 }
 
+/** Turns one player's pad into key events on one target, with the game's repeat rules. Versus runs one per seat. */
+export function createKeySender(slug: string, target: () => HTMLElement | null, initial?: BridgeProfile) {
+  const repeat = gamepadRepeat[slug] ?? {};
+  const singleAxis = slug in gamepadRepeat;
+  let profile: BridgeProfile = initial ?? gamepadProfiles[slug] ?? ACTION;
+  let held = new Set<string>(), clock = 0;
+  const due = new Map<string, number>();
+  function send(type: 'keydown' | 'keyup', key: string, isRepeat = false) {
+    const event = new KeyboardEvent(type, { key, code: codeForKey(key), repeat: isRepeat, bubbles: true, cancelable: true });
+    syntheticKeys.add(event);
+    target()?.dispatchEvent(event);
+  }
+  function sync(next: Set<string>) {
+    held.forEach((key) => { if (!next.has(key)) { send('keyup', key); due.delete(key); } });
+    next.forEach((key) => {
+      if (!held.has(key)) { send('keydown', key); if (repeat[key]) due.set(key, clock + repeat[key].delay); return; }
+      const at = due.get(key);
+      if (at !== undefined && clock >= at) { send('keydown', key, true); due.set(key, at + repeat[key].every); }
+    });
+    held = next;
+  }
+  return {
+    step(dt: number, pad: PadState) { clock += dt; sync(heldKeys(profile, pad, singleAxis)); },
+    release() { sync(new Set()); },
+    tap(key: string) { send('keydown', key); send('keyup', key); },
+    setProfile(next: BridgeProfile) { profile = next; }
+  };
+}
+
 export type BridgeOptions = {
   slug: string;
   /** The element that receives keys; asked every frame because games replace their content. */
@@ -85,45 +114,32 @@ export type BridgeOptions = {
 };
 
 export function createGamepadBridge({ slug, target, isPaused, togglePause, bindings, buttonMaps, onStatus }: BridgeOptions) {
-  const repeat = gamepadRepeat[slug] ?? {};
-  const singleAxis = slug in gamepadRepeat;
-  let profile: BridgeProfile = bindings ?? gamepadProfiles[slug] ?? ACTION;
+  const sender = createKeySender(slug, target, bindings);
   let capture: ((control: BridgeControl) => void) | null = null;
   const input = createInput({ keyboard: [], onChange: () => onStatus?.(input.status()) });
   Object.entries(buttonMaps ?? {}).forEach(([kind, map]) => input.setButtonMap(kind, map));
-  let held = new Set<string>(), clock = 0, statusClock = 0;
-  const due = new Map<string, number>();
-  const send = (type: 'keydown' | 'keyup', key: string, isRepeat = false) => target()?.dispatchEvent(new KeyboardEvent(type, { key, code: codeForKey(key), repeat: isRepeat, bubbles: true, cancelable: true }));
-  const sync = (next: Set<string>) => {
-    held.forEach((key) => { if (!next.has(key)) { send('keyup', key); due.delete(key); } });
-    next.forEach((key) => {
-      if (!held.has(key)) { send('keydown', key); if (repeat[key]) due.set(key, clock + repeat[key].delay); return; }
-      const at = due.get(key);
-      if (at !== undefined && clock >= at) { send('keydown', key, true); due.set(key, at + repeat[key].every); }
-    });
-    held = next;
-  };
+  let statusClock = 0;
   const stop = startLoop((dt) => {
-    clock += dt; statusClock -= dt;
+    statusClock -= dt;
     if (statusClock <= 0) { statusClock = 0.5; onStatus?.(input.status()); }
     const pad = input.readMerged();
     if (capture) {
-      sync(new Set());
+      sender.release();
       const control = pressedControl(pad);
       if (control) { const done = capture; capture = null; done(control); }
       return;
     }
     if (pad.justPressed[BUTTON_INDEX.start]) togglePause();
-    sync(isPaused() ? new Set() : heldKeys(profile, pad, singleAxis));
+    if (isPaused()) sender.release(); else sender.step(dt, pad);
   });
   void input.reconnect();
   return {
     connect: input.connect,
     status: input.status,
-    setBindings(next: BridgeProfile) { profile = next; },
+    setBindings: sender.setProfile,
     /** Sends the next control pressed to `done` instead of the game. Pass null to cancel. */
     capture(done: ((control: BridgeControl) => void) | null) { capture = done; },
-    destroy() { stop(); sync(new Set()); input.destroy(); }
+    destroy() { stop(); sender.release(); input.destroy(); }
   };
 }
 export type GamepadBridge = ReturnType<typeof createGamepadBridge>;

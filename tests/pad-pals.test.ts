@@ -39,6 +39,13 @@ describe('gamepad kit', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyL' }));
     expect(input.read()[0].btn).toBe(false);
   });
+  it('counts a tap shorter than one frame', () => {
+    const input = createInput();
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyL' }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyL' }));
+    expect(input.read()[0].justPressed[BUTTON_INDEX.east]).toBe(true);
+    input.destroy();
+  });
   it('fires a direction once until the stick returns', () => {
     let x = 0;
     const input = createInput({ keyboard: [], virtual: (player) => (player === 0 ? { x, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [] } : undefined) });

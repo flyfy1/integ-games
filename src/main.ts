@@ -4,7 +4,8 @@ import { createShellServices, storageFor } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
 import { createGamepadBridge, type BridgeProfile, type GamepadBridge } from './games/_shared/gamepad-bridge';
-import { connectGamepadOnce, createGamepadPanel, gamepadSummary, type GamepadPanel } from './games/_shared/gamepad-panel';
+import { isVersusGame, wrapVersus } from './games/_shared/versus';
+import { connectGamepadOnce, createGamepadPanel, gamepadSummary, tr, type GamepadPanel } from './games/_shared/gamepad-panel';
 import './styles/app.css';
 import '@integ-life/ui/static';
 import '@integ-life/ui/styles.css';
@@ -23,6 +24,9 @@ const shell = createShellServices();
 let controller: GameController | undefined;
 let gamepad: GamepadBridge | undefined;
 let gamepadPanel: GamepadPanel | undefined;
+/** Set just before a render that should open the current game in split-screen. */
+let versusRequested = false;
+let versusActive = false;
 let viewToken = 0;
 let paused = false;
 let updateReady = false;
@@ -155,7 +159,7 @@ async function gamePage(slug: string, token: number): Promise<void> {
   if (!game) { appRoot.innerHTML = layout(notFound()); return; }
   activeSlug = slug;
   const recommended = recommendationsFor(game);
-  appRoot.innerHTML = layout(`<section class="play-page"><div class="play-bar"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="play-actions"><button class="pad-pill" data-action="gamepad" hidden>🎮 <span data-pad-pill></span></button><button class="primary-button" data-action="fullscreen" aria-label="Play in full screen">Full screen</button><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="secondary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
+  appRoot.innerHTML = layout(`<section class="play-page"><div class="play-bar"><nav class="breadcrumb" aria-label="Breadcrumb"><a href="${href()}" data-route>All games</a><span aria-hidden="true">/</span><a href="${categoryHref(game.primaryCategory)}" data-route>${categoryLabels[game.primaryCategory]}</a><span aria-hidden="true">/</span><span aria-current="page">${game.title}</span></nav><div class="play-actions"><button class="pad-pill" data-action="gamepad" hidden>🎮 <span data-pad-pill></span></button><button class="pad-pill" data-action="versus" hidden>👥 <span data-versus-label></span></button><button class="primary-button" data-action="fullscreen" aria-label="Play in full screen">Full screen</button><button class="secondary-button" data-action="share">Share</button><button class="secondary-button" data-action="help">How to play</button><button class="secondary-button" data-action="restart">Restart</button><button class="secondary-button" data-action="pause">Pause</button></div></div><div class="stage-wrap"><div class="game-stage" data-stage aria-busy="true"><span class="stage-loading">Loading game…</span></div><div class="pause-overlay" data-overlay hidden><p>Paused</p><button class="primary-button" data-action="resume">Resume</button><button class="secondary-button" data-action="restart">Restart</button></div></div><div class="game-title"><div><div class="game-kicker"><p class="eyebrow">${categoryLabels[game.primaryCategory]}</p><div class="trait-chips">${traitChips(game)}</div></div><div class="game-heading"><img class="game-logo" src="${gameArt(game.slug, 'icon')}" width="96" height="96" decoding="async" alt="" /><h1>${game.title}</h1></div><p>${game.description}</p></div></div><p class="share-status" data-share-status role="status" aria-live="polite"></p><div class="share-fallback" data-share-fallback hidden><p>Copy this game link manually:</p><div class="share-link-row"><input data-share-link aria-label="Game link" readonly /><button class="primary-button" data-action="copy-share-link">Copy link</button></div><button class="share-fallback-close" data-action="close-share-fallback">Close</button></div><aside class="help-sheet" data-help hidden><button class="close-button" data-action="help" aria-label="Close help">×</button><p class="eyebrow">How to play</p><h2>${game.title}</h2><p>${game.instructions}</p></aside><section class="related" aria-labelledby="recommended-heading"><p class="eyebrow">Curated for this cabinet</p><h2 id="recommended-heading">Recommended next</h2><p class="recommended-copy">Try a close mechanical cousin first, then branch into a useful new challenge.</p><div class="game-rail">${recommended.map(card).join('')}</div></section><integ-comments project-key="pk_games_web_v1_7b4e1a" resource="game:${game.slug}"></integ-comments></section>`);
   setGameActions(false);
   const stage = appRoot.querySelector<HTMLElement>('[data-stage]');
   if (!stage || !gameLoader(slug)) {
@@ -163,13 +167,14 @@ async function gamePage(slug: string, token: number): Promise<void> {
     return;
   }
   try {
-    const module = await loadGame(slug);
+    const loaded = await loadGame(slug);
     if (token !== viewToken) return;
+    const module = versusActive ? wrapVersus(loaded, { slug, bindings: storageFor('gamepad').get<BridgeProfile | undefined>(slug, undefined), buttonMaps: storageFor('game:pad-pals').get<Record<string, number[]>>('button-maps', {}), togglePause: toggleShellPause }) : loaded;
     const overlay = appRoot.querySelector<HTMLElement>('[data-overlay]')!;
     const mountGame = () => { controller = module.mount(stage, shell.createGameServices(slug, {
       score: (score) => { void submitScore(slug, score); },
       complete: () => { /* individual games own their completion treatment */ }
-    })); stage.append(overlay); setGameActions(true); if (document.hidden) pauseActiveGame(); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); attachGamepad(slug, stage); };
+    })); stage.append(overlay); setGameActions(true); if (document.hidden) pauseActiveGame(); if (stage.classList.contains('is-immersive') && !stage.querySelector('.immersive-exit')) stage.insertAdjacentHTML('beforeend', '<button class="immersive-exit" data-action="exit-fullscreen" aria-label="Exit full screen">×</button>'); shell.recordRecent(slug); stage.removeAttribute('aria-busy'); if (!versusActive) attachGamepad(slug, stage); syncVersusButton(slug); };
     const mobileStart = isMobilePlay();
     if (mobileStart) {
       stage.removeAttribute('aria-busy');
@@ -188,6 +193,7 @@ async function render(): Promise<void> {
   paused = false; shell.stopActiveSound(); gamepadPanel?.destroy(); gamepadPanel = undefined; gamepad?.destroy(); gamepad = undefined; controller?.destroy(); controller = undefined; activeSlug = undefined;
   void exitImmersive();
   pendingStart = undefined;
+  versusActive = versusRequested; versusRequested = false;
   const token = ++viewToken;
   const current = route();
   if (current === '/' || current === '') { applyPageMetadata(); appRoot.innerHTML = home(); void hydrateLeaderboard(); }
@@ -220,6 +226,7 @@ document.addEventListener('click', (event) => {
   if (action === 'exit-fullscreen') void exitImmersive();
   if (action === 'fullscreen') { const stage = appRoot.querySelector<HTMLElement>('[data-stage]'); if (stage) { if (pendingStart) void pendingStart(); else void enterImmersive(stage); } }
   if (action === 'gamepad') gamepadPanel?.toggle();
+  if (action === 'versus') { versusRequested = !versusActive; void render(); }
   if (action === 'gamepad-home') void connectGamepadOnce().then((text) => { const status = appRoot.querySelector('[data-pad-home-status]'); if (status) status.textContent = text; });
   if (action === 'share') void shareCurrentGame();
   if (action === 'copy-share-link') void copyDisplayedShareLink();
@@ -261,7 +268,7 @@ function attachGamepad(slug: string, stage: HTMLElement) {
     slug,
     target: () => stage.querySelector('canvas') ?? stage,
     isPaused: () => paused,
-    togglePause: () => { if (paused) { if (!document.hidden) { controller?.resume(); togglePause(false); } } else pauseActiveGame(); },
+    togglePause: toggleShellPause,
     bindings: storage.get<BridgeProfile | undefined>(slug, undefined),
     buttonMaps: storageFor('game:pad-pals').get<Record<string, number[]>>('button-maps', {}),
     onStatus: (state) => {
@@ -276,6 +283,14 @@ function attachGamepad(slug: string, stage: HTMLElement) {
   gamepad = bridge;
   gamepadPanel?.destroy();
   gamepadPanel = createGamepadPanel(appRoot.querySelector('.play-page') ?? stage, { slug, bridge, storage });
+}
+
+function toggleShellPause() { if (paused) { if (!document.hidden) { controller?.resume(); togglePause(false); } } else pauseActiveGame(); }
+function syncVersusButton(slug: string) {
+  const button = appRoot.querySelector<HTMLElement>('[data-action=versus]');
+  const label = appRoot.querySelector('[data-versus-label]');
+  if (button) button.hidden = !isVersusGame(slug) || isMobilePlay();
+  if (label) label.textContent = versusActive ? tr('Back to one player', '回到单人') : tr('Two players', '双人对战');
 }
 
 function setGameActions(started: boolean) {

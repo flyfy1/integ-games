@@ -29,6 +29,10 @@ npm run test:lighthouse
 
 `src/games/_shared/gamepad-kit.ts` reads standard pads through the Gamepad API and the Twin USB 2-in-1 receiver through WebHID (desktop Chrome or Edge; use the Connect button once, then it reconnects by itself). `gamepad-bridge.ts` turns a pad into key events for every keyboard-driven game, with one mapping per game in `gamepadProfiles`; Start pauses and resumes. Games that step once per key event also get keyboard-style repeat (`gamepadRepeat`), and players can rebind any game from the controller button on its page; bindings stay in this browser. Pad Pals reads the kit directly and teaches the whole controller. Its spoken lines are recorded mp3s in `public/pad-pals-voice`; after changing a line in `SPOKEN`, rerun `node scripts/generate-pad-pals-voice.mjs` (needs `uv`, and `ONLY=key` limits it to one line).
 
+## Two players
+
+`src/games/_shared/versus.ts` adds split-screen versus to any game module without changing the game: it mounts the game twice with one seed, keeps both off the leaderboard and away from saved progress, and decides the winner from `versusRules` (timed best score, or first to finish). Seat 1 is controller 1 or WASD + Space, seat 2 is controller 2 or arrows + Enter, so any mix works. To add a game, give it a line in `versusRules` and a mapping in `gamepadProfiles`. Desktop only; Ashfall stays single-player and Pad Pals has its own two-player modes.
+
 ## GitHub Pages
 
 The workflow in `.github/workflows/pages.yml` installs dependencies, runs type/unit/end-to-end/Lighthouse checks, builds the site, and deploys Pages from `dist/`. `public/CNAME` configures `games.integ.life`. Set the `PAGES_BASE_PATH` repository variable when deploying to a project-page preview path; leave it unset for the custom domain root.

@@ -68,6 +68,15 @@ export const DEFAULT_KEYBOARD: KeyboardMap[] = [
   { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', buttons: ['Enter'] }
 ];
 
+/** Two keyboard players sharing one keyboard; every control exists so each game's full mapping works. Escape stays with the shell. */
+export const VERSUS_KEYBOARD: KeyboardMap[] = [
+  { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', buttons: ['Space', 'KeyF', 'KeyG', 'KeyR', 'KeyQ', 'KeyE', 'KeyZ', 'KeyX', 'Digit1', [], 'Digit2', 'Digit3'] },
+  { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', buttons: ['Enter', 'ShiftRight', 'Period', 'Semicolon', 'KeyK', 'KeyL', 'KeyN', 'KeyM', 'Digit0', [], 'Digit9', 'Digit8'] }
+];
+
+/** Key events the bridge made up. They reach window like real ones and must never read back as keyboard input. */
+export const syntheticKeys = new WeakSet<Event>();
+
 const emptyRaw = (): RawPad => ({ x: 0, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [] });
 const isActive = (pad: RawPad) => Boolean(pad.x || pad.y || pad.hx || pad.hy || pad.buttons.some(Boolean));
 const remap = (buttons: boolean[], map: readonly number[]) => {
@@ -87,15 +96,19 @@ export type InputOptions = {
   onChange?: (event: InputEvent, player?: number) => void;
   /** An extra source per player, for an on-screen pad. */
   virtual?: (player: number) => VirtualPad | undefined;
+  /** Keep real keys from reaching the page, for when they belong to a seat rather than to whatever has focus. */
+  exclusiveKeyboard?: boolean;
 };
 export type PadStatus = { connected: boolean; name: string | null; players: Array<{ seen: boolean }>; standard: number; hidAvailable: boolean; unclaimedProfile: boolean; ids: string[] };
 export type RawPress = { kind: string; index: number };
 
 export function createInput(options: InputOptions = {}) {
-  const { players = 2, profiles = [twinUsb], keyboard = DEFAULT_KEYBOARD, deadzone = 0.25, onChange = () => undefined, virtual } = options;
+  const { players = 2, profiles = [twinUsb], keyboard = DEFAULT_KEYBOARD, deadzone = 0.25, onChange = () => undefined, virtual, exclusiveKeyboard = false } = options;
   const hidPads = Array.from({ length: players }, emptyRaw);
   const seen = Array.from({ length: players }, () => false);
   const keys = new Set<string>();
+  /** Keys pressed since the last frame, so a tap shorter than a frame still counts. */
+  const tapped = new Set<string>();
   const wasDown = Array.from({ length: players + 1 }, () => [] as boolean[]);
   const wasDirection = Array.from({ length: players + 1 }, () => null as Direction | null);
   const maps = new Map<string, readonly number[]>();
@@ -107,8 +120,10 @@ export function createInput(options: InputOptions = {}) {
   const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
   const claimed = new Set(keyboard.flatMap((map) => [map.up, map.down, map.left, map.right, map.rup, map.rdown, map.rleft, map.rright, ...map.buttons.flat()]));
   if (typeof addEventListener === 'function') {
-    addEventListener('keydown', (e) => { if (typing(e.target) || e.metaKey || e.ctrlKey) return; keys.add(e.code); if (claimed.has(e.code)) e.preventDefault(); }, { signal: abort.signal });
-    addEventListener('keyup', (e) => keys.delete(e.code), { signal: abort.signal });
+    const passThrough = (e: KeyboardEvent) => syntheticKeys.has(e) || typing(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.key === 'Escape' || e.key === 'Tab';
+    const capture = exclusiveKeyboard; // Window capture runs first, so stopping here covers every other listener.
+    addEventListener('keydown', (e) => { if (passThrough(e)) return; keys.add(e.code); tapped.add(e.code); if (claimed.has(e.code)) e.preventDefault(); if (exclusiveKeyboard) e.stopPropagation(); }, { signal: abort.signal, capture });
+    addEventListener('keyup', (e) => { if (syntheticKeys.has(e)) return; keys.delete(e.code); if (exclusiveKeyboard && !passThrough(e)) e.stopPropagation(); }, { signal: abort.signal, capture });
     addEventListener('blur', () => keys.clear(), { signal: abort.signal }); // A key released while unfocused would stick.
   }
   const buttonMapFor = (kind: string, fallback: readonly number[] = []) => maps.get(kind) ?? fallback;
@@ -180,11 +195,12 @@ export function createInput(options: InputOptions = {}) {
   }
   function fromKeyboard(map: KeyboardMap | undefined): RawPad | null {
     if (!map) return null;
-    const on = (code?: string) => (code && keys.has(code) ? 1 : 0);
+    const down = (code?: string) => Boolean(code) && (keys.has(code!) || tapped.has(code!));
+    const on = (code?: string) => (down(code) ? 1 : 0);
     return {
       x: on(map.right) - on(map.left), y: on(map.down) - on(map.up), hx: 0, hy: 0,
       rx: on(map.rright) - on(map.rleft), ry: on(map.rdown) - on(map.rup),
-      buttons: map.buttons.map((slot) => [slot].flat().some((code) => keys.has(code)))
+      buttons: map.buttons.map((slot) => [slot].flat().some(down))
     };
   }
   function combine(sources: Array<RawPad | null | undefined>, slot: number): PadState {
@@ -211,9 +227,10 @@ export function createInput(options: InputOptions = {}) {
     return [hidPad, fromPad, fromKeyboard(keyboard[player]), virtual?.(player)];
   }
   /** One state per player. Read once per frame. */
-  const read = () => hidPads.map((_, i) => combine(sourcesFor(i), i));
+  const finishRead = <T>(state: T) => { queueMicrotask(() => tapped.clear()); return state; }; // Every read in this frame sees the tap.
+  const read = () => finishRead(hidPads.map((_, i) => combine(sourcesFor(i), i)));
   /** Every controller and keyboard drives one player, for single-player modes. */
-  const readMerged = () => combine(hidPads.flatMap((_, i) => sourcesFor(i)), players);
+  const readMerged = () => finishRead(combine(hidPads.flatMap((_, i) => sourcesFor(i)), players));
 
   /** The first newly pressed physical button, before remapping. Used to calibrate an unknown pad. */
   function rawPress(): RawPress | null {
@@ -243,7 +260,7 @@ export function createInput(options: InputOptions = {}) {
     device?.removeEventListener('inputreport', handleReport as EventListener);
     void device?.close().catch(() => undefined);
     clearHid();
-    keys.clear();
+    keys.clear(); tapped.clear();
   }
   return { connect, reconnect, read, readMerged, rawPress, setButtonMap, status, destroy };
 }

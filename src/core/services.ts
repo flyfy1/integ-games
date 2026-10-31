@@ -101,7 +101,7 @@ function soundTheme(slug: string): 'puzzle' | 'arcade' | 'action' | 'calm' {
   return 'puzzle';
 }
 
-function seededRandom(seed: number): () => number {
+export function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state += 0x6D2B79F5;

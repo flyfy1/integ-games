@@ -258,3 +258,35 @@ test('controller entry points: home strip, play-bar pill and saved per-game bind
   await page.getByRole('button', { name: 'Reset to default' }).click();
   await expect(page.locator('.pad-panel [data-unbind=west]')).toHaveCount(0);
 });
+
+test('every versus game starts split-screen, and each keyboard seat drives only its own board', async ({ page }, testInfo) => {
+  test.setTimeout(240000);
+  test.skip(testInfo.project.name !== 'desktop', 'desktop versus coverage');
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  for (const slug of ['merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'capital-quiz']) {
+    await page.goto(`/play/${slug}`);
+    await page.locator('[data-action=versus]').click();
+    await expect(page.locator('[data-versus-seat]')).toHaveCount(2);
+    await page.keyboard.press('Space'); await page.keyboard.press('Enter');
+    await expect(page.locator('.versus-count')).toBeVisible();
+    await expect(page.locator('[data-versus-overlay]')).toBeHidden({ timeout: 5000 });
+    await page.keyboard.press('KeyD'); await page.keyboard.press('ArrowRight');
+    await page.locator('[data-action=versus]').click();
+    await expect(page.locator('[data-versus-seat]')).toHaveCount(0);
+  }
+  expect(errors).toEqual([]);
+  await page.goto('/play/merge-2048');
+  await page.locator('[data-action=versus]').click();
+  await expect(page.locator('[data-versus-seat]')).toHaveCount(2);
+  await page.keyboard.press('Space'); await page.keyboard.press('Enter');
+  await expect(page.locator('.versus-count')).toBeVisible();
+  await expect(page.locator('[data-versus-overlay]')).toBeHidden({ timeout: 5000 });
+  const seats = page.locator('[data-versus-seat]');
+  const board = (index: number) => seats.nth(index).evaluate((seat) => seat.innerHTML);
+  const second = await board(1);
+  let moved = false;
+  for (const key of ['KeyA', 'KeyW', 'KeyD', 'KeyS']) { const before = await board(0); await page.keyboard.press(key, { delay: 60 }); await page.waitForTimeout(250); moved ||= before !== await board(0); }
+  expect(moved).toBe(true);
+  expect(await board(1)).toBe(second);
+});

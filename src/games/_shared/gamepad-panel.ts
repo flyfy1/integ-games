@@ -4,7 +4,7 @@ import { actionsFor, gamepadProfiles, type BridgeControl, type BridgeProfile, ty
 import { createInput, type PadStatus } from './gamepad-kit';
 
 const zh = () => /^zh\b/i.test(navigator.language || '');
-const tr = (en: string, cn: string) => (zh() ? cn : en);
+export const tr = (en: string, cn: string) => (zh() ? cn : en);
 
 const NAMES: Record<'ps' | 'xbox', Partial<Record<BridgeControl, string>>> = {
   ps: { south: '✕', east: '○', west: '□', north: '△', l1: 'L1', r1: 'R1', l2: 'L2', r2: 'R2', select: 'Select', l3: 'L3', r3: 'R3' },

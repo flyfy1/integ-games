@@ -47,3 +47,25 @@ body { background:var(--il-bg); }
 .pad-chip.is-add { background:none; }
 .pad-chip.is-listening { border-color:#ffb547; background:#ffb547; color:#2a1c05; }
 .pad-panel-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+
+/* Split-screen versus. */
+.versus { position:relative; width:100%; display:flex; flex-direction:column; gap:8px; }
+.versus-hud { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:12px; font-weight:800; font-size:1.2rem; }
+.versus-hud > :last-child { text-align:right; }
+.versus-hud [data-seat-1] { color:#ffb547; } .versus-hud [data-seat-2] { color:#4fd8c4; }
+.versus-clock { font-variant-numeric:tabular-nums; font-size:1.4rem; }
+.versus-seats { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+.versus-seat { min-width:0; padding:6px; border:2px solid #ffb547; border-radius:14px; }
+.versus-seat + .versus-seat { border-color:#4fd8c4; }
+.versus-seat canvas { max-height:calc(100dvh - 190px); max-width:100%; object-fit:contain; }
+.versus-overlay { position:absolute; z-index:3; inset:0; display:grid; place-items:center; align-content:center; gap:14px; padding:20px; border-radius:14px; background:#090d18e8; text-align:center; }
+.versus-overlay[hidden] { display:none; }
+.versus-overlay h2 { margin:0; font-size:2rem; }
+.versus-overlay p { margin:0; }
+.versus-count { font-size:5rem; font-weight:800; }
+.versus-ready { display:grid; grid-template-columns:1fr 1fr; gap:12px; width:min(560px,100%); }
+.versus-ready > div { padding:12px; border:2px solid #52617f; border-radius:14px; }
+.versus-ready > div.is-on { border-color:#3ecf7a; background:#3ecf7a33; }
+.versus-actions { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; }
+.versus-seat { justify-self:stretch; display:grid; justify-items:center; }
+.versus-seat :focus { outline:none; }
