@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { applyDeadzone, BUTTON_INDEX, clampToCircle, createInput, DEFAULT_KEYBOARD, hatToDirection, twinUsb, type ButtonName, type Direction, type PadState } from '../src/games/_shared/gamepad-kit';
 import { ALL_LEVELS, bestStars, DIFFICULTIES, emptyProgress, isOpen, isProgress, LEVELS, maxScore, PARTY_LEVEL, recordResult, starsFor, totalScore, type Difficulty } from '../src/games/pad-pals/levels';
+import { SPOKEN, t } from '../src/games/pad-pals/i18n';
 import { createMini, type BotMove, type MiniEnv } from '../src/games/pad-pals/minis';
 
 const report = (bytes: number[]) => new DataView(Uint8Array.from(bytes).buffer);
@@ -106,7 +108,7 @@ describe('Pad Pals progress', () => {
 function play(level: typeof ALL_LEVELS[number], difficulty: Difficulty, players = 1, seed = 42) {
   let state = seed;
   const random = () => { state = (1664525 * state + 1013904223) >>> 0; return state / 2 ** 32; };
-  const env: MiniEnv = { difficulty, random, players, glyphs: () => 'ps', good() {}, bad() {}, tick() {} };
+  const env: MiniEnv = { difficulty, random, players, glyphs: () => 'ps', good() {}, bad() {}, tick() {}, note() {}, say() {} };
   const mini = createMini(level, env);
   let was: boolean[] = [], wasDirection: Direction | null = null, tapped = false, frames = 0;
   const toState = (move: BotMove): PadState => {
@@ -132,6 +134,15 @@ function play(level: typeof ALL_LEVELS[number], difficulty: Difficulty, players 
   return { mini, seconds: frames / 60 };
 }
 
+describe('Pad Pals voice', () => {
+  it('ships a recorded file for every spoken line in both languages', () => {
+    for (const lang of ['en', 'zh'] as const) for (const key of SPOKEN) {
+      expect(t(lang, key).length, key).toBeGreaterThan(0);
+      expect(existsSync(`public/pad-pals-voice/${lang}/${key}.mp3`), `${lang}/${key}`).toBe(true);
+    }
+  });
+});
+
 describe('Pad Pals levels', () => {
   const cases = ALL_LEVELS.flatMap((level) => DIFFICULTIES.map((difficulty) => [level.id, difficulty, level] as const));
   it.each(cases)('%s on difficulty %i can be finished by real play', (_id, difficulty, level) => {
@@ -148,13 +159,43 @@ describe('Pad Pals levels', () => {
       expect(starsFor(mini.misses, mini.goal), id).toBe(3);
     }
   });
+  it('grows the parrot tune by one, forgives on Chick and replays on Bunny', () => {
+    const run = (difficulty: Difficulty) => {
+      const said: string[] = [];
+      const mini = createMini(ALL_LEVELS.find((level) => level.id === 'simon')!, { difficulty, random: () => 0.1, players: 1, glyphs: () => 'ps', good() {}, bad() {}, tick() {}, note() {}, say: (key) => said.push(key) });
+      const idle: PadState = { x: 0, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [], justPressed: [], dirPressed: null, btn: false, pressed: false };
+      const step = (seconds: number) => { for (let i = 0; i < seconds * 60; i++) mini.update(1 / 60, { any: idle, pads: [idle] }); };
+      const press = (button: ButtonName) => { const justPressed: boolean[] = []; justPressed[BUTTON_INDEX[button]] = true; mini.update(1 / 60, { any: { ...idle, justPressed }, pads: [idle] }); };
+      return { mini, said, step, press };
+    };
+    const chick = run(0);
+    chick.step(0.2); chick.press('south'); expect(chick.mini.misses).toBe(0); // Ignored while the parrot is showing.
+    chick.step(3);
+    expect(chick.mini.caption?.()).toBe('simon.turn');
+    const right = chick.mini.bot().press!, wrong = (['south', 'east'] as const).find((button) => button !== right)!;
+    chick.press(wrong);
+    expect(chick.mini.misses).toBe(1); expect(chick.mini.caption?.()).toBe('simon.again');
+    chick.step(1.5);
+    expect(chick.mini.caption?.()).toBe('simon.turn'); expect(chick.mini.highlights()).toEqual([right]);
+    chick.press(right); chick.step(1.2);
+    expect(chick.mini.progress()).toBe(1); expect(chick.mini.caption?.()).toBe('simon.watch');
+    chick.step(4);
+    expect(chick.said).toContain('simon.turn');
+    const bunny = run(1);
+    bunny.step(3);
+    expect(bunny.mini.caption?.()).toBe('simon.turn');
+    const need = bunny.mini.bot().press!;
+    bunny.press((['south', 'east', 'west'] as const).find((button) => button !== need)!);
+    bunny.step(1.5);
+    expect(bunny.mini.caption?.()).toBe('simon.watch');
+  });
   it('lets a fast player win the tug of war against the bunny', () => {
     expect(play(PARTY_LEVEL, 2).mini.winner).toBe(0);
   });
   it('draws every level without throwing', () => {
     const g = document.createElement('canvas').getContext('2d')!;
     ALL_LEVELS.forEach((level) => DIFFICULTIES.forEach((difficulty) => {
-      const mini = createMini(level, { difficulty, random: () => 0.3, players: 2, glyphs: () => 'xbox', good() {}, bad() {}, tick() {} });
+      const mini = createMini(level, { difficulty, random: () => 0.3, players: 2, glyphs: () => 'xbox', good() {}, bad() {}, tick() {}, note() {}, say() {} });
       expect(() => { mini.draw(g, 1); mini.highlights(); }).not.toThrow();
     }));
   });

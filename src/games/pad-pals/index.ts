@@ -1,8 +1,9 @@
 import type { GameModule, GameServices } from '../../core/game-types';
 import { BUTTON_INDEX, createInput, createSound, startLoop, type ButtonName, type PadState } from '../_shared/gamepad-kit';
-import { defaultLang, isLang, t, type Key, type Lang } from './i18n';
+import { defaultLang, isLang, t, type Key, type Lang, type SpokenKey } from './i18n';
 import { ALL_LEVELS, bestStars, DIFFICULTIES, DIFFICULTY_ICONS, emptyProgress, isOpen, isProgress, levelStars, LEVELS, maxScore, PARTY_LEVEL, recordResult, starsFor, totalScore, type Difficulty, type Level, type Progress } from './levels';
 import { createMini, type Frame, type Mini, type MiniEnv } from './minis';
+import { createVoice } from './voice';
 import { createTouchPad, drawPad, HEIGHT, PLAY_HEIGHT, WIDTH, type GlyphSet, type Highlight } from './pad-view';
 
 const ACCENT = '#ffb547';
@@ -85,16 +86,9 @@ function mount(host: HTMLElement, services: GameServices) {
   let calibrateStep = 0, calibrateMap: number[] = [], calibrateKind = '';
   let lastPad: PadState = { x: 0, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [], justPressed: [], dirPressed: null, btn: false, pressed: false };
 
-  function say(text: string) {
-    if (services.sound.muted || typeof speechSynthesis === 'undefined') return;
-    try {
-      speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = lang === 'zh' ? 'zh-CN' : 'en-US'; utterance.rate = 0.95;
-      speechSynthesis.speak(utterance);
-    } catch { /* The hint stays on screen when speech is unavailable. */ }
-  }
-  const quiet = () => { try { if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); } catch { /* nothing to stop */ } };
+  const voice = createVoice();
+  const say = (key: SpokenKey) => { if (!services.sound.muted) voice.say(lang, key); };
+  const quiet = voice.stop;
   function spark(x: number, y: number, icon: string, count: number) {
     if (services.isReducedMotion) count = 1;
     for (let i = 0; i < count; i++) {
@@ -106,7 +100,9 @@ function mount(host: HTMLElement, services: GameServices) {
     difficulty, random: services.random, players, glyphs: () => glyphs,
     good(x, y, note = 0) { sound.chime(SCALE[note % SCALE.length], 0.15); spark(x, y, '✨', 8); },
     bad(x, y) { sound.tone(240, 0.16, 'triangle', 0.1, 0, 150); spark(x, y, '💨', 1); },
-    tick(note = 0) { sound.tone(SCALE[note % SCALE.length] / 2, 0.08, 'triangle', 0.06); }
+    tick(note = 0) { sound.tone(SCALE[note % SCALE.length] / 2, 0.08, 'triangle', 0.06); },
+    note(note) { sound.chime(SCALE[note % SCALE.length], 0.22); },
+    say
   });
 
   function save() {
@@ -120,7 +116,7 @@ function mount(host: HTMLElement, services: GameServices) {
   function begin(next: Level) {
     level = next; mini = createMini(next, env()); readyLeft = services.isReducedMotion ? 0.8 : 1.6;
     go('ready');
-    say(tr(`hint.${next.id}` as Key));
+    say(`hint.${next.id}` as SpokenKey);
   }
   function finishLevel() {
     if (!mini) return;
@@ -129,7 +125,7 @@ function mount(host: HTMLElement, services: GameServices) {
     save();
     services.sound.play('success');
     [0, 1, 2].forEach((i) => sound.chime(SCALE[i * 2 + 3], 0.14, i * 0.14));
-    say(tr(resultStars === 3 ? 'result.great' : resultStars === 2 ? 'result.good' : 'result.ok'));
+    say(resultWinner !== undefined && players > 1 ? (resultWinner === 0 ? 'result.p1' : 'result.p2') : resultStars === 3 ? 'result.great' : resultStars === 2 ? 'result.good' : 'result.ok');
     go('result');
   }
   function nextLevel() {
@@ -142,7 +138,7 @@ function mount(host: HTMLElement, services: GameServices) {
     calibrateStep = 0; calibrateKind = ''; calibrateMap = Array.from({ length: 12 }, (_, i) => i);
     input.rawPress();
     go('calibrate');
-    say(tr('calib.press', { name: tr(`name.${CALIBRATION[0]}`) }));
+    say(`calib.press.${CALIBRATION[0]}` as SpokenKey);
   }
   function advanceCalibration() {
     calibrateStep++;
@@ -151,9 +147,9 @@ function mount(host: HTMLElement, services: GameServices) {
         input.setButtonMap(calibrateKind, calibrateMap);
         services.storage.set('button-maps', { ...services.storage.get<Record<string, number[]>>('button-maps', {}), [calibrateKind]: calibrateMap });
       }
-      banner = tr('calib.done'); bannerLeft = 2;
+      banner = tr('calib.done'); bannerLeft = 2; say('calib.done');
       go('map');
-    } else say(tr('calib.press', { name: tr(`name.${CALIBRATION[calibrateStep]}`) }));
+    } else say(`calib.press.${CALIBRATION[calibrateStep]}` as SpokenKey);
   }
 
   function handlePadEvent(event: 'connected' | 'seen' | 'disconnected') {
@@ -227,10 +223,10 @@ function mount(host: HTMLElement, services: GameServices) {
 
   function activate(cell: MapCell) {
     const { item } = cell;
-    if (item.kind === 'difficulty') { difficulty = item.difficulty; save(); sound.chime(SCALE[difficulty * 2 + 2]); say(tr(`diff.${difficulty}` as Key)); }
+    if (item.kind === 'difficulty') { difficulty = item.difficulty; save(); sound.chime(SCALE[difficulty * 2 + 2]); say(`diff.${difficulty}`); }
     else if (item.kind === 'lab') go('lab');
     else if (isOpen(progress, item.level)) begin(item.level);
-    else { sound.tone(200, 0.15, 'triangle', 0.1); banner = tr('locked'); bannerLeft = 2; say(banner); }
+    else { sound.tone(200, 0.15, 'triangle', 0.1); banner = tr('locked'); bannerLeft = 2; say('locked'); }
   }
   function moveCursor(dx: number, dy: number) {
     const options = MAP_CELLS.filter((cell) => (dy ? Math.sign(cell.row - cursor.row) === dy : cell.row === cursor.row && Math.sign(cell.column - cursor.column) === dx));
@@ -243,12 +239,12 @@ function mount(host: HTMLElement, services: GameServices) {
     const direction = lastPad.dirPressed;
     if (direction) moveCursor(direction === 'left' ? -1 : direction === 'right' ? 1 : 0, direction === 'up' ? -1 : direction === 'down' ? 1 : 0);
     if (just('south')) activate(cursor);
-    if (just('l1') || just('r1')) { difficulty = ((difficulty + (just('r1') ? 1 : 2)) % 3) as Difficulty; save(); sound.chime(SCALE[difficulty * 2 + 2]); say(tr(`diff.${difficulty}` as Key)); }
+    if (just('l1') || just('r1')) { difficulty = ((difficulty + (just('r1') ? 1 : 2)) % 3) as Difficulty; save(); sound.chime(SCALE[difficulty * 2 + 2]); say(`diff.${difficulty}`); }
   }
   function updatePlay(dt: number, frame: Frame) {
     if (!mini) return;
     idle = lastPad.btn || lastPad.x || lastPad.y || lastPad.rx || lastPad.ry ? 0 : idle + dt;
-    if (idle > 8) { idle = 0; say(tr(`hint.${level.id}` as Key)); }
+    if (idle > 8) { idle = 0; say(`hint.${level.id}` as SpokenKey); }
     if (just('start')) { quiet(); mini = undefined; go('map'); return; }
     mini.update(dt, frame);
     if (mini.done) finishLevel();
@@ -351,7 +347,7 @@ function mount(host: HTMLElement, services: GameServices) {
     if (!mini) return;
     mini.draw(g, time);
     g.fillStyle = '#10162c99';
-    const hint = tr(`hint.${level.id}` as Key);
+    const hint = tr(mini.caption?.() ?? (`hint.${level.id}` as Key));
     g.font = '700 22px system-ui, "PingFang SC", sans-serif';
     const width = g.measureText(hint).width + 40;
     g.beginPath(); g.roundRect(640 - width / 2, 450, width, 36, 18); g.fill();

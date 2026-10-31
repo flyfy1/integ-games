@@ -1,5 +1,6 @@
 /** One small game per skill. Update never touches the canvas, so tests can play every level with its bot. */
 import { BUTTON_INDEX, type ButtonName, type Direction, type PadState } from '../_shared/gamepad-kit';
+import type { SpokenKey } from './i18n';
 import type { Difficulty, Level } from './levels';
 import { drawChip, PLAY_HEIGHT, WIDTH, type GlyphSet, type Highlight } from './pad-view';
 
@@ -8,12 +9,17 @@ export type BotMove = { press?: ButtonName; hold?: readonly ButtonName[]; x?: nu
 export type MiniEnv = {
   difficulty: Difficulty; random: () => number; players: number; glyphs: () => GlyphSet;
   good(x: number, y: number, note?: number): void; bad(x: number, y: number): void; tick(note?: number): void;
+  /** A clear melodic note, loud enough to remember. */
+  note(note: number): void;
+  say(key: SpokenKey): void;
 };
 export type Mini = {
   goal: number; misses: number; done: boolean; winner?: number;
   update(dt: number, frame: Frame): void;
   draw(g: CanvasRenderingContext2D, time: number): void;
   highlights(): Highlight[];
+  /** Replaces the level hint while the level is in a phase worth naming. */
+  caption?(): SpokenKey | undefined;
   progress(): number;
   bot(): BotMove;
 };
@@ -328,48 +334,79 @@ function holdMini(level: Level, env: MiniEnv): Mini {
   return mini;
 }
 
-/* Memory: the parrot plays a sequence on the drawn pad, then the child repeats it. */
+/* Memory: the parrot hops between four perches laid out like the buttons, then the child copies it.
+   Each round adds one note to the same tune, so a child practises what they just heard. */
+const PERCHES: Partial<Record<ButtonName, [number, number]>> = { north: [640, 92], west: [440, 232], east: [840, 232], south: [640, 372], l1: [170, 232], r1: [1110, 232] };
+const PERCH_NOTES: Partial<Record<ButtonName, number>> = { south: 0, east: 2, west: 3, north: 5, l1: 7, r1: 8 };
 function simonMini(level: Level, env: MiniEnv): Mini {
   const d = env.difficulty, goal = level.goal[d], wait = level.wait[d];
   const set: readonly ButtonName[] = d === 2 ? [...level.buttons!, 'l1', 'r1'] : level.buttons!;
-  const stepTime = [0.8, 0.6, 0.42][d];
-  let round = 0, sequence: ButtonName[] = [], phase: 'show' | 'input' = 'show', clock = -0.5, at = 0, idle = 0;
-  const deal = () => { sequence = Array.from({ length: round + 2 + d }, () => pick(env, set)); replay(); };
-  const replay = () => { phase = 'show'; clock = -0.5; at = 0; idle = 0; };
-  deal();
+  const stepTime = [0.95, 0.75, 0.55][d], lit = 0.68, hintAfter = [3, 7, Infinity][d];
+  let round = 0, sequence: ButtonName[] = [], at = 0, clock = 0, idle = 0, spoke = false;
+  let phase: 'watch' | 'turn' | 'cheer' | 'oops' = 'watch', glow: ButtonName | null = null, glowLeft = 0;
+  const flash = (button: ButtonName, time = 0.32) => { glow = button; glowLeft = time; env.note(PERCH_NOTES[button] ?? 0); };
+  const watch = () => { phase = 'watch'; clock = -0.7; at = 0; idle = 0; };
+  const grow = () => { while (sequence.length < round + 1 + d) sequence.push(pick(env, set)); watch(); };
+  grow();
+  const miss = () => {
+    mini.misses++; idle = 0; clock = 0; phase = 'oops'; glow = sequence[at]; glowLeft = 1.3;
+    env.bad(CENTER_X, 232); env.say('simon.again');
+  };
   const mini: Mini = {
     goal, misses: 0, done: false,
     update(dt, frame) {
-      if (phase === 'show') {
-        const before = Math.floor(clock / stepTime);
-        clock += dt;
-        const now = Math.floor(clock / stepTime);
-        if (now !== before && now >= 0 && now < sequence.length) env.tick(set.indexOf(sequence[now]) * 2);
-        if (now >= sequence.length) phase = 'input';
+      glowLeft = Math.max(0, glowLeft - dt);
+      if (!glowLeft) glow = null;
+      clock += dt;
+      if (phase === 'cheer') {
+        if (clock >= 1) { if (round >= goal) mini.done = true; else grow(); }
+        return;
+      }
+      if (phase === 'oops') {
+        if (clock < 1.3) return;
+        // Chick stays on the same note with the answer lit; the others hear the tune again.
+        if (d === 0) { phase = 'turn'; idle = hintAfter; } else watch();
+        return;
+      }
+      if (phase === 'watch') {
+        if (!spoke) { spoke = true; env.say('simon.watch'); }
+        const now = Math.floor(clock / stepTime), before = Math.floor((clock - dt) / stepTime);
+        if (now !== before && now >= 0 && now < sequence.length) flash(sequence[now], stepTime * lit);
+        if (now >= sequence.length) { phase = 'turn'; idle = 0; env.say('simon.turn'); }
         return;
       }
       idle += dt;
       const pressed = set.find((button) => just(frame.any, button));
-      if (idle > wait || (pressed && pressed !== sequence[at])) { mini.misses++; env.bad(CENTER_X, 200); replay(); return; }
+      if (idle > wait || (pressed && pressed !== sequence[at])) { miss(); return; }
       if (!pressed) return;
-      env.tick(set.indexOf(pressed) * 2); at++; idle = 0;
-      if (at >= sequence.length) {
-        env.good(CENTER_X, 200, round); round++;
-        if (round >= goal) mini.done = true; else deal();
-      }
+      flash(pressed); at++; idle = 0;
+      if (at >= sequence.length) { round++; phase = 'cheer'; clock = 0; env.good(CENTER_X, 232, round + 4); }
     },
     draw(g, time) {
-      sky(g, '#b6efc9', '#7fd6c0');
-      const showing = phase === 'show' && clock >= 0 && clock % stepTime < stepTime * 0.7;
-      emoji(g, '🦜', CENTER_X, 190 + (showing ? -14 : 4 * Math.sin(time * 3)), 200);
-      sequence.forEach((_, i) => { g.fillStyle = phase === 'input' && i < at ? '#3ecf7a' : '#ffffff'; g.beginPath(); g.arc(CENTER_X + (i - (sequence.length - 1) / 2) * 44, 390, 15, 0, Math.PI * 2); g.fill(); });
+      sky(g, '#bdf1cf', '#79d6c3');
+      (Object.entries(PERCHES) as Array<[ButtonName, [number, number]]>).filter(([button]) => set.includes(button)).forEach(([button, [x, y]]) => {
+        const on = glow === button, size = on ? 76 : 62;
+        if (on) { g.fillStyle = '#ffffff'; g.globalAlpha = 0.7; g.beginPath(); g.arc(x, y, size + 16, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1; }
+        g.globalAlpha = on ? 1 : 0.72;
+        drawChip(g, button, x, y, size, env.glyphs(), on);
+        g.globalAlpha = 1;
+      });
+      const perch = glow ? PERCHES[glow] : undefined, happy = phase === 'cheer';
+      const bird = perch ? [CENTER_X + (perch[0] - CENTER_X) * 0.42, 232 + (perch[1] - 232) * 0.42] : [CENTER_X, 232];
+      emoji(g, '🦜', bird[0] + (phase === 'oops' ? Math.sin(time * 30) * 6 : 0), bird[1] + (happy ? -Math.abs(Math.sin(time * 9)) * 34 : 0), 118);
+      if (happy) emoji(g, '🎵', bird[0] + 96, bird[1] - 60 + Math.sin(time * 6) * 8, 54);
+      sequence.forEach((_, i) => {
+        g.fillStyle = happy || (phase !== 'watch' && i < at) ? '#ffc93c' : '#ffffff';
+        g.beginPath(); g.arc(120 + i * 40, 40, 14, 0, Math.PI * 2); g.fill();
+      });
     },
     highlights() {
-      if (phase === 'show') return clock >= 0 && clock % stepTime < stepTime * 0.7 ? [sequence[Math.floor(clock / stepTime)]].filter(Boolean) : [];
-      return d === 0 && idle > 4 ? [sequence[at]] : [];
+      if (glow && phase !== 'turn') return [glow];
+      return phase === 'turn' && idle >= hintAfter ? [sequence[at]] : [];
     },
+    caption: () => (phase === 'watch' ? 'simon.watch' : phase === 'turn' ? 'simon.turn' : phase === 'oops' ? 'simon.again' : undefined),
     progress: () => round,
-    bot: () => (phase === 'input' ? { press: sequence[at] } : {})
+    bot: () => (phase === 'turn' ? { press: sequence[at] } : {})
   };
   return mini;
 }

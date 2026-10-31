@@ -25,7 +25,7 @@ export const LEVELS: readonly Level[] = [
   { id: 'flick', kind: 'flick', world: 1, icon: '🎈', goal: [6, 10, 14], wait: [Infinity, 3, 1.5] },
   { id: 'catch', kind: 'catch', world: 2, icon: '🍎', goal: [6, 10, 14], wait: [Infinity, 2.2, 1.5], buttons: ['l1', 'r1'] },
   { id: 'hold', kind: 'hold', world: 2, icon: '🎀', goal: [3, 5, 7], wait: [Infinity, Infinity, Infinity], buttons: ['l2', 'r2'] },
-  { id: 'simon', kind: 'simon', world: 2, icon: '🦜', goal: [3, 4, 6], wait: [Infinity, Infinity, 6], buttons: FACE },
+  { id: 'simon', kind: 'simon', world: 2, icon: '🦜', goal: [3, 4, 5], wait: [Infinity, Infinity, 6], buttons: FACE },
   { id: 'aim', kind: 'aim', world: 3, icon: '🎯', goal: [5, 8, 12], wait: [Infinity, Infinity, Infinity] },
   { id: 'hop', kind: 'hop', world: 3, icon: '🦘', goal: [5, 8, 12], wait: [Infinity, Infinity, Infinity] },
   { id: 'rhythm', kind: 'rhythm', world: 3, icon: '🎵', goal: [10, 16, 24], wait: [Infinity, 1.8, 1.1], buttons: FACE },
