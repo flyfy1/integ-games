@@ -226,3 +226,35 @@ test('Pad Pals fills a 16:10 screen in full screen and keeps the shell controls 
   await page.getByRole('button', { name: 'Exit full screen' }).click();
   await expect.poll(async () => (await canvas.boundingBox())?.width).toBeLessThan(1000);
 });
+
+test('controller entry points: home strip, play-bar pill and saved per-game bindings', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop controller coverage');
+  await page.addInitScript(() => {
+    const pad = { id: 'Test Pad (STANDARD GAMEPAD)', mapping: 'standard', connected: true, axes: [0, 0, 0, 0], buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) };
+    (window as unknown as { testPad: typeof pad }).testPad = pad;
+    Object.defineProperty(navigator, 'getGamepads', { value: () => [pad] });
+    (window as unknown as { keysSeen: string[] }).keysSeen = [];
+    window.addEventListener('keydown', (event) => (window as unknown as { keysSeen: string[] }).keysSeen.push(event.key));
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Connect controller' })).toBeVisible();
+  await page.goto('/play/block-drop');
+  const pill = page.locator('[data-action=gamepad]');
+  await expect(pill).toBeVisible();
+  const setButton = (index: number, on: boolean) => page.evaluate(([i, value]) => { (window as unknown as { testPad: { buttons: Array<{ pressed: boolean }> } }).testPad.buttons[i as number].pressed = value as boolean; }, [index, on]);
+  const seen = () => page.evaluate(() => (window as unknown as { keysSeen: string[] }).keysSeen);
+  await setButton(2, true); await page.waitForTimeout(80); await setButton(2, false); await page.waitForTimeout(80);
+  expect(await seen()).not.toContain(' ');
+  await pill.click();
+  await page.getByRole('button', { name: /Hard drop/ }).click();
+  await setButton(2, true); await page.waitForTimeout(80); await setButton(2, false); await page.waitForTimeout(150);
+  await expect(page.locator('.pad-panel [data-unbind=west]')).toBeVisible();
+  await setButton(2, true); await page.waitForTimeout(80); await setButton(2, false);
+  await expect.poll(seen).toContain(' ');
+  await page.reload();
+  await expect(pill).toBeVisible();
+  await pill.click();
+  await expect(page.locator('.pad-panel [data-unbind=west]')).toBeVisible();
+  await page.getByRole('button', { name: 'Reset to default' }).click();
+  await expect(page.locator('.pad-panel [data-unbind=west]')).toHaveCount(0);
+});

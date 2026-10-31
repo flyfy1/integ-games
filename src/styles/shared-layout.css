@@ -26,3 +26,24 @@ body { background:var(--il-bg); }
 .game-account-menu summary::-webkit-details-marker { display:none; }
 .game-account-menu>div { position:absolute; inset-inline-end:0; top:48px; z-index:25; min-width:180px; padding:16px; background:var(--il-surface); border:1px solid var(--il-border); border-radius:10px; box-shadow:0 12px 32px #0002; }
 .game-account-menu strong { display:block; overflow-wrap:anywhere; margin-bottom:12px; }
+
+/* Controller entry points: the home strip, the play-bar pill and its panel. */
+.pad-strip { display:flex; flex-wrap:wrap; align-items:center; gap:14px 18px; margin:0 0 24px; padding:16px 20px; border:2px solid #ffb547; border-radius:18px; background:#ffb5471f; }
+.pad-strip-icon { font-size:40px; line-height:1; }
+.pad-strip strong { font-size:1.1rem; }
+.pad-strip p { margin:2px 0 0; }
+.pad-strip-actions { display:flex; flex-wrap:wrap; gap:10px; margin-left:auto; }
+.pad-strip-status { flex-basis:100%; margin:0; font-weight:700; }
+.pad-strip-status:empty { display:none; }
+.pad-pill { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:8px 16px; border:2px solid #ffb547; border-radius:999px; background:#ffb547; color:#2a1c05; font-weight:800; cursor:pointer; }
+.pad-pill.is-on { border-color:#3ecf7a; background:#3ecf7a; color:#07230f; }
+.pad-pill[hidden] { display:none; }
+.pad-panel { max-height:calc(100dvh - 40px); overflow:auto; }
+.pad-panel h2 { margin:0 0 6px; font-size:1.15rem; }
+.pad-panel p { margin:0 0 10px; }
+.pad-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:6px 0; border-top:1px solid #273149; }
+.pad-row-binds { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+.pad-chip { min-width:34px; min-height:34px; padding:2px 8px; border:1px solid #52617f; border-radius:9px; background:#273149; color:#F7F9FF; font-weight:800; cursor:pointer; }
+.pad-chip.is-add { background:none; }
+.pad-chip.is-listening { border-color:#ffb547; background:#ffb547; color:#2a1c05; }
+.pad-panel-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }

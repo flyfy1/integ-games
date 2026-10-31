@@ -27,7 +27,7 @@ npm run test:lighthouse
 
 ## Game controllers
 
-`src/games/_shared/gamepad-kit.ts` reads standard pads through the Gamepad API and the Twin USB 2-in-1 receiver through WebHID (desktop Chrome or Edge; use the Connect button once, then it reconnects by itself). `gamepad-bridge.ts` turns a pad into key events for every keyboard-driven game, with one mapping per game in `gamepadProfiles`; Start pauses and resumes. Pad Pals reads the kit directly and teaches the whole controller. Its spoken lines are recorded mp3s in `public/pad-pals-voice`; after changing a line in `SPOKEN`, rerun `node scripts/generate-pad-pals-voice.mjs` (needs `uv`, and `ONLY=key` limits it to one line).
+`src/games/_shared/gamepad-kit.ts` reads standard pads through the Gamepad API and the Twin USB 2-in-1 receiver through WebHID (desktop Chrome or Edge; use the Connect button once, then it reconnects by itself). `gamepad-bridge.ts` turns a pad into key events for every keyboard-driven game, with one mapping per game in `gamepadProfiles`; Start pauses and resumes. Games that step once per key event also get keyboard-style repeat (`gamepadRepeat`), and players can rebind any game from the controller button on its page; bindings stay in this browser. Pad Pals reads the kit directly and teaches the whole controller. Its spoken lines are recorded mp3s in `public/pad-pals-voice`; after changing a line in `SPOKEN`, rerun `node scripts/generate-pad-pals-voice.mjs` (needs `uv`, and `ONLY=key` limits it to one line).
 
 ## GitHub Pages
 

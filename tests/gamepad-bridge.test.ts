@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { catalog } from '../src/core/catalog';
-import { codeForKey, createGamepadBridge, gamepadProfiles, heldKeys } from '../src/games/_shared/gamepad-bridge';
+import { actionsFor, codeForKey, createGamepadBridge, gamepadProfiles, gamepadRepeat, heldKeys } from '../src/games/_shared/gamepad-bridge';
+import { bind, unbind } from '../src/games/_shared/gamepad-panel';
 import { BUTTON_INDEX, type PadState } from '../src/games/_shared/gamepad-kit';
 
 const pad = (patch: Partial<PadState>): PadState => ({ x: 0, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [], justPressed: [], dirPressed: null, btn: false, pressed: false, ...patch });
@@ -11,9 +12,22 @@ describe('gamepad bridge mapping', () => {
     expect(Object.keys(gamepadProfiles).sort()).toEqual(catalog.map((game) => game.slug).filter((slug) => slug !== 'pad-pals').sort());
   });
   it('turns stick and buttons into held keys, joining keys shared by two controls', () => {
-    const keys = heldKeys(gamepadProfiles['block-drop'], pad({ x: 1, buttons: on('south', 'east', 'west') }));
+    const keys = heldKeys(gamepadProfiles['block-drop'], pad({ x: 1, buttons: on('south', 'east', 'north') }));
     expect([...keys].sort()).toEqual([' ', 'ArrowRight', 'ArrowUp']);
+    expect([...heldKeys(gamepadProfiles['block-drop'], pad({ x: 0.8, y: 0.6 }), true)]).toEqual(['ArrowRight']);
     expect(heldKeys(gamepadProfiles.snake, pad({ x: 0.3 })).size).toBe(0);
+  });
+  it('names every action, and only repeats keys a game has bound', () => {
+    for (const slug of Object.keys(gamepadProfiles)) {
+      actionsFor(slug).forEach(({ key, label }) => { expect(label[0], `${slug} ${key}`).not.toBe(key === ' ' ? ' ' : key.length === 1 ? key : ''); expect(label[1].length).toBeGreaterThan(0); });
+      Object.keys(gamepadRepeat[slug] ?? {}).forEach((key) => expect(Object.values(gamepadProfiles[slug])).toContain(key));
+    }
+    expect(actionsFor('block-drop').map((action) => action.label[0])).toEqual(['Rotate', 'Soft drop', 'Left', 'Right', 'Hard drop', 'Restart']);
+  });
+  it('rebinds one control to one action', () => {
+    const moved = bind({ south: ' ', east: 'r' }, 'south', 'r');
+    expect(moved).toEqual({ south: 'r', east: 'r' });
+    expect(unbind(moved, 'east')).toEqual({ south: 'r' });
   });
   it('gives solitaire all seven columns and sudoku all nine digits', () => {
     expect(new Set(Object.values(gamepadProfiles.solitaire).filter((key) => /\d/.test(key))).size).toBe(7);
@@ -45,8 +59,31 @@ describe('gamepad bridge lifecycle', () => {
     const { buttons, axes, log, step, bridge } = rig('snake');
     axes[0] = 1; step(); step(); step(); axes[0] = 0; step();
     expect(log).toEqual(['keydown:ArrowRight', 'keyup:ArrowRight']);
-    buttons[0].pressed = true; step(); buttons[0].pressed = false; step();
-    expect(log.slice(2)).toEqual(['keydown: ', 'keyup: ']);
+    buttons[8].pressed = true; step(); buttons[8].pressed = false; step();
+    expect(log.slice(2)).toEqual(['keydown:r', 'keyup:r']);
+    bridge.destroy();
+  });
+  it('repeats a held direction like a keyboard on games that step per event, but not on the others', () => {
+    const drop = rig('block-drop');
+    drop.axes[0] = 1;
+    for (let i = 0; i < 30; i++) drop.step(); // 16ms frames capped by nothing: 480ms held.
+    expect(drop.log.filter((line) => line === 'keydown:ArrowRight').length).toBeGreaterThan(5);
+    drop.bridge.destroy();
+    const arcade = rig('breakout');
+    arcade.axes[0] = 1;
+    for (let i = 0; i < 30; i++) arcade.step();
+    expect(arcade.log.filter((line) => line === 'keydown:ArrowRight')).toHaveLength(1);
+    arcade.bridge.destroy();
+  });
+  it('sends a rebound press to the game and swallows the press used for capture', () => {
+    const { buttons, log, step, bridge } = rig('flap');
+    const seen: string[] = [];
+    bridge.capture((control) => seen.push(control));
+    buttons[1].pressed = true; step(); buttons[1].pressed = false; step();
+    expect(seen).toEqual(['east']); expect(log).toEqual([]);
+    bridge.setBindings({ east: ' ' });
+    buttons[1].pressed = true; step();
+    expect(log).toEqual(['keydown: ']);
     bridge.destroy();
   });
   it('Start toggles pause once, and a pause releases held keys', () => {
