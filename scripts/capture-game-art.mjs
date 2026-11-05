@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
@@ -38,6 +38,8 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
+  'tank-brawl-opus': async (page) => { await page.waitForFunction(() => !!globalThis.__tankBrawl); await page.keyboard.press('Space'); await page.waitForTimeout(3600); await page.keyboard.down('KeyD'); await page.keyboard.down('ArrowLeft'); await page.keyboard.down('KeyF'); await page.keyboard.down('KeyK'); await page.waitForTimeout(900); await page.keyboard.up('KeyD'); await page.keyboard.up('ArrowLeft'); await page.keyboard.up('KeyF'); await page.keyboard.up('KeyK'); },
+  'tank-clash': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(160); await page.keyboard.down('KeyW'); await page.waitForTimeout(220); await page.keyboard.press('Space'); await page.keyboard.up('KeyW'); await page.waitForTimeout(250); },
   'pad-pals': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(200); await page.keyboard.press('Space'); await page.waitForTimeout(2200); await page.keyboard.press('Space'); await page.waitForTimeout(250); await page.keyboard.press('Space'); await page.waitForTimeout(250); },
   'merge-2048': async (page) => { await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(180); },
   'block-drop': async (page) => { await page.keyboard.press('ArrowUp'); for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown'); },

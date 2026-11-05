@@ -35,9 +35,9 @@ describe('game module contract', () => {
     globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
   });
 
-  it('has exactly twenty-three unique, importable catalog modules whose metadata matches', async () => {
-    expect(catalog).toHaveLength(23);
-    expect(new Set(catalog.map((game) => game.slug)).size).toBe(23);
+  it('has exactly twenty-six unique, importable catalog modules whose metadata matches', async () => {
+    expect(catalog).toHaveLength(26);
+    expect(new Set(catalog.map((game) => game.slug)).size).toBe(26);
     const loaded = [];
     for (const item of catalog) {
       expect(gameLoader(item.slug), `missing loader for ${item.slug}`).toBeTypeOf('function');

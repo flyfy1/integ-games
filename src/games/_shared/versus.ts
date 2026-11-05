@@ -26,7 +26,8 @@ export const versusRules: Record<string, VersusRule> = {
   arena: timed(), 'block-drop': timed(), breakout: timed(), bubble: timed(), flap: timed(), 'fruit-merge': timed(), 'hex-puzzle': timed(), invaders: timed(), snake: timed(), stack: timed(),
   drive: timed('progress'), runner: timed('progress'), knife: timed('progress'),
   'merge-2048': { ...timed('score', 180), restartOnSelect: true }, 'capital-quiz': { ...timed('score', 180), startKey: '1' },
-  memory: race(), mines: race(), solitaire: race(600), sudoku: race(600), 'word-grid': race(), platformer: race()
+  memory: race(), mines: race(), solitaire: race(600), sudoku: race(600), 'word-grid': race(), platformer: race(),
+  'pelican-bike': timed('score', 150)
 };
 export const isVersusGame = (slug: string) => slug in versusRules;
 

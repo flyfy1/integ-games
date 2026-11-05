@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-const continuous = ['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena', 'ashfall'];
+const continuous = ['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena', 'ashfall', 'tank-clash', 'tank-brawl-opus', 'pelican-bike'];
 test('all catalog routes render without a page error', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   const routes = await page.locator('article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(routes).toHaveLength(23);
+  expect(routes).toHaveLength(26);
   for (const gameRoute of routes) {
     await page.goto(gameRoute ?? '/');
     await expect(page.locator('.game-stage')).toBeVisible();
@@ -83,7 +83,7 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
   const primaryKey: Record<string, string> = {
     'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
     'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
-    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space'
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space'
   };
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -289,4 +289,65 @@ test('every versus game starts split-screen, and each keyboard seat drives only 
   for (const key of ['KeyA', 'KeyW', 'KeyD', 'KeyS']) { const before = await board(0); await page.keyboard.press(key, { delay: 60 }); await page.waitForTimeout(250); moved ||= before !== await board(0); }
   expect(moved).toBe(true);
   expect(await board(1)).toBe(second);
+});
+
+test('Tank Clash switches between Co-op and Versus Duel and drives both P1 and P2 tanks', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop 2P tank coverage');
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/play/tank-clash');
+  await expect(page.locator('[data-tank-clash] canvas')).toBeVisible();
+  await page.locator('[data-tc="mode"]').click();
+  await page.keyboard.press('Space');
+  const state = () => page.evaluate(() => {
+    const tc = (window as unknown as { __tankClash: { getState: () => { mode: string; tanks: Array<{ x: number; y: number }>; bullets: unknown[] } } }).__tankClash;
+    const s = tc.getState();
+    return { mode: s.mode, p1x: s.tanks[0]?.x, p2x: s.tanks[1]?.x, bullets: s.bullets.length };
+  });
+  const before = await state();
+  expect(before.mode).toBe('duel');
+  await page.keyboard.down('KeyD');
+  await page.keyboard.down('ArrowLeft');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(160);
+  await page.keyboard.up('KeyD');
+  await page.keyboard.up('ArrowLeft');
+  const after = await state();
+  expect(after.p1x).toBeGreaterThan(before.p1x);
+  expect(after.p2x).toBeLessThan(before.p2x);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Play in full screen' }).click();
+  const canvas = page.locator('[data-tank-clash] canvas');
+  await expect.poll(async () => (await canvas.boundingBox())?.width).toBe(1440);
+  expect(await canvas.boundingBox()).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+  await page.getByRole('button', { name: 'Exit full screen' }).click();
+  await expect.poll(async () => (await canvas.boundingBox())?.width).toBeLessThan(1100);
+  expect(errors).toEqual([]);
+});
+
+test('Tank Brawl drives both seats by keyboard and a touch finger through the same cabinet', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'desktop 2P tank coverage');
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/play/tank-brawl-opus');
+  await page.waitForFunction(() => 'running' in document.documentElement.dataset || !!(window as unknown as { __tankBrawl?: unknown }).__tankBrawl);
+  const state = () => page.evaluate(() => (window as unknown as { __tankBrawl: { state: () => { screen: string; shells: number; tanks: Array<{ x: number; y: number }> } } }).__tankBrawl.state());
+  await page.keyboard.press('Space');
+  await expect.poll(async () => (await state()).screen, { timeout: 8000 }).toBe('fight');
+  const before = await state();
+  await page.keyboard.down('KeyD'); await page.keyboard.down('ArrowLeft'); await page.keyboard.down('KeyF');
+  await page.waitForTimeout(300);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('ArrowLeft'); await page.keyboard.up('KeyF');
+  const after = await state();
+  expect(after.tanks[0].x).toBeGreaterThan(before.tanks[0].x);
+  expect(after.tanks[1].x).toBeLessThan(before.tanks[1].x);
+  const canvas = page.locator('[data-tank-brawl] canvas');
+  const box = (await canvas.boundingBox())!;
+  const finger = (type: string, x: number, y: number) => canvas.dispatchEvent(type, { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, clientX: box.x + x * box.width / 1280, clientY: box.y + y * box.height / 720 });
+  await finger('pointerdown', 900, 400);
+  await finger('pointermove', 820, 400);
+  await page.waitForTimeout(250);
+  await finger('pointerup', 820, 400);
+  expect((await state()).tanks[1].x).toBeLessThan(after.tanks[1].x);
+  expect(errors).toEqual([]);
 });

@@ -8,8 +8,8 @@ const pad = (patch: Partial<PadState>): PadState => ({ x: 0, y: 0, hx: 0, hy: 0,
 const on = (...names: Array<keyof typeof BUTTON_INDEX>) => { const buttons: boolean[] = []; names.forEach((name) => { buttons[BUTTON_INDEX[name]] = true; }); return buttons; };
 
 describe('gamepad bridge mapping', () => {
-  it('covers every cabinet except Pad Pals, which reads the kit itself', () => {
-    expect(Object.keys(gamepadProfiles).sort()).toEqual(catalog.map((game) => game.slug).filter((slug) => slug !== 'pad-pals').sort());
+  it('covers every cabinet except Pad Pals and the tank games, which read the kit directly', () => {
+    expect(Object.keys(gamepadProfiles).sort()).toEqual(catalog.map((game) => game.slug).filter((slug) => slug !== 'pad-pals' && slug !== 'tank-clash' && slug !== 'tank-brawl-opus').sort());
   });
   it('turns stick and buttons into held keys, joining keys shared by two controls', () => {
     const keys = heldKeys(gamepadProfiles['block-drop'], pad({ x: 1, buttons: on('south', 'east', 'north') }));
