@@ -10,7 +10,7 @@ import { chooseUpgrade, createState, step, STEP, type Input, type SimEvent, type
 const BEST_KEY = 'arena-best';
 type Stick = { id: number; x: number; y: number; dx: number; dy: number };
 
-export const arena: GameModule = { meta: { slug: 'arena', title: 'Pocket Survivor', category: 'action', description: 'Outlast a growing swarm, evolve five auto-weapons and take down the Warden at 5:00.', instructions: 'Move with WASD, arrows, drag, or the virtual stick. Attacks are automatic; pick an upgrade each level. Space or Attack fires your Burst when it is charged.', accent: '#70f0c2', mechanic: 'Move, auto-attack, choose upgrades' }, mount(host: HTMLElement, services: GameServices): GameController {
+export const arena: GameModule = { meta: { slug: 'arena', title: 'Pocket Survivor', category: 'action', description: 'Lead a lone spear general through four battlegrounds, evolve five weapons and defeat the Warlord at 5:00.', instructions: 'Move with WASD, arrows, drag, or the virtual stick. Attacks are automatic; pick an upgrade each level. Space or Attack fires your Burst when it is charged.', accent: '#70f0c2', mechanic: 'Move, auto-attack, choose upgrades' }, mount(host: HTMLElement, services: GameServices): GameController {
   const k = makeKit(host, services, 'arena');
   const canvas = k.canvas, ctx = k.ctx, renderer = createRenderer(services.isReducedMotion);
   const touch = !!host.querySelector('.mobile-controls'), seat = host.hasAttribute('data-versus-seat');

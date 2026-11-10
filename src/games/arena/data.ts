@@ -27,19 +27,19 @@ export const METEOR = { dmg: [0, 30, 40, 52, 66, 90], cd: [0, 2.6, 2.4, 2.2, 1.9
 
 export type CardInfo = { name: string; color: string; levels: readonly string[] };
 export const WEAPON_CARDS: Record<WeaponId, CardInfo> = {
-  bolt: { name: 'Spark Bolt', color: '#7fd8ff', levels: ['Homing bolt at the nearest foe', 'More damage, faster fire', 'Fires 2 bolts', 'Bolts pierce 1 foe', 'EVOLVE: Storm Bolts, 3 exploding bolts'] },
-  blades: { name: 'Orbit Blades', color: '#ffd166', levels: ['2 blades circle you and block shots', 'A third blade', 'Sharper, wider orbit', 'A fourth blade', 'EVOLVE: Halo Saw, 6 fast blades'] },
-  pulse: { name: 'Pulse Ring', color: '#70f0c2', levels: ['Shockwave that shoves foes back', 'Bigger, stronger wave', 'Bigger wave, faster recharge', 'Bigger, stronger wave', 'EVOLVE: Tidal Pulse, huge wave that slows'] },
-  lance: { name: 'Sun Lance', color: '#ff9f6b', levels: ['Piercing beam through the thickest crowd', 'More damage, wider beam', 'Also fires behind', 'More damage, faster', 'EVOLVE: Sun Cross, beams in 4 directions'] },
-  meteor: { name: 'Meteor Drop', color: '#c4a1ff', levels: ['Drops a blast on a nearby foe', 'Bigger, stronger blast', 'Drops 2 meteors', 'Stronger, faster', 'EVOLVE: Starfall, 3 giant meteors'] }
+  bolt: { name: 'Flying Spear', color: '#4aa8e0', levels: ['Hurls a homing spear at the nearest foe', 'More damage, faster throws', 'Throws 2 spears', 'Spears pierce 1 foe', 'EVOLVE: Thunder Spears, 3 exploding spears'] },
+  blades: { name: 'Crescent Blades', color: '#e6a81e', levels: ['2 blades circle you and block arrows', 'A third blade', 'Sharper, wider orbit', 'A fourth blade', 'EVOLVE: Blazing Halo, 6 fast blades'] },
+  pulse: { name: 'War Drum', color: '#d8342c', levels: ['Drumbeat shockwave that shoves foes back', 'Bigger, stronger wave', 'Bigger wave, faster beat', 'Bigger, stronger wave', 'EVOLVE: Thunder Drum, huge wave that slows'] },
+  lance: { name: 'Dragon Lance', color: '#f0802e', levels: ['Piercing dragon flame through the thickest crowd', 'More damage, wider flame', 'Also strikes behind', 'More damage, faster', 'EVOLVE: Azure Dragons, flames in 4 directions'] },
+  meteor: { name: 'Fire Arrows', color: '#e0522e', levels: ['Rains fire arrows on a nearby foe', 'Bigger, stronger volley', 'Calls 2 volleys', 'Stronger, faster', 'EVOLVE: Skyfire, 3 giant volleys'] }
 };
 export const PASSIVE_CARDS: Record<PassiveId, CardInfo & { each: string }> = {
-  might: { name: 'Might', color: '#ff6b7a', each: '+15% damage', levels: [] },
-  haste: { name: 'Swift Feet', color: '#8be9fd', each: '+8% move speed', levels: [] },
-  vitality: { name: 'Vitality', color: '#ff8fab', each: '+25 max HP and heal 25', levels: [] },
-  magnet: { name: 'Magnet', color: '#9aa7ff', each: '+35% pickup range', levels: [] },
-  quick: { name: 'Quickcast', color: '#ffe08a', each: 'Weapons recharge 8% faster', levels: [] },
-  regen: { name: 'Regrowth', color: '#9be36d', each: '+0.5 HP per second', levels: [] }
+  might: { name: 'Might', color: '#d8342c', each: '+15% damage', levels: [] },
+  haste: { name: 'Swift Boots', color: '#4aa8e0', each: '+8% move speed', levels: [] },
+  vitality: { name: 'Peach of Vigor', color: '#f07a8a', each: '+25 max HP and heal 25', levels: [] },
+  magnet: { name: 'Lodestone Talisman', color: '#e6a81e', each: '+35% pickup range', levels: [] },
+  quick: { name: 'War Fan', color: '#35c79a', each: 'Weapons recharge 8% faster', levels: [] },
+  regen: { name: 'Herb Gourd', color: '#6cbf4a', each: '+0.5 HP per second', levels: [] }
 };
 
 /** XP needed to go from `level` to `level + 1`. */
