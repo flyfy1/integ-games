@@ -1,5 +1,5 @@
 import { registerSW } from 'virtual:pwa-register';
-import { catalog, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, loadGame, recommendationsFor } from './core/catalog';
+import { arcade, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, isListed, loadGame, recommendationsFor } from './core/catalog';
 import { createShellServices, storageFor } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
@@ -55,7 +55,7 @@ function setMetaContent(selector: string, value: string): void {
 
 function applyPageMetadata(game?: GameCatalogEntry): void {
   const title = game ? `${game.title} · Integ Games` : 'Integ Games';
-  const description = game ? game.description : 'Twenty-six original browser games made for any screen.';
+  const description = game ? game.description : 'Ten original browser games made for any screen.';
   const path = game ? `/play/${game.slug}/` : '/';
   const url = new URL(path, siteOrigin).href;
   const image = new URL(game ? `/game-art/${game.slug}-cover.jpg` : '/game-art/merge-2048-cover.jpg', siteOrigin).href;
@@ -79,15 +79,16 @@ function layout(content: string): string {
 
 function home(): string {
   const category = selectedCategory();
-  const visibleGames = category ? gamesInCategory(category) : catalog;
-  const heading = category ? categoryInfo[category] : { label: 'All games', promise: 'Twenty-six bright little worlds, ready whenever you are.' };
-  const recent = shell.recentlyPlayed().map(findGame).filter((item): item is GameCatalogEntry => Boolean(item));
-  const featured = catalog[0];
+  const visibleGames = category ? gamesInCategory(category) : arcade;
+  const heading = category ? categoryInfo[category] : { label: 'All games', promise: 'Ten bright little worlds, ready whenever you are.' };
+  const recent = shell.recentlyPlayed().map(findGame).filter((item): item is GameCatalogEntry => Boolean(item) && isListed(item!.slug));
+  const featured = findGame('merge-2048') ?? arcade[0];
   return layout(`
-    <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Twenty-six original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}/`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section><section class="pad-strip"><span class="pad-strip-icon" aria-hidden="true">🎮</span><div><strong>Play with a game controller</strong><p>Plug in any USB or Bluetooth controller and press a button. Every game works with it.</p></div><div class="pad-strip-actions"><button class="primary-button" data-action="gamepad-home">Connect controller</button><a class="secondary-button" href="${href('play/pad-pals/')}" data-route>Learn with Pad Pals</a></div><p class="pad-strip-status" data-pad-home-status role="status"></p></section>
+    <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Ten original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}/`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
     ${recent.length ? `<section class="section"><div class="section-heading"><h2>Continue playing</h2></div><div class="game-rail">${recent.map(card).join('')}</div></section>` : ''}
-    <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard aria-live="polite"><li class="leaderboard-empty">Loading the standings…</li></ol></section>
-    <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${catalog.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>`);
+    <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${arcade.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>
+    <section class="pad-strip"><span class="pad-strip-icon" aria-hidden="true">🎮</span><div><strong>Play with a game controller</strong><p>Plug in any USB or Bluetooth controller and press a button. Every game works with it.</p></div><div class="pad-strip-actions"><button class="primary-button" data-action="gamepad-home">Connect controller</button><a class="secondary-button" href="${href('play/pad-pals/')}" data-route>Learn with Pad Pals</a></div><p class="pad-strip-status" data-pad-home-status role="status"></p></section>
+    <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard aria-live="polite"><li class="leaderboard-empty">Loading the standings…</li></ol></section>`);
 }
 
 function escapeHTML(value: string): string { return value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char]!); }

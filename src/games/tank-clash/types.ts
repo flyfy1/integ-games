@@ -36,6 +36,8 @@ export interface ChassisSpec {
   pierceSteel: boolean;
   splashRadius: number;
   burstCount: number;
+  /** Damage of one shell (before weapon power-ups). */
+  damage: number;
   laserSight: boolean;
   colorPrimary: string;
   colorAccent: string;
@@ -87,6 +89,22 @@ export interface Tank {
   aiTimer: number;
   aiWantFire: boolean;
   aiTargetDir: Direction;
+  /** What an enemy is currently trying to do. */
+  aiGoal: 'base' | 'hunt' | 'wander';
+  /** Seconds until the AI may pull the trigger after acquiring a target. */
+  aiReact: number;
+  /** Seconds left of a forced "get unstuck" detour in aiTargetDir. */
+  aiWander: number;
+  aiStuck: number;
+  aiLastX: number;
+  aiLastY: number;
+  aiCol: number;
+  aiRow: number;
+  /** Boss special-attack countdown. */
+  bossTimer: number;
+  bossCharging: boolean;
+  /** Seconds of white hit-flash left (render only). */
+  hitFlash: number;
   treadPhase: number;
 }
 
@@ -157,9 +175,18 @@ export interface Shockwave {
 export interface FloatingText {
   x: number;
   y: number;
+  /** Literal text, or an i18n key when `key` is true. */
   text: string;
+  key?: boolean;
+  n?: number;
   color: string;
   life: number;
+}
+
+export interface SpawnWarning {
+  col: number;
+  timer: number;
+  archetype: EnemyArchetype;
 }
 
 export interface PlayerControlInput {
@@ -168,4 +195,5 @@ export interface PlayerControlInput {
   fire: boolean;
   fireJustPressed: boolean;
   specialJustPressed: boolean;
+  dashJustPressed?: boolean;
 }

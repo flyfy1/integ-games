@@ -217,7 +217,7 @@ describe('Geo Quiz timer in the game', () => {
     for (let i = 0; i < 10; i++) { vi.advanceTimersByTime(21_000); host.querySelector<HTMLButtonElement>('[data-next-btn]')!.click(); }
     expect(host.querySelector('.cq-result')).not.toBeNull();
     expect(host.querySelector('.cq-total strong')!.textContent).toBe('0');
-    expect(host.querySelectorAll('.cq-break div')).toHaveLength(5);
+    expect(host.querySelectorAll('.cq-break div')).toHaveLength(6); // five score rows plus the atlas row
     expect(host.querySelector('.cq-missed li')).not.toBeNull();
     controller.destroy();
   });

@@ -21,7 +21,8 @@ export type PelicanAudio = {
 const SONGS = [
   { bpm: 138, root: 60, prog: [0, 7, 9, 5], scale: [0, 2, 4, 7, 9], lead: 'square' as const, seed: 7 },
   { bpm: 124, root: 57, prog: [0, -4, -2, -5], scale: [0, 3, 5, 7, 10], lead: 'square' as const, seed: 21 },
-  { bpm: 112, root: 62, prog: [0, -4, -7, -2], scale: [0, 3, 5, 7, 10], lead: 'triangle' as const, seed: 33 }
+  { bpm: 112, root: 62, prog: [0, -4, -7, -2], scale: [0, 3, 5, 7, 10], lead: 'triangle' as const, seed: 33 },
+  { bpm: 146, root: 59, prog: [0, 3, -2, 5], scale: [0, 2, 3, 7, 10], lead: 'square' as const, seed: 48 }
 ];
 
 function mulberry32(a: number) {
@@ -145,7 +146,7 @@ export function createPelicanAudio(getMuted: () => boolean): PelicanAudio {
     flap() { noise(0.12, 0.05, 2500); },
     over() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, 'triangle', 0.12, 1, i * 0.22)); },
     click() { tone(880, 0.05, 'square', 0.05); },
-    setTheme(th: number) { curTheme = th; mstep = 0; },
+    setTheme(th: number) { curTheme = Math.max(0, Math.min(SONGS.length - 1, th)); mstep = 0; },
     step(state: string) {
       if (getMuted() || !actx || !musicGain || !(state === 'playing' || state === 'title')) return;
       const song = SONGS[curTheme];

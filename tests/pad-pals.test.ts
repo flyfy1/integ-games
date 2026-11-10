@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { applyDeadzone, BUTTON_INDEX, clampToCircle, createInput, DEFAULT_KEYBOARD, hatToDirection, twinUsb, type ButtonName, type Direction, type PadState } from '../src/games/_shared/gamepad-kit';
-import { ALL_LEVELS, bestStars, DIFFICULTIES, emptyProgress, isOpen, isProgress, LEVELS, maxScore, PARTY_LEVEL, recordResult, starsFor, totalScore, type Difficulty } from '../src/games/pad-pals/levels';
+import { ALL_LEVELS, bestStars, DIFFICULTIES, emptyProgress, isMastered, isOpen, isProgress, LEVELS, masteredCount, maxScore, PARTY_LEVEL, recordResult, starCount, starsFor, starsToNextSticker, stickerCount, STICKERS, totalScore, type Difficulty } from '../src/games/pad-pals/levels';
 import { SPOKEN, t } from '../src/games/pad-pals/i18n';
 import { createMini, type BotMove, type MiniEnv } from '../src/games/pad-pals/minis';
+import { createTouchPad } from '../src/games/pad-pals/pad-view';
 
 const report = (bytes: number[]) => new DataView(Uint8Array.from(bytes).buffer);
 
@@ -205,5 +206,106 @@ describe('Pad Pals levels', () => {
       const mini = createMini(level, { difficulty, random: () => 0.3, players: 2, glyphs: () => 'xbox', good() {}, bad() {}, tick() {}, note() {}, say() {} });
       expect(() => { mini.draw(g, 1); mini.highlights(); }).not.toThrow();
     }));
+  });
+});
+
+describe('Pad Pals rewards', () => {
+  it('trades every three stars for a sticker and stops at a full book', () => {
+    let progress = emptyProgress();
+    expect(stickerCount(progress)).toBe(0); expect(starsToNextSticker(progress)).toBe(3);
+    progress = recordResult(progress, LEVELS[0], 0, 2);
+    expect(starCount(progress)).toBe(2); expect(stickerCount(progress)).toBe(0); expect(starsToNextSticker(progress)).toBe(1);
+    progress = recordResult(progress, LEVELS[1], 0, 3);
+    expect(stickerCount(progress)).toBe(1); expect(starsToNextSticker(progress)).toBe(1);
+    progress = recordResult(progress, LEVELS[1], 0, 1); // A worse replay never takes a sticker back.
+    expect(stickerCount(progress)).toBe(1);
+    for (const level of ALL_LEVELS) for (const d of DIFFICULTIES) progress = recordResult(progress, level, d, 3);
+    expect(stickerCount(progress)).toBe(STICKERS.length); expect(starsToNextSticker(progress)).toBe(0);
+    expect(new Set(STICKERS).size).toBe(STICKERS.length);
+    // A child who only ever plays Chick still fills more than half the book.
+    let chick = emptyProgress();
+    for (const level of ALL_LEVELS) chick = recordResult(chick, level, 0, 3);
+    expect(stickerCount(chick)).toBeGreaterThan(STICKERS.length / 2);
+  });
+  it('names a controller master per difficulty once every journey level has a star, skips not counting', () => {
+    let progress = emptyProgress();
+    for (const level of LEVELS.slice(0, -1)) progress = recordResult(progress, level, 0, 1);
+    progress = recordResult(progress, LEVELS[LEVELS.length - 1], 0, 0);
+    expect(isMastered(progress, 0)).toBe(false);
+    progress = recordResult(progress, LEVELS[LEVELS.length - 1], 0, 2);
+    expect(isMastered(progress, 0)).toBe(true); expect(isMastered(progress, 1)).toBe(false); expect(masteredCount(progress)).toBe(1);
+  });
+});
+
+describe('Pad Pals without a controller', () => {
+  const idle: PadState = { x: 0, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [], justPressed: [], dirPressed: null, btn: false, pressed: false };
+  const env = (difficulty: Difficulty, extra: Partial<MiniEnv> = {}): MiniEnv => {
+    let state = 7;
+    return { difficulty, random: () => { state = (1664525 * state + 1013904223) >>> 0; return state / 2 ** 32; }, players: 1, glyphs: () => 'keys', good() {}, bad() {}, tick() {}, note() {}, say() {}, ...extra };
+  };
+  const pressing = (button: ButtonName): PadState => { const justPressed: boolean[] = []; justPressed[BUTTON_INDEX[button]] = true; return { ...idle, justPressed, buttons: justPressed, btn: true, pressed: true }; };
+
+  it('lets eight-direction keys pop every balloon by turning the cannon', () => {
+    const mini = createMini(ALL_LEVELS.find((level) => level.id === 'aim')!, env(0));
+    // Sweep left and right with F / H only, firing all the time, the way a child on a keyboard would.
+    let frames = 0;
+    while (!mini.done && frames < 60 * 120) {
+      const rx = Math.floor(frames / 110) % 2 ? 1 : -1, fire = frames % 20 === 0;
+      const pad = fire ? { ...pressing('r1'), rx } : { ...idle, rx };
+      mini.update(1 / 60, { any: pad, pads: [pad] });
+      frames++;
+    }
+    expect(mini.done).toBe(true);
+  });
+  it('gives two keys a moment to become a diagonal on Tiger, and still counts a one-frame tap', () => {
+    const mini = createMini(ALL_LEVELS.find((level) => level.id === 'flick')!, env(2));
+    const step = (x: number, y: number, frames = 1) => { for (let i = 0; i < frames; i++) mini.update(1 / 60, { any: { ...idle, x, y }, pads: [] }); };
+    for (let done = 0; done < 6; done++) {
+      const { x = 0, y = 0 } = mini.bot();
+      const diagonal = Math.abs(x) > 0.1 && Math.abs(y) > 0.1;
+      if (diagonal) { step(Math.sign(x), 0, 2); step(x, y, 8); } // One key lands two frames before the other.
+      else { step(x, y, 1); step(0, 0, 1); } // A tap shorter than the wait.
+      step(0, 0, 3);
+      expect(mini.progress()).toBe(done + 1);
+    }
+    expect(mini.misses).toBe(0);
+  });
+  it('lets a second player join the tug of war from the arrow keys and pull with them', () => {
+    const mini = createMini(PARTY_LEVEL, env(0));
+    const arrow = (direction: Direction | null): PadState => ({ ...idle, dirPressed: direction });
+    const frame = (first: PadState, second: PadState) => mini.update(1 / 60, { any: first, pads: [first, second] });
+    expect(mini.versus).toBe(false); expect(mini.caption?.()).toBe('tug.join');
+    for (let i = 0; i < 40; i++) frame(idle, idle);
+    frame(idle, arrow('left'));
+    expect(mini.versus).toBe(true); expect(mini.caption?.()).toBe('tug.two');
+    const facing: Record<string, Direction> = { north: 'up', south: 'down', west: 'left', east: 'right' };
+    let frames = 0;
+    while (!mini.done && frames++ < 2000) { frame(idle, arrow(facing[mini.bot().press!])); frame(idle, idle); }
+    expect(mini.done).toBe(true); expect(mini.winner).toBe(1);
+  });
+  it('makes a wrong tug press cost a moment above Chick, so mashing is not the best plan', () => {
+    const mini = createMini(PARTY_LEVEL, env(1));
+    for (let i = 0; i < 40; i++) mini.update(1 / 60, { any: idle, pads: [idle] });
+    const target = mini.bot().press!, wrong = (['south', 'east', 'west', 'north'] as const).find((button) => button !== target)!;
+    mini.update(1 / 60, { any: pressing(wrong), pads: [idle] });
+    mini.update(1 / 60, { any: pressing(target), pads: [idle] });
+    expect(mini.progress()).toBe(0);
+    for (let i = 0; i < 30; i++) mini.update(1 / 60, { any: idle, pads: [idle] });
+    mini.update(1 / 60, { any: pressing(target), pads: [idle] });
+    expect(mini.progress()).toBe(1);
+  });
+  it('keeps a touch that is shorter than a frame, and reaches the thin shoulder tabs from above', () => {
+    let now = 0;
+    const touch = createTouchPad(() => now);
+    expect(touch.down(1, 1065, 662)).toBe(true); // Bottom face button.
+    touch.up(1);
+    expect(touch.read().buttons[BUTTON_INDEX.south]).toBe(true);
+    now = 200;
+    expect(touch.read().buttons[BUTTON_INDEX.south]).toBeFalsy();
+    expect(touch.down(2, 330, 470)).toBe(true); // Just above the left shoulder tab.
+    expect(touch.read().buttons[BUTTON_INDEX.l1]).toBe(true);
+    now = 500; touch.up(2);
+    expect(touch.read().buttons[BUTTON_INDEX.l1]).toBeFalsy();
+    expect(touch.down(3, 640, 300)).toBe(false); // The scene is not part of the pad.
   });
 });

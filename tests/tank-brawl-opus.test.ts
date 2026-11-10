@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GameServices } from '../src/core/game-types';
 import game from '../src/games/tank-brawl-opus';
 import { ARENAS, COLS, ROWS, TILE, WORLD_W } from '../src/games/tank-brawl-opus/arenas';
-import { botIntent, findPath, SKILLS } from '../src/games/tank-brawl-opus/bot';
-import { arenaForRound, createMatch, createWorld, damage, givePower, idle, makeTank, pickTwist, POWERS, recordRound, spawnPoint, spawnWave, step, TWISTS, WAVES, waveSpec, type Intent, type Tank, type World } from '../src/games/tank-brawl-opus/sim';
+import { botIntent, enemySkill, findPath, SKILLS } from '../src/games/tank-brawl-opus/bot';
+import { botLevels, emptyCareer, matchBonus, medalRow, recordCoopRun, recordSoloMatch, roundScore, validCareer } from '../src/games/tank-brawl-opus/career';
+import { arenaForRound, createMatch, createWorld, damage, givePower, heartsAfterWave, idle, makeTank, pickTwist, POWERS, recordRound, spawnPoint, spawnWave, step, suddenDeathAt, TWISTS, WAVES, waveSpec, type Intent, type Tank, type World } from '../src/games/tank-brawl-opus/sim';
 
 const rng = (seed = 7) => () => { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 2 ** 32; };
 const noCrates = () => 0.99;
@@ -310,5 +311,155 @@ describe('whole game flow', () => {
     await run.press('KeyT');
     expect(run.state().screen).toBe('menu');
     run.finish();
+  });
+
+  it('hands an untouched second seat to an easy bot until its owner shows up', async () => {
+    const run = drive({ mode: 'versus', players: 2, skill: 1, arena: 'garden', target: 3 });
+    const auto = () => (run.state() as unknown as { autoBot: boolean[] }).autoBot;
+    await run.press('Space');
+    run.until('fight');
+    run.frames(60 * 5);
+    expect(auto()).toEqual([false, false]); // Nobody is at the cabinet: no bot plays with itself.
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' })); run.frames(20); await Promise.resolve();
+    dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' })); run.frames(30);
+    expect(auto()).toEqual([false, true]);
+    await run.press('ArrowLeft');
+    expect(auto()).toEqual([false, false]);
+    run.finish();
+  });
+
+  it('opens a first visit on the couch default with an easy bot, and keeps the Boss locked', () => {
+    const fresh = drive(undefined as unknown as object);
+    expect(fresh.state().settings).toMatchObject({ mode: 'versus', players: 2, skill: 0 });
+    fresh.finish();
+    const sneaky = drive({ mode: 'versus', players: 1, skill: 3, arena: 'garden', target: 3 });
+    expect(sneaky.state().settings).toMatchObject({ skill: 2 });
+    sneaky.finish();
+  });
+});
+
+describe('added rules', () => {
+  it('names the shooter on a hit, so a rebound reads as an own goal', () => {
+    const { world, a, b } = duel();
+    clearMap(world);
+    a.x = 300; a.y = 300; b.x = 500; b.y = 300; a.turret = 0;
+    const seen: Array<{ tank: number; by: number }> = [];
+    for (let i = 0; i < 40; i++) { step(world, i === 0 ? hold(a, { fire: true }) : new Map()); world.events.forEach((event) => { if (event.type === 'hit') seen.push({ tank: event.tank, by: event.by }); }); world.events.length = 0; }
+    expect(seen).toEqual([{ tank: b.id, by: a.id }]);
+    world.events.length = 0;
+    world.shells.push({ id: 999, kind: 'shell', owner: b.id, team: b.team, x: b.x - 40, y: b.y, vx: 300, vy: 0, radius: 7, damage: 1, bounces: 0, age: 1, life: 7, portalCooldown: 0 });
+    b.invuln = 0;
+    run(world, 10);
+    const own = world.events.find((event) => event.type === 'hit');
+    expect(own && own.type === 'hit' && own.by === own.tank).toBe(true);
+  });
+
+  it('deals every fancy twist once before any of them returns', () => {
+    const match = createMatch('versus', 7, ARENAS, rng());
+    const random = rng(9);
+    match.twists.push(pickTwist(match, random));
+    const fancy = TWISTS.length - 1;
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const dealt = new Set<string>();
+      for (let i = 0; i < fancy; i++) { match.round++; const twist = pickTwist(match, random); expect(twist).not.toBe(match.twists[match.twists.length - 1]); match.twists.push(twist); dealt.add(twist.id); }
+      expect(dealt.size).toBe(fancy);
+      expect(dealt.has('classic')).toBe(false);
+    }
+  });
+
+  it('starts the crumble early on Crumbling Floor and keeps it late everywhere else', () => {
+    const crumble = TWISTS.find((twist) => twist.id === 'crumble')!;
+    expect(suddenDeathAt(crumble)).toBeLessThan(20);
+    expect(suddenDeathAt(TWISTS[0])).toBe(50);
+    const world = createWorld(ARENAS[0], crumble, rng());
+    [0, 1].forEach((seat) => { const [x, y] = spawnPoint(ARENAS[0], seat); makeTank(world, seat, seat, x, y, 5); });
+    run(world, 60 * 13);
+    expect(world.suddenDeath).toBe(true);
+    expect(TWISTS.find((twist) => twist.id === 'glass')!.hp).toBe(2);
+  });
+
+  it('crumbles the whole floor in the end, so two tanks that never fight still finish the round', () => {
+    const { world } = duel();
+    run(world, 60 * 100);
+    expect(world.tiles.every((row) => row.every((tile) => tile === 'o'))).toBe(true);
+    expect(world.finished).toBe(true);
+  });
+
+  it('thins the waves for a lone hero and shrinks the King', () => {
+    const total = (wave: number, heroes: number) => Object.values(waveSpec(wave, heroes)).reduce((sum, count) => sum + count, 0);
+    for (let wave = 1; wave <= WAVES; wave++) {
+      expect(total(wave, 1)).toBeGreaterThan(0);
+      expect(total(wave, 1)).toBeLessThanOrEqual(total(wave, 2));
+      expect(waveSpec(wave, 1).king).toBe(waveSpec(wave, 2).king);
+    }
+    expect(total(1, 1)).toBeLessThan(total(1, 2));
+    const kingOf = (heroes: number) => {
+      const world = createWorld(ARENAS[0], TWISTS[0], rng(), false);
+      for (let seat = 0; seat < heroes; seat++) { const [x, y] = spawnPoint(ARENAS[0], seat); makeTank(world, 0, seat, x, y, 5); }
+      spawnWave(world, 5);
+      return world.tanks.find((tank) => tank.enemy === 'king')!;
+    };
+    expect(kingOf(1).maxHp).toBeLessThan(kingOf(2).maxHp);
+    const solo = { hp: 1, downed: false } as Tank;
+    expect(heartsAfterWave(solo, 1)).toBe(3);
+    expect(heartsAfterWave(solo, 2)).toBe(2);
+    expect(heartsAfterWave({ hp: 5, downed: false } as Tank, 1)).toBe(5);
+  });
+
+  it('lets wave enemies be hit again quickly while heroes keep their mercy window', () => {
+    const world = createWorld(ARENAS[0], TWISTS[0], rng(), false);
+    const [x, y] = spawnPoint(ARENAS[0], 0), hero = makeTank(world, 0, 0, x, y, 5);
+    spawnWave(world, 5);
+    const king = world.tanks.find((tank) => tank.enemy === 'king')!;
+    hero.invuln = king.invuln = 0;
+    damage(world, king, 1, king.x, king.y, 0, 0); damage(world, hero, 1, hero.x, hero.y, 0, 0);
+    expect(king.invuln).toBeLessThan(0.5);
+    expect(hero.invuln).toBeGreaterThan(1);
+  });
+
+  it('gives the bot ladder four rungs with a tougher top', () => {
+    expect(SKILLS).toHaveLength(4);
+    for (let level = 1; level < SKILLS.length; level++) { expect(SKILLS[level].aim).toBeLessThan(SKILLS[level - 1].aim); expect(SKILLS[level].reaction).toBeLessThan(SKILLS[level - 1].reaction); }
+    expect(enemySkill('grunt').reaction).toBeGreaterThan(enemySkill('king').reaction);
+  });
+});
+
+describe('career', () => {
+  it('rebuilds whatever storage hands back', () => {
+    expect(validCareer(null)).toEqual(emptyCareer());
+    expect(validCareer({ botWins: [2, 'x', -1], streak: 3, bestStreak: 1, soloBest: 12.9, bestWave: NaN })).toEqual({ ...emptyCareer(), botWins: [2, 0, 0, 0], streak: 3, bestStreak: 3, soloBest: 12 });
+  });
+
+  it('keeps the Boss locked until Hard falls', () => {
+    let career = emptyCareer();
+    expect(botLevels(career)).toBe(3);
+    career = recordSoloMatch(career, 0, true, 500).career;
+    expect(botLevels(career)).toBe(3);
+    expect(medalRow(career)).toBe('🥉 · · ·');
+    const hard = recordSoloMatch(career, 2, true, 900);
+    expect(hard.unlockedBoss).toBe(true);
+    expect(hard.firstWin).toBe(true);
+    expect(botLevels(hard.career)).toBe(4);
+    expect(recordSoloMatch(hard.career, 2, true, 100).unlockedBoss).toBe(false);
+  });
+
+  it('tracks streaks, bests and co-op records', () => {
+    let result = recordSoloMatch(emptyCareer(), 1, true, 700);
+    expect(result).toMatchObject({ firstWin: true, newBest: true, newStreak: false });
+    result = recordSoloMatch(result.career, 1, true, 400);
+    expect(result).toMatchObject({ firstWin: false, newBest: false, newStreak: true });
+    expect(result.career).toMatchObject({ streak: 2, bestStreak: 2, soloBest: 700, matches: 2, botWins: [0, 2, 0, 0] });
+    result = recordSoloMatch(result.career, 1, false, 100);
+    expect(result.career).toMatchObject({ streak: 0, bestStreak: 2, matches: 3 });
+    const run = recordCoopRun(result.career, 4, 260);
+    expect(run.newBest).toBe(true);
+    expect(run.career).toMatchObject({ bestWave: 4, bestScore: 260 });
+    expect(recordCoopRun(run.career, 2, 120).newBest).toBe(false);
+  });
+
+  it('pays more for harder bots, healthier wins and clean sweeps', () => {
+    expect(roundScore(2, 5)).toBeGreaterThan(roundScore(1, 5));
+    expect(roundScore(1, 5)).toBeGreaterThan(roundScore(1, 1));
+    expect(matchBonus(1, 0)).toBeGreaterThan(matchBonus(1, 2));
   });
 });

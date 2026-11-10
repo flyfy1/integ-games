@@ -25,7 +25,7 @@ Build a static browser arcade at `https://games.integ.life` containing 21 comple
 | 13 | `runner` | Metro Dash | Endless runner | Switch lanes, jump, duck | Swipe / keys |
 | 14 | `platformer` | Trap Trail | Trap platformer | Reach exit through surprise traps | Touch controls / keys |
 | 15 | `drive` | Tiny Wheels | Physics driving | Balance vehicle over obstacles | Touch pedals / keys |
-| 16 | `fruit-merge` | Fruit Orbit | Suika-style merge | Drop and merge fruit tiers | Drag + release |
+| 16 | `fruit-merge` | Fruit Orbit | Drop-and-merge physics | Drop and merge fruit tiers | Drag + release |
 | 17 | `bubble` | Bubble Pop | Bubble shooter | Match colored bubbles | Aim + release |
 | 18 | `hex-puzzle` | Hexa Fit | Block fitting | Place pieces and clear lines | Drag / click |
 | 19 | `knife` | Orbit Knife | Knife hit | Time throws without collisions | Tap / space |

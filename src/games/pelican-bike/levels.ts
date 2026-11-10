@@ -1,57 +1,80 @@
 export const ROWS = 13;
 
-export const START = { r: [
+/**
+ * Level chunks, written bottom-aligned: the last two rows are the ground rows.
+ * # ground  B crate  = one-way plank  ^ urchin  x crumbling block
+ * o fish  * star  S spring  C checkpoint  F lighthouse  P start
+ * c crab  g gull  j jellyfish (in water)  h ferry (sideways)  v lift (up/down)
+ */
+type Chunk = { r: string[] };
+
+export const START: Chunk = { r: [
   '................',
   '..P.............',
   '################',
   '################'] };
 
-export const CHECK = { r: [
+export const CHECK: Chunk = { r: [
   '..........',
   '....C.....',
   '##########',
   '##########'] };
 
-export const END = { r: [
+export const END: Chunk = { r: [
   '..........................',
   '......F...................',
   '##########################',
   '##########################'] };
 
-export const CHUNKS = [
-  { d: 0, r: [
+export const CHUNKS: Record<string, Chunk> = {
+  fishline: { r: [
     '..............',
     '....o.o.o.o...',
     '..............',
     '##############',
     '##############'] },
-  { d: 0, r: [
+  crates: { r: [
     '......ooo.....',
     '.....o...o....',
     '..............',
     '....BB....B...',
     '##############',
     '##############'] },
-  { d: 1, r: [
+  starhop: { r: [
+    '.......*.......',
+    '...............',
+    '......o.o......',
+    '.....o...o.....',
+    '...............',
+    '###############',
+    '###############'] },
+  gap3: { r: [
     '.....ooo.....',
     '....o...o....',
     '.............',
     '.............',
     '#####...#####',
     '#####...#####'] },
-  { d: 1, r: [
+  crab: { r: [
     '...o.o.o.o.o...',
     '...............',
     '..........c....',
     '###############',
     '###############'] },
-  { d: 1, r: [
+  urchins: { r: [
     '....o....oo....',
     '...............',
     '....^....^^....',
     '###############',
     '###############'] },
-  { d: 1, r: [
+  stargap: { r: [
+    '....o.....o....',
+    '.......*.......',
+    '...............',
+    '...............',
+    '#####.....#####',
+    '#####.....#####'] },
+  step: { r: [
     '...........ooo..',
     '................',
     '.........#######',
@@ -60,7 +83,7 @@ export const CHUNKS = [
     '.....###########',
     '################',
     '################'] },
-  { d: 1, r: [
+  planks: { r: [
     '........ooo.......',
     '..................',
     '.......====.......',
@@ -69,7 +92,7 @@ export const CHUNKS = [
     '..................',
     '##..............##',
     '##..............##'] },
-  { d: 1, r: [
+  crabplank: { r: [
     '......ooo......',
     '...............',
     '.....=====.....',
@@ -77,7 +100,13 @@ export const CHUNKS = [
     '....c.....c....',
     '###############',
     '###############'] },
-  { d: 2, r: [
+  pier: { r: [
+    '....o....o....o.....',
+    '....................',
+    '....................',
+    '###.====..====..####',
+    '###.............####'] },
+  springwall: { r: [
     '..ooo..........',
     '............*..',
     '........#######',
@@ -87,7 +116,7 @@ export const CHUNKS = [
     '...S....#######',
     '###############',
     '###############'] },
-  { d: 2, r: [
+  gull: { r: [
     '..................',
     '....o.o.o.o.o.o...',
     '..............g...',
@@ -95,27 +124,36 @@ export const CHUNKS = [
     '..................',
     '##################',
     '##################'] },
-  { d: 2, r: [
+  gullstar: { r: [
+    '.........*........',
+    '..................',
+    '..........g.......',
+    '....o.o.....o.o...',
+    '..................',
+    '..................',
+    '##################',
+    '##################'] },
+  crumble: { r: [
     '....oooooo....',
     '..............',
     '..............',
     '###xxxxxxxx###',
     '###........###'] },
-  { d: 2, r: [
+  jellygap: { r: [
     '....ooo.....',
     '............',
     '............',
     '............',
     '###.....####',
     '###..j..####'] },
-  { d: 2, r: [
+  ferry: { r: [
     '.........ooo.........',
     '.....................',
     '.....................',
     '....h................',
     '###...............###',
     '###...............###'] },
-  { d: 2, r: [
+  cratestar: { r: [
     '..........*.....',
     '................',
     '.........BB.....',
@@ -124,21 +162,21 @@ export const CHUNKS = [
     '...BB...........',
     '################',
     '################'] },
-  { d: 3, r: [
+  urchinplanks: { r: [
     '......ooo.....ooo...',
     '....................',
     '.....====....====...',
     '...^^^^^^^^^^^^^^^..',
     '####################',
     '####################'] },
-  { d: 3, r: [
+  gap9: { r: [
     '....oooooooo.....',
     '.................',
     '.................',
     '.................',
     '###.........#####',
     '###.........#####'] },
-  { d: 3, r: [
+  lift: { r: [
     '..........ooooo.',
     '................',
     '.........#######',
@@ -149,7 +187,20 @@ export const CHUNKS = [
     '....v....#######',
     '################',
     '################'] },
-  { d: 3, r: [
+  liftstar: { r: [
+    '................',
+    '.....*..........',
+    '...........ooo..',
+    '................',
+    '.........#######',
+    '.........#######',
+    '.........#######',
+    '.........#######',
+    '.........#######',
+    '....v....#######',
+    '################',
+    '################'] },
+  gullcrabgap: { r: [
     '......ooo..........',
     '...................',
     '............g......',
@@ -157,14 +208,14 @@ export const CHUNKS = [
     '..c.........c......',
     '#######...#########',
     '#######...#########'] },
-  { d: 3, r: [
+  crumblejelly: { r: [
     '......*.......',
     '..............',
     '...xxx...xxx..',
     '..............',
     '##..........##',
     '##...j..j...##'] },
-  { d: 3, r: [
+  springurchin: { r: [
     '......ooo.......',
     '................',
     '................',
@@ -173,16 +224,55 @@ export const CHUNKS = [
     '................',
     '..S^^^^^^^^.....',
     '################',
-    '################'] }
+    '################'] },
+  crumblestairs: { r: [
+    '..............*.....',
+    '....................',
+    '...........xxx......',
+    '.......oo...........',
+    '.......xx...........',
+    '...xx...............',
+    '##................##',
+    '##................##'] },
+  jellybridge: { r: [
+    '....o.....o.....o.....',
+    '......................',
+    '......................',
+    '###.===...===...===.##',
+    '###....j.....j......##'] },
+  ferrygull: { r: [
+    '.........ooo.........',
+    '.....................',
+    '..........g..........',
+    '.....................',
+    '.....................',
+    '....h................',
+    '###...............###',
+    '###...............###'] },
+  gauntlet: { r: [
+    '.....o......o......o...',
+    '.......................',
+    '.......................',
+    '...c..^.....c..^^......',
+    '#######################',
+    '#######################'] }
+};
+
+export type Level = { name: string; nameEn: string; theme: number; par: number; seq: string[] };
+
+/** Hand-ordered stages. Each one holds exactly three stars. A checkpoint is inserted after every fourth chunk. */
+export const LEVELS: Level[] = [
+  { name: '第一关 · 晨光海滩', nameEn: 'Stage 1 · Dawn Coast', theme: 0, par: 40,
+    seq: ['fishline', 'crates', 'starhop', 'crab', 'gap3', 'urchins', 'stargap', 'step', 'crabplank', 'planks', 'cratestar', 'fishline'] },
+  { name: '第二关 · 落日悬崖', nameEn: 'Stage 2 · Sunset Cliffs', theme: 1, par: 48,
+    seq: ['crab', 'gap3', 'springwall', 'gull', 'crumble', 'pier', 'jellygap', 'urchins', 'cratestar', 'ferry', 'crabplank', 'gullstar', 'planks', 'step'] },
+  { name: '第三关 · 月夜港湾', nameEn: 'Stage 3 · Moonlit Bay', theme: 2, par: 58,
+    seq: ['gull', 'urchinplanks', 'gap9', 'liftstar', 'crumblejelly', 'gullcrabgap', 'springurchin', 'jellygap', 'ferry', 'springwall', 'crumble', 'gauntlet', 'pier', 'lift', 'gap3', 'crabplank'] },
+  { name: '第四关 · 风暴灯塔', nameEn: 'Stage 4 · Stormlight Reef', theme: 3, par: 70,
+    seq: ['gauntlet', 'jellybridge', 'crumblestairs', 'gullcrabgap', 'ferrygull', 'urchinplanks', 'liftstar', 'gap9', 'crumblejelly', 'springurchin', 'jellybridge', 'gull', 'ferry', 'crumble', 'lift', 'gauntlet', 'planks', 'jellygap'] }
 ];
 
-export const LEVELS = [
-  { name: '第一关 · 晨光海滩', nameEn: 'Stage 1 · Dawn Coast', theme: 0, len: 9, maxD: 1, seed: 11, par: 70 },
-  { name: '第二关 · 落日悬崖', nameEn: 'Stage 2 · Sunset Cliffs', theme: 1, len: 13, maxD: 2, seed: 23, par: 110 },
-  { name: '第三关 · 月夜港湾', nameEn: 'Stage 3 · Moonlit Bay', theme: 2, len: 17, maxD: 3, seed: 37, par: 150 }
-];
-
-function normChunk(ch: { r: string[] }): string[] {
+function normChunk(ch: Chunk): string[] {
   const rows = ch.r.slice();
   while (rows.length < ROWS) rows.unshift('');
   const w = Math.max(...rows.map((s) => s.length));
@@ -194,31 +284,14 @@ function normChunk(ch: { r: string[] }): string[] {
   });
 }
 
-function chunkWeight(d: number, max: number): number {
-  return d === max ? 4 : d === max - 1 ? 2.2 : 1;
-}
-
-export function buildRows(idx: number, rng: () => number): string[] {
+/** The full tile rows of a stage. Stages are fixed, so best times and medals mean the same thing on every run. */
+export function buildRows(idx: number): string[] {
   const L = LEVELS[idx];
-  const pool = CHUNKS.filter((c) => c.d <= L.maxD);
-  const seq = [START];
-  let last: (typeof CHUNKS)[number] | null = null;
-  for (let k = 0; k < L.len; k++) {
+  const seq: Chunk[] = [START];
+  L.seq.forEach((key, k) => {
     if (k > 0 && k % 4 === 0) seq.push(CHECK);
-    let pick: (typeof CHUNKS)[number] | null = null, tries = 0;
-    do {
-      pick = null;
-      const tot = pool.reduce((s, c) => s + chunkWeight(c.d, L.maxD), 0);
-      let r = rng() * tot;
-      for (const c of pool) {
-        r -= chunkWeight(c.d, L.maxD);
-        if (r <= 0) { pick = c; break; }
-      }
-      if (!pick) pick = pool[pool.length - 1];
-    } while (pick === last && ++tries < 10);
-    last = pick;
-    seq.push(pick);
-  }
+    seq.push(CHUNKS[key]);
+  });
   seq.push(END);
   const rows = Array.from({ length: ROWS }, () => '');
   for (const ch of seq) {

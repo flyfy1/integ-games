@@ -13,7 +13,8 @@ import { drawPlayer, drawEnemy, drawBoss, bladeLocal, MUZZLE } from './sprites.j
 const DT = 1 / 60;
 const G = 2050, RUN = 300, JUMP_V = 730, MAX_FALL = 1150;
 const ROLL_T = 0.42, ROLL_SPEED = 470, ROLL_IFRAME = [0.03, 0.33];
-const MAX_HP = 100, MAG = 4, RELOAD_SHELL = 0.36;
+const LOW_HP = 30, MAX_HP = 100, MAG = 4, RELOAD_SHELL = 0.36;
+const RETRY_SKIP_AT = 0.4;
 const BUF = { jump: 0.13, attack: 0.28, shoot: 0.16, roll: 0.16, reload: 0.2 };
 const SERIF = 'Georgia, "Times New Roman", serif';
 const CJK = '"Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "STSong", serif';
@@ -62,6 +63,7 @@ export function createAshfall(host, services) {
   const persist = ok => { saved = ok && saved !== false; };
   const perk = key => run?.forge?.[key] || 0;
   const learnedActions = new Set();
+  let pitHintShown = false;
   let loadRequest = 0, run;
   let arenaFloorY = BASE_FLOOR;
   let level, ZONES, ARENA, WORLD_END, zoneIndexAt, buildSolids, PITS, ENEMIES, MEDKITS, CHECKPOINTS, LIGHTS, PROPS, AMBUSHES, BOSS;
@@ -127,6 +129,7 @@ export function createAshfall(host, services) {
     if (!root.isConnected || shellPaused || visibilityPaused || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
     if (g.mode === 'loading') return;
     if (g.mode === 'title') {
+      if (e.key === ' ' && !e.target.closest?.('button, a, summary')) e.preventDefault(); // Space must not scroll the page off the menu
       if (/^[123]$/.test(e.key)) { e.preventDefault(); chooseLevel(Number(e.key)); ui.focusSelection(); }
       else if (['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(e.key)) {
         e.preventDefault(); const delta = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1;
@@ -521,7 +524,13 @@ export function createAshfall(host, services) {
     const p = player;
     p.iframe -= dt; p.flash -= dt; p.shootT += dt; p.shootCd -= dt; p.rollCd -= dt; p.coyote -= dt; p.hurtT -= dt; p.landT -= dt;
     p.squash = lerp(p.squash, 1, Math.min(1, dt * 14));
-    if (p.dead) { p.deadT += dt; p.vx = approach(p.vx, 0, 900 * dt); p.vy += G * dt; moveBody(p, dt); if (p.deadT > 2.4) respawn(); return; }
+    if (p.dead) {
+      p.deadT += dt; p.vx = approach(p.vx, 0, 900 * dt); p.vy += G * dt; moveBody(p, dt);
+      // Retry is never slower than before, and a fresh press after the fall has registered skips the wait.
+      const eager = p.deadT > RETRY_SKIP_AT && (buffers.attack > 0 || buffers.jump > 0 || buffers.roll > 0 || buffers.shoot > 0);
+      if (p.deadT > 2.4 || eager) { if (eager) { for (const k in buffers) buffers[k] = 0; g.slow = null; } respawn(); }
+      return;
+    }
     const control = !g.cine && !p.hooked && p.hurtT <= 0;
     const move = control ? (held.right ? 1 : 0) - (held.left ? 1 : 0) : 0;
     // --- roll ---
@@ -575,9 +584,13 @@ export function createAshfall(host, services) {
     }
     if (p.grounded && !p.rolling && groundBelow(p.x - 30, p.y, 8) && groundBelow(p.x + 30, p.y, 8)) p.safe = { x: p.x, y: p.y };
     if (level.terrain !== 'ascent' && p.y > VIEW_H + 120) {
-      p.hp -= 30 * tuning().incoming; g.dmgVignette = 1; audio.play('hurt'); addShake(6);
+      const fallDamage = 30 * tuning().incoming;
+      p.hp -= fallDamage; g.dmgVignette = 1; audio.play('hurt'); addShake(6);
       if (p.hp <= 0) { p.y = p.safe.y; p.x = p.safe.x; killPlayer(); }
-      else { Object.assign(p, { x: p.safe.x, y: p.safe.y, vx: 0, vy: 0, iframe: 1.2, atk: null, rolling: false }); popup(p.x, p.y - 80, '-30', '#ff8a6a'); }
+      else {
+        Object.assign(p, { x: p.safe.x, y: p.safe.y, vx: 0, vy: 0, iframe: 1.2, atk: null, rolling: false }); popup(p.x, p.y - 80, `-${Math.round(fallDamage)}`, '#ff8a6a');
+        if (!pitHintShown) { pitHintShown = true; popup(p.x, p.y - 108, coarse ? tr('JUMP THE GAP', '用「跳跃」越过缺口') : tr('JUMP THE GAP · W / SPACE', '跳过缺口 · W / 空格'), '#ffe2ae'); }
+      }
     }
     // --- animation state ---
     p.anim = p.dead ? 'dead' : p.hurtT > 0 ? 'hurt' : !p.grounded ? (p.vy < 0 ? 'jump' : 'fall') : p.landT > 0 ? 'land' : Math.abs(p.vx) > 30 ? 'run' : 'idle';
@@ -1861,7 +1874,7 @@ export function createAshfall(host, services) {
     ctx.fillStyle = level.visuals.grade[wts[2] > 0.5 ? 2 : wts[1] > 0.5 ? 1 : 0]; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     ctx.restore();
     ctx.drawImage(art.vignette, 0, 0);
-    if (g.dmgVignette > 0 || player.hp < 30) {
+    if (g.dmgVignette > 0 || player.hp < LOW_HP) {
       const a = Math.max(g.dmgVignette * 0.6, player.hp < 30 && !player.dead ? 0.25 + Math.sin(g.time * 5) * 0.12 : 0);
       ctx.save(); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = a; const gr = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_H * 0.35, VIEW_W / 2, VIEW_H / 2, VIEW_W * 0.6); gr.addColorStop(0, 'rgba(120,0,0,0)'); gr.addColorStop(1, 'rgba(140,10,0,1)'); ctx.fillStyle = gr; ctx.fillRect(0, 0, VIEW_W, VIEW_H); ctx.restore();
     }
@@ -1905,7 +1918,9 @@ export function createAshfall(host, services) {
       const hg = ctx.createLinearGradient(x, 0, x + 220, 0); hg.addColorStop(0, '#7a1a14'); hg.addColorStop(1, '#e0603a');
       ctx.fillStyle = hg; ctx.fillRect(x, y, 220 * Math.max(0, p.hp) / MAX_HP, 10);
       ctx.strokeStyle = 'rgba(230,190,150,0.55)'; ctx.lineWidth = 1; ctx.strokeRect(x - 4.5, y - 4.5, 229, 19);
-      text(tr('VITALITY', '生命'), x, y + 28, 10, 'rgba(230,200,170,0.75)', { align: 'left', spacing: 3 });
+      const low = !p.dead && p.hp > 0 && p.hp < LOW_HP;
+      if (low) { ctx.strokeStyle = `rgba(255,96,72,${reduced ? 0.9 : 0.55 + Math.sin(g.time * 7) * 0.35})`; ctx.lineWidth = 2; ctx.strokeRect(x - 6, y - 6, 232, 22); ctx.lineWidth = 1; }
+      text(low ? tr('VITALITY LOW', '生命危急') : tr('VITALITY', '生命'), x, y + 28, 10, low ? '#ff9a80' : 'rgba(230,200,170,0.75)', { align: 'left', spacing: low ? 1 : 3, weight: low ? 700 : undefined });
       // shells
       for (let i = 0; i < MAG; i++) {
         const sx = x + 92 + i * 16, sy = y + 22, full = i < p.ammo;
@@ -1968,7 +1983,7 @@ export function createAshfall(host, services) {
         const hy = coarse ? 112 : VIEW_H - 54;
         ctx.fillStyle = 'rgba(6,5,5,0.6)'; ctx.fillRect(VIEW_W / 2 - 360, hy - 22, 720, 44);
         ctx.strokeStyle = 'rgba(230,180,130,0.35)'; ctx.strokeRect(VIEW_W / 2 - 360.5, hy - 22.5, 721, 45);
-        const items = coarse ? [['◀ ▶', 'move'], ['JUMP', 'leap'], ['SLASH', '3-hit combo'], ['FIRE', 'shotgun'], ['ROLL', 'evade'], ['↻', 'reload']] : [['A D', 'move'], ['W / SPACE', 'jump'], ['J', 'slash ×3'], ['K', 'shotgun'], ['L / SHIFT', 'roll'], ['R', 'reload']];
+        const items = coarse ? [['◀ ▶', tr('move', '移动')], [tr('JUMP', '跳跃'), tr('leap', '起跳')], [tr('SLASH', '挥砍'), tr('3-hit combo', '三连击')], [tr('FIRE', '枪击'), tr('shotgun', '霰弹枪')], [tr('ROLL', '翻滚'), tr('evade', '闪避')], ['↻', tr('reload', '装填')]] : [['A D', tr('move', '移动')], ['W / SPACE', tr('jump', '跳跃')], ['J', tr('slash ×3', '三连斩')], ['K', tr('shotgun', '霰弹枪')], ['L / SHIFT', tr('roll', '翻滚')], ['R', tr('reload', '装填')]];
         const step = 720 / items.length;
         items.forEach(([k, v], i) => { const cx = VIEW_W / 2 - 360 + step * (i + 0.5); text(k, cx, hy - 7, 12, used.has(['left', 'jump', 'attack', 'shoot', 'roll', 'reload'][i]) ? '#ffcf8a' : '#f3e6d4', { weight: 700, spacing: 2 }); text(v, cx, hy + 10, 10, 'rgba(220,200,180,0.7)', { spacing: 1 }); });
         ctx.globalAlpha = 1;
@@ -1976,7 +1991,7 @@ export function createAshfall(host, services) {
       if (p.dead && p.deadT > 0.6) {
         const a = Math.min(1, (p.deadT - 0.6) / 0.6);
         ctx.fillStyle = `rgba(0,0,0,${a * 0.55})`; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-        ctx.globalAlpha = a; text(tr('YOU FELL', '你倒下了'), VIEW_W / 2, VIEW_H / 2 - 10, 46, '#d8b8a0', { spacing: 14 }); text(tr('the ash remembers your last ember', '正在返回最近的余烬检查点'), VIEW_W / 2, VIEW_H / 2 + 34, 14, 'rgba(220,200,180,0.7)', { spacing: 3 }); ctx.globalAlpha = 1;
+        ctx.globalAlpha = a; text(tr('YOU FELL', '你倒下了'), VIEW_W / 2, VIEW_H / 2 - 10, 46, '#d8b8a0', { spacing: 14 }); text(tr('the ash remembers your last ember', '正在返回最近的余烬检查点'), VIEW_W / 2, VIEW_H / 2 + 34, 14, 'rgba(220,200,180,0.7)', { spacing: 3 }); text(coarse ? tr('TAP SLASH TO RISE NOW', '点「挥砍」立即重来') : tr('PRESS J OR SPACE TO RISE NOW', '按 J 或空格立即重来'), VIEW_W / 2, VIEW_H / 2 + 66, hs > 1 ? 22 : 14, '#ffe2ae', { weight: 700, spacing: 2 }); ctx.globalAlpha = 1;
       }
       if (userPaused) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, VIEW_W, VIEW_H); text(tr('PAUSED', '已暂停'), VIEW_W / 2, VIEW_H / 2, 36, '#f3e6d4', { spacing: 12 }); text(tr('press P to continue', '按 P 继续'), VIEW_W / 2, VIEW_H / 2 + 36, 13, 'rgba(220,200,180,0.7)', { spacing: 3 }); }
     }

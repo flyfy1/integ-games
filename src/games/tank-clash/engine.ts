@@ -2,6 +2,7 @@ import {
   ARENA_H,
   ARENA_W,
   BASE_CELLS,
+  BASE_WALL_CELLS,
   buildGrid,
   cellCenter,
   CHASSIS_SPECS,
@@ -24,6 +25,7 @@ import type {
   PowerUpItem,
   PowerUpKind,
   Shockwave,
+  SpawnWarning,
   Tank,
   TeamSetup,
   TileCell
@@ -42,7 +44,19 @@ export type SoundCue =
   | 'mine'
   | 'freeze'
   | 'win'
-  | 'lose';
+  | 'lose'
+  | 'alarm'
+  | 'dash'
+  | 'combo'
+  | 'warn';
+
+export type DefeatReason = 'base' | 'tanks' | null;
+
+interface NavCache {
+  base: Int16Array | null;
+  baseStamp: number;
+  fields: Record<string, { stamp: number; col: number; row: number; field: Int16Array }>;
+}
 
 export interface ArenaState {
   mode: GameMode;
@@ -78,6 +92,44 @@ export interface ArenaState {
   bannerTimer: number;
   score: number;
   cues: SoundCue[];
+  /** New Game+ counter: every finished campaign makes the next lap tougher. */
+  loop: number;
+  /** Seconds of "base under fire" HUD flash left. */
+  baseFlash: number;
+  defeatReason: DefeatReason;
+  stageKills: number;
+  totalEnemies: number;
+  clearBonus: number;
+  spawnWarnings: SpawnWarning[];
+  spawnCount: number;
+  comboCount: number;
+  comboTimer: number;
+  nav: NavCache;
+}
+
+export const ENEMY_STATS: Record<
+  EnemyArchetype,
+  { hp: number; speed: number; reload: number; bullet: number; points: number }
+> = {
+  scout: { hp: 1, speed: 165, reload: 1.5, bullet: 320, points: 100 },
+  striker: { hp: 3, speed: 112, reload: 1.15, bullet: 340, points: 200 },
+  sniper: { hp: 2, speed: 95, reload: 1.7, bullet: 560, points: 300 },
+  juggernaut: { hp: 6, speed: 78, reload: 1.4, bullet: 300, points: 400 },
+  cargo: { hp: 3, speed: 135, reload: 2.2, bullet: 300, points: 200 },
+  'boss-behemoth': { hp: 22, speed: 74, reload: 1.15, bullet: 330, points: 2000 },
+  'boss-omega': { hp: 26, speed: 84, reload: 1.0, bullet: 380, points: 3000 }
+};
+
+export function enemiesLeft(state: ArenaState): number {
+  return (
+    state.enemiesRemainingToSpawn.length +
+    state.spawnWarnings.length +
+    state.tanks.filter((t) => t.alive && t.team === 3).length
+  );
+}
+
+export function baseHp(state: ArenaState): number {
+  return state.grid[BASE_CELLS[0][1]]?.[BASE_CELLS[0][0]]?.hp ?? 0;
 }
 
 export function dirVector(dir: Direction): { dx: number; dy: number; angle: number } {
@@ -93,21 +145,36 @@ export function dirVector(dir: Direction): { dx: number; dy: number; angle: numb
   }
 }
 
-function buildWaveList(stageIndex: number): EnemyArchetype[] {
+/** Repeats a mix of archetypes until the wave is `count` strong. */
+function mix(pattern: readonly EnemyArchetype[], count: number): EnemyArchetype[] {
+  return Array.from({ length: count }, (_, i) => pattern[i % pattern.length]);
+}
+
+/** Inserts `boss` so that `after` regular tanks arrive before it. */
+function withBoss(wave: EnemyArchetype[], after: number, boss: EnemyArchetype): EnemyArchetype[] {
+  return [...wave.slice(0, after), boss, ...wave.slice(after)];
+}
+
+export function buildWaveList(stageIndex: number): EnemyArchetype[] {
   const s = stageIndex % 6;
   switch (s) {
     case 0:
-      return ['scout', 'scout', 'striker', 'cargo', 'scout', 'striker', 'sniper', 'cargo', 'striker', 'juggernaut'];
+      // A gentle opening: two slow strikers first, heavies only at the very end.
+      return [...mix(['striker', 'striker', 'scout', 'cargo', 'scout', 'striker', 'sniper', 'scout'], 15), 'juggernaut'];
     case 1:
-      return ['scout', 'striker', 'sniper', 'cargo', 'striker', 'sniper', 'juggernaut', 'cargo', 'sniper', 'juggernaut', 'striker', 'juggernaut'];
+      return mix(['scout', 'striker', 'striker', 'cargo', 'sniper', 'scout', 'juggernaut', 'striker', 'sniper'], 20);
     case 2:
-      return ['striker', 'sniper', 'cargo', 'juggernaut', 'sniper', 'cargo', 'juggernaut', 'boss-behemoth'];
+      return withBoss(mix(['striker', 'scout', 'sniper', 'cargo', 'juggernaut', 'striker', 'sniper', 'scout'], 18), 10, 'boss-behemoth');
     case 3:
-      return ['sniper', 'striker', 'cargo', 'sniper', 'juggernaut', 'striker', 'cargo', 'sniper', 'juggernaut', 'juggernaut', 'sniper', 'juggernaut'];
+      return mix(['sniper', 'striker', 'scout', 'cargo', 'sniper', 'juggernaut', 'striker', 'scout', 'juggernaut'], 24);
     case 4:
-      return ['striker', 'juggernaut', 'cargo', 'sniper', 'juggernaut', 'sniper', 'cargo', 'juggernaut', 'sniper', 'juggernaut', 'cargo', 'juggernaut'];
+      return mix(['striker', 'juggernaut', 'scout', 'cargo', 'sniper', 'juggernaut', 'striker', 'sniper'], 26);
     default:
-      return ['sniper', 'juggernaut', 'cargo', 'sniper', 'juggernaut', 'cargo', 'boss-behemoth', 'boss-omega'];
+      return withBoss(
+        withBoss(mix(['sniper', 'juggernaut', 'scout', 'cargo', 'striker', 'sniper', 'juggernaut', 'striker'], 22), 8, 'boss-behemoth'),
+        18,
+        'boss-omega'
+      );
   }
 }
 
@@ -119,6 +186,8 @@ export function createPlayerTank(
   carryScore = 0
 ): Tank {
   const spec = CHASSIS_SPECS[chassis];
+  // Duels get thicker armour so a round is a fight, not a two-second trade.
+  const maxHp = mode === 'duel' ? spec.maxHp * 3 : spec.maxHp;
   const col = mode === 'coop' ? (playerIndex === 0 ? 6 : 13) : playerIndex === 0 ? 1 : 18;
   const row = mode === 'coop' ? 12 : 6;
   const pos = cellCenter(col, row);
@@ -136,8 +205,8 @@ export function createPlayerTank(
     dir,
     turretAngle: dirVector(dir).angle,
     radius: 17,
-    hp: spec.maxHp,
-    maxHp: spec.maxHp,
+    hp: maxHp,
+    maxHp,
     reloadTimer: 0,
     recoil: 0,
     shieldTimer: 3.0,
@@ -157,6 +226,17 @@ export function createPlayerTank(
     aiTimer: 0.2,
     aiWantFire: false,
     aiTargetDir: dir,
+    aiGoal: 'hunt',
+    aiReact: 0,
+    aiWander: 0,
+    aiStuck: 0,
+    aiLastX: pos.x,
+    aiLastY: pos.y,
+    aiCol: col,
+    aiRow: row,
+    bossTimer: 0,
+    bossCharging: false,
+    hitFlash: 0,
     treadPhase: 0
   };
 }
@@ -165,7 +245,8 @@ export function createEnemyTank(
   id: string,
   archetype: EnemyArchetype,
   col: number,
-  row: number
+  row: number,
+  loop = 0
 ): Tank {
   const pos = cellCenter(col, row);
   const isBoss = archetype === 'boss-behemoth' || archetype === 'boss-omega';
@@ -180,16 +261,7 @@ export function createEnemyTank(
     'boss-omega': 'prism'
   };
   const chassis = chassisMap[archetype];
-  const hpMap: Record<EnemyArchetype, number> = {
-    scout: 1,
-    striker: 1,
-    sniper: 1,
-    juggernaut: 2,
-    cargo: 2,
-    'boss-behemoth': 8,
-    'boss-omega': 10
-  };
-  const hp = hpMap[archetype];
+  const hp = Math.round(ENEMY_STATS[archetype].hp * (isBoss ? 1 + loop * 0.25 : 1)) + (isBoss ? 0 : Math.min(3, loop));
   return {
     id,
     team: 3,
@@ -209,10 +281,10 @@ export function createEnemyTank(
     maxHp: hp,
     reloadTimer: 1.2,
     recoil: 0,
-    shieldTimer: 0.8,
+    shieldTimer: 0,
     freezeTimer: 0,
     portalCooldown: 0,
-    spawnProtected: 0.8,
+    spawnProtected: 1.0,
     weapon: archetype === 'boss-omega' ? 'spread' : null,
     weaponTimer: isBoss ? 999 : 0,
     mines: 0,
@@ -223,9 +295,20 @@ export function createEnemyTank(
     alive: true,
     respawnTimer: 0,
     lives: 0,
-    aiTimer: 0.25,
+    aiTimer: 0,
     aiWantFire: false,
     aiTargetDir: 'down',
+    aiGoal: 'base',
+    aiReact: 0,
+    aiWander: 0,
+    aiStuck: 0,
+    aiLastX: pos.x,
+    aiLastY: pos.y,
+    aiCol: col,
+    aiRow: row,
+    bossTimer: 4.5,
+    bossCharging: false,
+    hitFlash: 0,
     treadPhase: 0
   };
 }
@@ -240,6 +323,7 @@ export interface CreateArenaOptions {
   p1Chassis?: ChassisId;
   p2Chassis?: ChassisId;
   carryScore?: number;
+  loop?: number;
 }
 
 export function createArenaState(opts: CreateArenaOptions): ArenaState {
@@ -280,7 +364,7 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
     floatingTexts: [],
     nextEntityId: 1,
     enemiesRemainingToSpawn,
-    spawnTimer: 0.6,
+    spawnTimer: 1.4,
     powerUpSpawnTimer: mode === 'duel' ? 5.5 : 8.5,
     baseAlive: true,
     baseFortifyTimer: 0,
@@ -292,9 +376,20 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
     screenShake: 0,
     bannerKey: mode === 'coop' ? 'banner.stageStart' : 'banner.roundStart',
     bannerParam: mode === 'coop' ? stageIndex + 1 : roundNumber,
-    bannerTimer: 2.2,
+    bannerTimer: 2.4,
     score: opts.carryScore ?? 0,
-    cues: []
+    cues: [],
+    loop: opts.loop ?? 0,
+    baseFlash: 0,
+    defeatReason: null,
+    stageKills: 0,
+    totalEnemies: enemiesRemainingToSpawn.length,
+    clearBonus: 0,
+    spawnWarnings: [],
+    spawnCount: 0,
+    comboCount: 0,
+    comboTimer: 0,
+    nav: { base: null, baseStamp: -1, fields: {} }
   };
 }
 
@@ -385,6 +480,11 @@ function addFloatingText(state: ArenaState, x: number, y: number, text: string, 
   state.floatingTexts.push({ x, y, text, color, life: 1.15 });
 }
 
+/** Floating text whose wording comes from the i18n table (`text` is the key). */
+function addFloatingKey(state: ArenaState, x: number, y: number, key: string, color: string, n?: number): void {
+  state.floatingTexts.push({ x, y, text: key, key: true, n, color, life: 1.3 });
+}
+
 function addShockwave(state: ArenaState, x: number, y: number, maxRadius: number, color: string): void {
   state.shockwaves.push({
     x,
@@ -421,7 +521,8 @@ export function detonateExplosion(
   attackerTeam: 1 | 2 | 3,
   attackerPlayerIndex: 0 | 1 | undefined,
   breakSteel: boolean,
-  random: () => number
+  random: () => number,
+  excludeId?: string
 ): void {
   state.cues.push('explode');
   state.screenShake = Math.max(state.screenShake, 9);
@@ -435,6 +536,7 @@ export function detonateExplosion(
   const maxRow = Math.min(ROWS - 1, Math.floor((cy + blastRadius) / TILE));
 
   const chainBarrels: Array<[number, number]> = [];
+  let baseHit = false;
   for (let r = minRow; r <= maxRow; r++) {
     for (let c = minCol; c <= maxCol; c++) {
       const center = cellCenter(c, r);
@@ -453,13 +555,15 @@ export function detonateExplosion(
         state.grid[r][c] = { kind: 'empty', hp: 0, maxHp: 0 };
         chainBarrels.push([center.x, center.y]);
       } else if (cell.kind === 'base') {
-        damageBase(state, 1);
+        baseHit = true;
       }
     }
   }
+  // One blast hurts the Eagle once, and the defenders' own blasts never do.
+  if (baseHit && !(state.mode === 'coop' && attackerTeam === 1)) damageBase(state, 1);
 
   for (const tank of state.tanks) {
-    if (!tank.alive) continue;
+    if (!tank.alive || tank.id === excludeId) continue;
     const dist = Math.hypot(tank.x - cx, tank.y - cy);
     if (dist <= blastRadius + tank.radius * 0.6) {
       // In Co-op, player explosions don't friendly-fire allies unless it's an enemy barrel hit
@@ -473,8 +577,18 @@ export function detonateExplosion(
   }
 }
 
+const BASE_FLASH = 1.1;
+const BASE_GRACE = 0.4;
+
 function damageBase(state: ArenaState, dmg: number): void {
   if (!state.baseAlive) return;
+  // A volley (triple shot, chained barrels) counts as one hit: the Eagle shrugs off follow-ups for a moment.
+  if (state.baseFlash > BASE_FLASH - BASE_GRACE) return;
+  state.baseFlash = BASE_FLASH;
+  state.cues.push('alarm');
+  const mid = cellCenter(9.5, 12);
+  addFloatingKey(state, mid.x, mid.y - 26, 'fx.baseHit', '#ff6b81', dmg);
+  addParticles(state, mid.x, mid.y, '#fbbf24', 10, 150, 0.4, 4);
   for (const [c, r] of BASE_CELLS) {
     const cell = state.grid[r][c];
     if (cell.kind === 'base') {
@@ -490,6 +604,8 @@ function damageBase(state: ArenaState, dmg: number): void {
     addParticles(state, center.x, center.y, '#ff6b81', 24, 240, 0.7, 6);
     state.cues.push('lose');
     state.outcome = 'coop-defeat';
+    state.defeatReason = 'base';
+    state.screenShake = Math.max(state.screenShake, 12);
     state.outcomeTimer = 2.6;
     state.bannerKey = 'banner.gameOver';
     state.bannerTimer = 99;
@@ -509,11 +625,13 @@ export function damageTank(
     victim.shieldTimer = Math.max(0, victim.shieldTimer - 3.2);
     state.cues.push('bounce');
     addParticles(state, victim.x, victim.y, '#48dbfb', 8, 120, 0.3, 3);
-    addFloatingText(state, victim.x, victim.y - 18, 'SHIELD!', '#48dbfb');
+    addFloatingKey(state, victim.x, victim.y - 18, 'fx.shield', '#48dbfb');
     return;
   }
 
   victim.hp -= damage;
+  victim.hitFlash = 0.14;
+  if (victim.playerIndex !== undefined && !victim.isAi) state.screenShake = Math.max(state.screenShake, 4);
   state.cues.push('hit');
   addParticles(state, victim.x, victim.y, CHASSIS_SPECS[victim.chassis].colorPrimary, 8, 130, 0.35, 3);
 
@@ -534,13 +652,25 @@ export function damageTank(
   addParticles(state, victim.x, victim.y, CHASSIS_SPECS[victim.chassis].colorPrimary, victim.isBoss ? 24 : 14, 200, 0.55, 5);
   addParticles(state, victim.x, victim.y, '#ffd15c', 10, 150, 0.45, 4);
 
-  if (victim.isCargo || victim.isBoss || (victim.team === 3 && random() < 0.45)) {
+  if (victim.isCargo || victim.isBoss || (victim.team === 3 && random() < 0.22)) {
     spawnPowerUpAt(state, victim.x, victim.y, random);
   }
+  if (victim.team === 3) state.stageKills += 1;
 
-  if (attackerPlayerIndex !== undefined) {
+  if (attackerPlayerIndex !== undefined && victim.playerIndex !== attackerPlayerIndex) {
     const scorer = state.tanks.find((t) => t.playerIndex === attackerPlayerIndex);
-    const pts = victim.isBoss ? 1000 : victim.team === 3 ? 200 : 300;
+    let pts = victim.team === 3 && victim.archetype ? ENEMY_STATS[victim.archetype].points : 300;
+    if (victim.team === 3) {
+      // Chain kills inside three seconds for a growing bonus.
+      state.comboCount = state.comboTimer > 0 ? state.comboCount + 1 : 1;
+      state.comboTimer = 3;
+      if (state.comboCount >= 2) {
+        const bonus = Math.min(500, 50 * (state.comboCount - 1));
+        pts += bonus;
+        state.cues.push('combo');
+        addFloatingKey(state, victim.x, victim.y - 34, 'fx.combo', '#ff9f43', state.comboCount);
+      }
+    }
     if (scorer) {
       scorer.kills += 1;
       scorer.score += pts;
@@ -568,10 +698,13 @@ export function fireTankWeapon(state: ArenaState, tank: Tank): void {
   if (weapon === 'ricochet') reload *= 0.48; // Rapid Overdrive
   if (weapon === 'laser') reload *= 0.8;
   if (weapon === 'spread') reload *= 0.88;
-  if (tank.team === 3) {
-    reload = tank.isBoss ? 1.35 : 1.75;
-  } else if (tank.isAi && state.mode === 'duel') {
-    reload *= 1.35;
+  const stats = tank.team === 3 && tank.archetype ? ENEMY_STATS[tank.archetype] : null;
+  if (stats) {
+    reload = stats.reload * Math.pow(0.9, Math.min(4, state.loop));
+    if (tank.isBoss && tank.hp <= tank.maxHp / 2) reload *= 0.75;
+  } else if (tank.isAi) {
+    // The wingman supports, it does not steal the show; the duel rival is a touch slower than a human.
+    reload *= state.mode === 'duel' ? 1.45 : 2.3;
   }
   tank.reloadTimer = reload;
   tank.recoil = 7;
@@ -580,11 +713,15 @@ export function fireTankWeapon(state: ArenaState, tank: Tank): void {
   const pierceSteel = (tank.team !== 3 && spec.pierceSteel) || weapon === 'laser';
   const pierceTanks = weapon === 'laser';
   const homing = weapon === 'homing';
-  const baseSpeed = tank.team === 3 ? spec.bulletSpeed * 0.68 : spec.bulletSpeed;
+  const baseSpeed = stats ? stats.bullet : spec.bulletSpeed;
   const speed = baseSpeed * (weapon === 'laser' ? 1.45 : weapon === 'ricochet' ? 1.3 : 1);
-  const damage = tank.team === 3 ? 1 : weapon === 'laser' || spec.id === 'titan' ? 2 : 1;
+  const damage = tank.team === 3 ? 1 : weapon === 'laser' ? Math.max(2, spec.damage) : spec.damage;
   const color =
-    weapon === 'laser'
+    tank.team === 3
+      ? tank.isBoss
+        ? '#ff4d8d'
+        : '#ff5a6e'
+      : weapon === 'laser'
       ? '#ff5252'
       : weapon === 'homing'
         ? '#ff6bcb'
@@ -604,29 +741,99 @@ export function fireTankWeapon(state: ArenaState, tank: Tank): void {
   state.cues.push(weapon === 'laser' ? 'laser' : 'shoot');
 
   for (const a of angles) {
-    const bx = tank.x + Math.cos(a) * (tank.radius + 6);
-    const by = tank.y + Math.sin(a) * (tank.radius + 6);
-    state.bullets.push({
-      id: state.nextEntityId++,
-      ownerId: tank.id,
-      team: tank.team,
-      playerIndex: tank.playerIndex,
-      x: bx,
-      y: by,
-      vx: Math.cos(a) * speed,
-      vy: Math.sin(a) * speed,
+    pushBullet(state, tank, a, speed, {
       radius: weapon === 'laser' ? 5 : tank.chassis === 'titan' ? 6 : 4.5,
       damage,
-      bouncesLeft: bounces,
+      bounces,
       pierceSteel,
       pierceTanks,
       homing,
-      splashRadius: spec.splashRadius,
-      portalCooldown: 0,
-      color,
-      life: 3.4,
-      trail: [{ x: bx, y: by }]
+      splashRadius: tank.team === 3 && !tank.isBoss && tank.archetype !== 'juggernaut' ? 0 : spec.splashRadius,
+      color
     });
+  }
+  // Muzzle flash
+  const mx = tank.x + Math.cos(angle) * (tank.radius + 8);
+  const my = tank.y + Math.sin(angle) * (tank.radius + 8);
+  addParticles(state, mx, my, '#fff7d6', 4, 70, 0.12, 3.5);
+}
+
+function pushBullet(
+  state: ArenaState,
+  tank: Tank,
+  a: number,
+  speed: number,
+  o: {
+    radius: number;
+    damage: number;
+    bounces: number;
+    pierceSteel: boolean;
+    pierceTanks: boolean;
+    homing: boolean;
+    splashRadius: number;
+    color: string;
+  }
+): void {
+  const bx = tank.x + Math.cos(a) * (tank.radius + 6);
+  const by = tank.y + Math.sin(a) * (tank.radius + 6);
+  state.bullets.push({
+    id: state.nextEntityId++,
+    ownerId: tank.id,
+    team: tank.team,
+    playerIndex: tank.playerIndex,
+    x: bx,
+    y: by,
+    vx: Math.cos(a) * speed,
+    vy: Math.sin(a) * speed,
+    radius: o.radius,
+    damage: o.damage,
+    bouncesLeft: o.bounces,
+    pierceSteel: o.pierceSteel,
+    pierceTanks: o.pierceTanks,
+    homing: o.homing,
+    splashRadius: o.splashRadius,
+    portalCooldown: 0,
+    color: o.color,
+    life: 3.4,
+    trail: [{ x: bx, y: by }]
+  });
+}
+
+/** Boss specials: the Behemoth lobs aimed shells, the Omega fires a ring. Telegraphed 0.7s ahead. */
+function updateBossSpecial(state: ArenaState, tank: Tank, dt: number): void {
+  tank.bossTimer -= dt;
+  if (!tank.bossCharging && tank.bossTimer <= 0.7) {
+    tank.bossCharging = true;
+    state.cues.push('warn');
+    addShockwave(state, tank.x, tank.y, 64, '#ff4d8d');
+  }
+  if (tank.bossTimer > 0) return;
+  const enraged = tank.hp <= tank.maxHp / 2;
+  tank.bossCharging = false;
+  tank.bossTimer = enraged ? 3.4 : 5.0;
+  tank.recoil = 9;
+  state.cues.push('shoot');
+  const opts = {
+    radius: 6,
+    damage: 1,
+    bounces: 0,
+    pierceSteel: false,
+    pierceTanks: false,
+    homing: false,
+    splashRadius: 0,
+    color: '#ff4d8d'
+  };
+  if (tank.archetype === 'boss-omega') {
+    const count = enraged ? 12 : 8;
+    for (let i = 0; i < count; i++) pushBullet(state, tank, (Math.PI * 2 * i) / count + (enraged ? 0.26 : 0), 250, opts);
+  } else {
+    const targets = state.tanks.filter((t) => t.alive && t.team !== 3);
+    if (targets.length === 0) return;
+    const target = targets.sort(
+      (a, b) => Math.hypot(a.x - tank.x, a.y - tank.y) - Math.hypot(b.x - tank.x, b.y - tank.y)
+    )[0];
+    const aim = Math.atan2(target.y - tank.y, target.x - tank.x);
+    for (const off of enraged ? [-0.3, -0.1, 0.1, 0.3] : [-0.16, 0, 0.16]) pushBullet(state, tank, aim + off, 290, opts);
   }
 }
 
@@ -647,35 +854,50 @@ export function triggerTankSpecial(state: ArenaState, tank: Tank): void {
       radius: 13
     });
     state.cues.push('mine');
-    addFloatingText(state, tank.x, tank.y - 16, 'MINE SET', '#feca57');
+    addFloatingKey(state, tank.x, tank.y - 16, 'fx.mine', '#feca57');
     acted = true;
   }
-  if (tank.dashCooldown <= 0) {
-    tank.dashTimer = 0.16;
-    tank.dashCooldown = 2.0;
-    const { dx, dy } = dirVector(tank.dir);
-    tank.vx = dx * 340;
-    tank.vy = dy * 340;
-    addParticles(state, tank.x, tank.y, CHASSIS_SPECS[tank.chassis].colorPrimary, 6, 90, 0.25, 3);
-    if (!acted) state.cues.push('portal');
-  }
+  // Out of mines: the same button still gets you out of trouble.
+  if (!acted) triggerTankDash(state, tank);
+}
+
+export const DASH_COOLDOWN = 2.4;
+const DASH_TIME = 0.2;
+const DASH_SPEED = 560;
+
+/** A short burst forward that shrugs off shells: the dodge button. */
+export function triggerTankDash(state: ArenaState, tank: Tank): boolean {
+  if (!tank.alive || tank.freezeTimer > 0 || tank.dashCooldown > 0) return false;
+  tank.dashTimer = DASH_TIME;
+  tank.dashCooldown = DASH_COOLDOWN;
+  tank.spawnProtected = Math.max(tank.spawnProtected, DASH_TIME + 0.06);
+  addParticles(state, tank.x, tank.y, CHASSIS_SPECS[tank.chassis].colorPrimary, 8, 110, 0.3, 3.5);
+  state.cues.push('dash');
+  return true;
 }
 
 function moveTankWithSlide(state: ArenaState, tank: Tank, moveX: number, moveY: number, dt: number): void {
   const spec = CHASSIS_SPECS[tank.chassis];
   const under = tileAtPixel(state.grid, tank.x, tank.y).cell;
-  const onIce = under?.kind === 'ice' && tank.chassis !== 'phantom';
+  const onIce = under?.kind === 'ice' && tank.chassis !== 'phantom' && tank.team !== 3;
   const inBush = under?.kind === 'bush';
 
   let maxSpeed = spec.speed;
   if (inBush && tank.chassis === 'phantom') maxSpeed *= 1.22;
   if (tank.weapon === 'ricochet') maxSpeed *= 1.25; // Rapid Overdrive speed boost
-  if (tank.dashTimer > 0) maxSpeed *= 1.85;
-  if (tank.team === 3) maxSpeed *= tank.isBoss ? 0.52 : 0.56;
-  else if (tank.isAi && state.mode === 'duel') maxSpeed *= 0.82;
+  if (tank.team === 3 && tank.archetype) {
+    maxSpeed = ENEMY_STATS[tank.archetype].speed * (1 + 0.07 * Math.min(4, state.loop));
+  } else if (tank.isAi) maxSpeed *= state.mode === 'duel' ? 0.86 : 0.82;
+  const dashing = tank.dashTimer > 0;
+  if (dashing) maxSpeed = DASH_SPEED;
 
   let dir: Direction | null = null;
-  if (Math.abs(moveX) > 0.2 || Math.abs(moveY) > 0.2) {
+  if (dashing) {
+    dir = tank.dir;
+    if (Math.floor(tank.dashTimer * 60) % 2 === 0) {
+      addParticles(state, tank.x, tank.y, CHASSIS_SPECS[tank.chassis].colorPrimary, 2, 40, 0.22, 3);
+    }
+  } else if (Math.abs(moveX) > 0.2 || Math.abs(moveY) > 0.2) {
     if (Math.abs(moveX) >= Math.abs(moveY)) {
       dir = moveX > 0 ? 'right' : 'left';
     } else {
@@ -688,7 +910,7 @@ function moveTankWithSlide(state: ArenaState, tank: Tank, moveX: number, moveY: 
   const targetVx = dir ? dirVector(dir).dx * maxSpeed : 0;
   const targetVy = dir ? dirVector(dir).dy * maxSpeed : 0;
 
-  if (onIce) {
+  if (onIce && !dashing) {
     const blend = Math.min(1, dt * 3.2);
     tank.vx += (targetVx * 1.12 - tank.vx) * blend;
     tank.vy += (targetVy * 1.12 - tank.vy) * blend;
@@ -771,7 +993,7 @@ function collectPowerUp(state: ArenaState, tank: Tank, item: PowerUpItem): void 
       state.cues.push('freeze');
       for (const other of state.tanks) {
         if (!other.alive || other.team === tank.team) continue;
-        other.freezeTimer = state.mode === 'duel' ? 3.5 : 6.0;
+        other.freezeTimer = state.mode === 'duel' ? 3.5 : other.isBoss ? 2.5 : 6.0;
         addParticles(state, other.x, other.y, '#70f0c2', 10, 110, 0.45, 4);
       }
       break;
@@ -795,86 +1017,433 @@ function collectPowerUp(state: ArenaState, tank: Tank, item: PowerUpItem): void 
     tank.score += 100;
     state.score += 100;
   }
-  addFloatingText(state, tank.x, tank.y - 20, item.kind.toUpperCase(), '#70f0c2');
+  addFloatingKey(state, tank.x, tank.y - 22, `power.${item.kind}`, '#70f0c2');
 }
+
+// ---------------------------------------------------------------------------------------------
+// Navigation & AI
+// ---------------------------------------------------------------------------------------------
+
+export const NAV_BLOCKED = 9999;
+const DIRS: readonly Direction[] = ['up', 'down', 'left', 'right'];
+const BASE_WALL_KEYS = new Set(BASE_WALL_CELLS.map(([c, r]) => r * COLS + c));
+
+function navEnterCost(kind: TileCell['kind'], cellIndex: number, avoidBaseWalls: boolean): number {
+  switch (kind) {
+    case 'empty':
+    case 'bush':
+    case 'ice':
+    case 'base':
+      return 1;
+    case 'portal':
+      return 6;
+    case 'brick':
+      // Bricks can be shot open, which takes a while. Defenders never dig through their own fort.
+      return avoidBaseWalls && BASE_WALL_KEYS.has(cellIndex) ? NAV_BLOCKED : 4;
+    default:
+      return NAV_BLOCKED;
+  }
+}
+
+/**
+ * Cost-to-target for every cell (Dijkstra over the 20x13 grid). Bricks are passable at a price,
+ * so tanks route *through* walls they can shoot down instead of bumping around them forever.
+ */
+export function computeNavField(
+  grid: TileCell[][],
+  targets: ReadonlyArray<readonly [number, number]>,
+  avoidBaseWalls = false
+): Int16Array {
+  const n = COLS * ROWS;
+  const dist = new Int16Array(n).fill(NAV_BLOCKED);
+  const done = new Uint8Array(n);
+  for (const [c, r] of targets) {
+    if (c >= 0 && c < COLS && r >= 0 && r < ROWS) dist[r * COLS + c] = 0;
+  }
+  for (;;) {
+    let u = -1;
+    let best = NAV_BLOCKED;
+    for (let i = 0; i < n; i++) {
+      if (!done[i] && dist[i] < best) {
+        best = dist[i];
+        u = i;
+      }
+    }
+    if (u < 0) break;
+    done[u] = 1;
+    const uc = u % COLS;
+    const ur = (u - uc) / COLS;
+    // Moving from a neighbour into `u` costs whatever `u` costs to enter.
+    const enter = best === 0 ? 1 : navEnterCost(grid[ur][uc].kind, u, avoidBaseWalls);
+    if (enter >= NAV_BLOCKED) continue;
+    const nd = best + enter;
+    if (uc > 0 && nd < dist[u - 1]) dist[u - 1] = nd;
+    if (uc < COLS - 1 && nd < dist[u + 1]) dist[u + 1] = nd;
+    if (ur > 0 && nd < dist[u - COLS]) dist[u - COLS] = nd;
+    if (ur < ROWS - 1 && nd < dist[u + COLS]) dist[u + COLS] = nd;
+  }
+  // Cells a tank can never stand in are not part of any route.
+  for (let i = 0; i < n; i++) {
+    if (dist[i] === 0) continue;
+    const c = i % COLS;
+    const kind = grid[(i - c) / COLS][c].kind;
+    if (kind === 'steel' || kind === 'water' || kind === 'barrel') dist[i] = NAV_BLOCKED;
+  }
+  return dist;
+}
+
+function cellOfTank(tank: Tank): [number, number] {
+  return [
+    Math.max(0, Math.min(COLS - 1, Math.floor(tank.x / TILE))),
+    Math.max(0, Math.min(ROWS - 1, Math.floor(tank.y / TILE)))
+  ];
+}
+
+function baseField(state: ArenaState): Int16Array {
+  const nav = state.nav;
+  if (!nav.base || state.roundTimer - nav.baseStamp > 0.5 || state.roundTimer < nav.baseStamp) {
+    nav.base = computeNavField(state.grid, BASE_CELLS);
+    nav.baseStamp = state.roundTimer;
+  }
+  return nav.base;
+}
+
+function fieldTo(state: ArenaState, key: string, col: number, row: number, avoidBaseWalls: boolean): Int16Array {
+  const nav = state.nav;
+  const hit = nav.fields[key];
+  if (hit && hit.col === col && hit.row === row && state.roundTimer - hit.stamp <= 0.45 && state.roundTimer >= hit.stamp) {
+    return hit.field;
+  }
+  const field = computeNavField(state.grid, [[col, row]], avoidBaseWalls);
+  nav.fields[key] = { stamp: state.roundTimer, col, row, field };
+  return field;
+}
+
+export interface LineHit {
+  kind: 'tank' | 'brick' | 'steel' | 'base' | 'barrel' | 'portal' | 'edge';
+  tank?: Tank;
+  dist: number;
+  col: number;
+  row: number;
+}
+
+/** What a shell fired by `tank` in direction `dir` would strike first (teammates are ignored). */
+export function lineOfFire(state: ArenaState, tank: Tank, dir: Direction): LineHit {
+  const { dx, dy } = dirVector(dir);
+  const step = 6;
+  for (let d = tank.radius; d < ARENA_W; d += step) {
+    const x = tank.x + dx * d;
+    const y = tank.y + dy * d;
+    const col = Math.floor(x / TILE);
+    const row = Math.floor(y / TILE);
+    if (x < 0 || x >= ARENA_W || y < 0 || y >= ARENA_H) return { kind: 'edge', dist: d, col, row };
+    const kind = state.grid[row][col].kind;
+    // A portal swallows the shell and spits it out elsewhere, so the lane ends there.
+    if (kind === 'brick' || kind === 'steel' || kind === 'base' || kind === 'barrel' || kind === 'portal') {
+      return { kind, dist: d, col, row };
+    }
+    for (const other of state.tanks) {
+      if (!other.alive || other.id === tank.id || other.team === tank.team) continue;
+      if (Math.hypot(other.x - x, other.y - y) < other.radius) return { kind: 'tank', tank: other, dist: d, col, row };
+    }
+  }
+  return { kind: 'edge', dist: ARENA_W, col: -1, row: -1 };
+}
+
+function isHidden(state: ArenaState, target: Tank, viewer: Tank): boolean {
+  if (tileAtPixel(state.grid, target.x, target.y).cell?.kind !== 'bush') return false;
+  return Math.hypot(target.x - viewer.x, target.y - viewer.y) > TILE * 2.6;
+}
+
+/** Nearest visible hostile sitting in one of the tank's four firing lanes with nothing in the way. */
+function findEngagement(state: ArenaState, tank: Tank, hostiles: Tank[]): { dir: Direction; target: Tank; dist: number } | null {
+  const lane = TILE * 0.38;
+  let best: { dir: Direction; target: Tank; dist: number } | null = null;
+  for (const h of hostiles) {
+    const dx = h.x - tank.x;
+    const dy = h.y - tank.y;
+    let dir: Direction;
+    if (Math.abs(dx) < lane) dir = dy > 0 ? 'down' : 'up';
+    else if (Math.abs(dy) < lane) dir = dx > 0 ? 'right' : 'left';
+    else continue;
+    const hit = lineOfFire(state, tank, dir);
+    if (hit.kind !== 'tank' || hit.tank !== h) continue;
+    if (!best || hit.dist < best.dist) best = { dir, target: h, dist: hit.dist };
+  }
+  return best;
+}
+
+/** Next step down the cost field: a direction, and what kind of tile is in the way (if any). */
+function navStep(
+  state: ArenaState,
+  tank: Tank,
+  field: Int16Array
+): { dir: Direction | null; blocker: TileCell['kind'] | null; arrived: boolean } {
+  const [c, r] = cellOfTank(tank);
+  const here = field[r * COLS + c];
+  if (here === 0) return { dir: null, blocker: null, arrived: true };
+  let bestDir: Direction | null = null;
+  let bestVal = here >= NAV_BLOCKED ? NAV_BLOCKED : here;
+  let bc = c;
+  let br = r;
+  for (const d of DIRS) {
+    const v = dirVector(d);
+    const nc = c + v.dx;
+    const nr = r + v.dy;
+    if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
+    const val = field[nr * COLS + nc];
+    // Prefer to keep rolling the way we already face when two routes tie.
+    if (val < bestVal || (val === bestVal && bestDir !== null && d === tank.dir && val < here)) {
+      bestVal = val;
+      bestDir = d;
+      bc = nc;
+      br = nr;
+    }
+  }
+  if (!bestDir) return { dir: null, blocker: null, arrived: false };
+  const kind = state.grid[br][bc].kind;
+  const blocker = kind === 'brick' || kind === 'base' ? kind : null;
+  // Square up to the lane before turning down it.
+  const centre = cellCenter(c, r);
+  if (bestDir === 'left' || bestDir === 'right') {
+    const off = centre.y - tank.y;
+    if (Math.abs(off) > 3) return { dir: off > 0 ? 'down' : 'up', blocker: null, arrived: false };
+  } else {
+    const off = centre.x - tank.x;
+    if (Math.abs(off) > 3) return { dir: off > 0 ? 'right' : 'left', blocker: null, arrived: false };
+  }
+  return { dir: bestDir, blocker, arrived: false };
+}
+
+function nearestBy<T extends { x: number; y: number }>(items: T[], x: number, y: number): T | undefined {
+  let best: T | undefined;
+  let bestD = Infinity;
+  for (const it of items) {
+    const d = Math.hypot(it.x - x, it.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = it;
+    }
+  }
+  return best;
+}
+
+const GUARD_POSTS: ReadonlyArray<readonly [number, number]> = [
+  [13, 10],
+  [12, 10],
+  [14, 11],
+  [13, 12]
+];
 
 function computeAiControls(state: ArenaState, tank: Tank, dt: number, random: () => number): PlayerControlInput {
   tank.aiTimer -= dt;
-  const hostiles = state.tanks.filter((other) => other.alive && other.team !== tank.team);
-  let targetX = ARENA_W / 2;
-  let targetY = ARENA_H / 2;
+  tank.aiReact = Math.max(0, tank.aiReact - dt);
+  if (tank.aiWander > 0) tank.aiWander = Math.max(0, tank.aiWander - dt);
 
-  // Pick priority target
-  if (state.mode === 'coop' && tank.team === 3) {
-    // Enemy AI targets either nearest visible player or the Eagle base
-    const visiblePlayers = hostiles.filter((p) => {
-      const inBush = tileAtPixel(state.grid, p.x, p.y).cell?.kind === 'bush';
-      return !inBush || Math.hypot(p.x - tank.x, p.y - tank.y) < TILE * 2.6;
-    });
-    const baseCenter = cellCenter(9.5, 12);
-    if (visiblePlayers.length > 0 && (random() < 0.7 || tank.y < ARENA_H * 0.55)) {
-      const nearest = visiblePlayers.sort(
-        (a, b) => Math.hypot(a.x - tank.x, a.y - tank.y) - Math.hypot(b.x - tank.x, b.y - tank.y)
-      )[0];
-      targetX = nearest.x;
-      targetY = nearest.y;
+  const isEnemy = tank.team === 3;
+  const isDuel = state.mode === 'duel';
+  const hostiles = state.tanks.filter((o) => o.alive && o.team !== tank.team);
+  const visible = hostiles.filter((h) => !isHidden(state, h, tank));
+  const [col, row] = cellOfTank(tank);
+
+  // --- 1. Choose where to go ---------------------------------------------------------------
+  let field: Int16Array | null = null;
+  if (isEnemy) {
+    if (tank.aiTimer <= 0) {
+      tank.aiTimer = 3 + random() * 3;
+      const roll = random();
+      switch (tank.archetype) {
+        case 'scout':
+          tank.aiGoal = roll < 0.75 ? 'base' : 'hunt';
+          break;
+        case 'striker':
+          tank.aiGoal = roll < 0.6 ? 'hunt' : 'base';
+          break;
+        case 'sniper':
+          tank.aiGoal = roll < 0.8 ? 'hunt' : 'base';
+          break;
+        case 'cargo':
+          tank.aiGoal = roll < 0.7 ? 'wander' : 'base';
+          tank.aiCol = 1 + Math.floor(random() * (COLS - 2));
+          tank.aiRow = 1 + Math.floor(random() * (ROWS - 4));
+          break;
+        default:
+          tank.aiGoal = roll < 0.65 ? 'base' : 'hunt';
+      }
+    }
+    const prey = tank.aiGoal === 'hunt' ? nearestBy(visible, tank.x, tank.y) : undefined;
+    if (prey) {
+      const [pc, pr] = cellOfTank(prey);
+      field = fieldTo(state, `t:${prey.id}`, pc, pr, false);
+    } else if (tank.aiGoal === 'wander') {
+      field = fieldTo(state, `w:${tank.id}`, tank.aiCol, tank.aiRow, false);
+      if (field[row * COLS + col] === 0 || field[row * COLS + col] >= NAV_BLOCKED) tank.aiTimer = 0;
     } else {
-      targetX = baseCenter.x;
-      targetY = baseCenter.y;
+      field = baseField(state);
     }
   } else {
-    // Allied AI Wingman or Duel AI Rival
-    const nearestPower = state.powerUps.sort(
-      (a, b) => Math.hypot(a.x - tank.x, a.y - tank.y) - Math.hypot(b.x - tank.x, b.y - tank.y)
-    )[0];
-    if (nearestPower && Math.hypot(nearestPower.x - tank.x, nearestPower.y - tank.y) < TILE * 4.2) {
-      targetX = nearestPower.x;
-      targetY = nearestPower.y;
-    } else if (hostiles.length > 0) {
-      const nearest = hostiles.sort(
-        (a, b) => Math.hypot(a.x - tank.x, a.y - tank.y) - Math.hypot(b.x - tank.x, b.y - tank.y)
-      )[0];
-      targetX = nearest.x;
-      targetY = nearest.y;
-    }
-  }
-
-  const dx = targetX - tank.x;
-  const dy = targetY - tank.y;
-  const alignedX = Math.abs(dx) < TILE * 0.65;
-  const alignedY = Math.abs(dy) < TILE * 0.65;
-
-  if (tank.aiTimer <= 0) {
-    tank.aiTimer = tank.team === 3 ? 0.55 + random() * 0.55 : 0.28 + random() * 0.32;
-    if (alignedX) {
-      tank.aiTargetDir = dy > 0 ? 'down' : 'up';
-    } else if (alignedY) {
-      tank.aiTargetDir = dx > 0 ? 'right' : 'left';
-    } else if (Math.abs(dx) > Math.abs(dy)) {
-      tank.aiTargetDir = dx > 0 ? 'right' : 'left';
+    const crate = nearestBy(state.powerUps, tank.x, tank.y);
+    const crateNear = crate && Math.hypot(crate.x - tank.x, crate.y - tank.y) < TILE * 4.5 ? crate : undefined;
+    if (isDuel) {
+      const foe = hostiles[0];
+      if (crateNear) {
+        field = fieldTo(state, `c:${tank.id}`, Math.floor(crateNear.x / TILE), Math.floor(crateNear.y / TILE), false);
+      } else if (foe) {
+        const [fc, fr] = cellOfTank(foe);
+        field = fieldTo(state, `t:${foe.id}`, fc, fr, false);
+      }
     } else {
-      tank.aiTargetDir = dy > 0 ? 'down' : 'up';
-    }
-    const stepCheck = dirVector(tank.aiTargetDir);
-    if (!canTankStandAt(state, tank, tank.x + stepCheck.dx * 20, tank.y + stepCheck.dy * 20)) {
-      const dirs: Direction[] = ['up', 'down', 'left', 'right'];
-      tank.aiTargetDir = dirs[Math.floor(random() * dirs.length)];
+      // Wingman: intercept whichever enemy is closest (by road) to the Eagle, otherwise hold the gate.
+      const bf = baseField(state);
+      let threat: Tank | undefined;
+      let threatCost = 15;
+      for (const h of hostiles) {
+        const [hc, hr] = cellOfTank(h);
+        const cost = bf[hr * COLS + hc];
+        if (cost < threatCost) {
+          threatCost = cost;
+          threat = h;
+        }
+      }
+      if (threat) {
+        const [tc, trow] = cellOfTank(threat);
+        field = fieldTo(state, `a:${threat.id}`, tc, trow, true);
+      } else if (crateNear) {
+        field = fieldTo(state, `c:${tank.id}`, Math.floor(crateNear.x / TILE), Math.floor(crateNear.y / TILE), true);
+      } else {
+        const post = GUARD_POSTS.find(([c, r]) => !isTileSolidForTank(state.grid[r][c].kind)) ?? GUARD_POSTS[0];
+        field = fieldTo(state, 'guard', post[0], post[1], true);
+      }
     }
   }
 
-  const shouldFire =
-    tank.team === 3
-      ? (alignedX || alignedY ? random() < 0.28 : random() < 0.05)
-      : alignedX || alignedY || random() < 0.35;
-  const shouldSpecial = tank.mines > 0 && hostiles.some((h) => Math.hypot(h.x - tank.x, h.y - tank.y) < TILE * 2.5) && random() < 0.04;
-  const vec = dirVector(tank.aiTargetDir);
+  // --- 2. Movement ---------------------------------------------------------------------------
+  const step = field ? navStep(state, tank, field) : { dir: null, blocker: null, arrived: false };
+  let moveDir: Direction | null = step.dir;
+  let fire = false;
 
+  // --- 3. Shooting ---------------------------------------------------------------------------
+  const engagement = findEngagement(state, tank, visible);
+  if (engagement) {
+    if (!tank.aiWantFire) {
+      // Fresh target: a human-ish beat before the first shot.
+      const trailing = isDuel && tank.playerIndex === 1 && state.p2Wins - state.p1Wins >= 2 ? 0.25 : 0;
+      tank.aiReact = isEnemy ? 0.2 + random() * 0.35 : isDuel ? 0.4 + trailing + random() * 0.45 : 0.5 + random() * 0.5;
+    }
+    tank.aiWantFire = true;
+    const holdRange = isEnemy ? (tank.archetype === 'sniper' ? ARENA_W : TILE * 1.6) : TILE * 3.6;
+    tank.dir = engagement.dir;
+    tank.turretAngle = dirVector(engagement.dir).angle;
+    moveDir = engagement.dist < holdRange ? null : engagement.dir;
+    fire = tank.aiReact <= 0;
+    if (isDuel && fire && tank.reloadTimer <= 0 && tank.aiWander <= 0 && random() < 0.5) {
+      // Shoot and scoot: after a shot the rival often breaks out of the lane instead of trading blows.
+      const side: Direction[] = engagement.dir === 'up' || engagement.dir === 'down' ? ['left', 'right'] : ['up', 'down'];
+      const open = side.filter((d) => {
+        const v = dirVector(d);
+        return canTankStandAt(state, tank, tank.x + v.dx * 24, tank.y + v.dy * 24);
+      });
+      if (open.length > 0) {
+        tank.aiTargetDir = open[Math.floor(random() * open.length) % open.length];
+        tank.aiWander = -(0.3 + random() * 0.5); // negative = armed; starts once this shot has left the barrel
+      }
+    }
+  } else {
+    tank.aiWantFire = false;
+    const ahead = lineOfFire(state, tank, tank.dir);
+    if (isEnemy) {
+      if (ahead.kind === 'base') fire = random() < dt * 4;
+      else if (ahead.kind === 'brick' && step.blocker === 'brick' && step.dir === tank.dir && ahead.dist < TILE * 1.4) fire = true;
+      else if (ahead.kind === 'barrel' && ahead.dist > TILE * 2.8) fire = random() < dt * 0.8;
+      else fire = random() < dt * 0.35;
+    } else {
+      const wallAhead = ahead.kind === 'brick' && !BASE_WALL_KEYS.has(ahead.row * COLS + ahead.col);
+      if (wallAhead && step.blocker === 'brick' && step.dir === tank.dir && ahead.dist < TILE * 1.4) fire = true;
+      else if (ahead.kind === 'barrel' && ahead.dist > TILE * 2.8) {
+        // Pop a barrel when someone hostile is standing next to it.
+        const b = cellCenter(ahead.col, ahead.row);
+        fire = hostiles.some((h) => Math.hypot(h.x - b.x, h.y - b.y) < TILE * 1.9);
+      }
+    }
+  }
+
+  // --- 4. Get unstuck ------------------------------------------------------------------------
+  if (tank.aiWander < 0 && tank.reloadTimer > 0) tank.aiWander = -tank.aiWander;
+  if (tank.aiWander > 0) {
+    if (isDuel) {
+      moveDir = tank.aiTargetDir;
+      fire = false;
+    } else moveDir = engagement ? moveDir : tank.aiTargetDir;
+  } else if (moveDir && !(step.blocker && fire)) {
+    tank.aiStuck += dt;
+    if (tank.aiStuck >= 0.6) {
+      const moved = Math.hypot(tank.x - tank.aiLastX, tank.y - tank.aiLastY);
+      tank.aiStuck = 0;
+      tank.aiLastX = tank.x;
+      tank.aiLastY = tank.y;
+      if (moved < 5) {
+        const free = DIRS.filter((d) => {
+          const v = dirVector(d);
+          return canTankStandAt(state, tank, tank.x + v.dx * 14, tank.y + v.dy * 14);
+        });
+        if (free.length > 0) {
+          tank.aiTargetDir = free[Math.floor(random() * free.length) % free.length];
+          tank.aiWander = 0.35 + random() * 0.45;
+          moveDir = tank.aiTargetDir;
+        }
+      }
+    }
+  } else {
+    tank.aiStuck = 0;
+    tank.aiLastX = tank.x;
+    tank.aiLastY = tank.y;
+  }
+
+  // --- 5. Tricks -----------------------------------------------------------------------------
+  let dash = false;
+  let special = false;
+  if (!isEnemy) {
+    special = tank.mines > 0 && hostiles.some((h) => Math.hypot(h.x - tank.x, h.y - tank.y) < TILE * 2.2) && random() < dt * 1.2;
+    if (isDuel && tank.dashCooldown <= 0) {
+      // Sidestep a shell that is about to land.
+      const incoming = state.bullets.some((b) => {
+        if (b.team === tank.team) return false;
+        const rx = tank.x - b.x;
+        const ry = tank.y - b.y;
+        const closing = rx * b.vx + ry * b.vy;
+        if (closing <= 0) return false;
+        const speed = Math.hypot(b.vx, b.vy) || 1;
+        const along = closing / speed;
+        const off = Math.abs(rx * b.vy - ry * b.vx) / speed;
+        return along < 170 && off < tank.radius + 6;
+      });
+      if (incoming) {
+        if (random() < 0.55) {
+          const side: Direction[] = tank.dir === 'up' || tank.dir === 'down' ? ['left', 'right'] : ['up', 'down'];
+          const open = side.filter((d) => {
+            const v = dirVector(d);
+            return canTankStandAt(state, tank, tank.x + v.dx * 30, tank.y + v.dy * 30);
+          });
+          if (open.length > 0) {
+            tank.dir = open[Math.floor(random() * open.length) % open.length];
+            tank.turretAngle = dirVector(tank.dir).angle;
+            dash = true;
+            moveDir = tank.dir;
+          }
+        }
+        if (!dash) tank.dashCooldown = 0.9; // missed the read; do not re-roll every frame
+      }
+    }
+  }
+
+  const vec = moveDir ? dirVector(moveDir) : { dx: 0, dy: 0 };
   return {
     moveX: vec.dx,
     moveY: vec.dy,
-    fire: shouldFire,
-    fireJustPressed: shouldFire,
-    specialJustPressed: shouldSpecial
+    fire,
+    fireJustPressed: fire,
+    specialJustPressed: special,
+    dashJustPressed: dash
   };
 }
 
@@ -981,7 +1550,9 @@ function updateBullets(state: ArenaState, dt: number, random: () => number): voi
       }
 
       if (cell.kind === 'base') {
-        damageBase(state, b.damage);
+        // Defenders' shells splash harmlessly off their own Eagle.
+        if (state.mode === 'coop' && b.team === 1) addParticles(state, b.x, b.y, '#fbbf24', 5, 80, 0.22, 2.5);
+        else damageBase(state, 1);
         b.life = 0;
         continue;
       }
@@ -1056,7 +1627,8 @@ function updateBullets(state: ArenaState, dt: number, random: () => number): voi
       if (Math.hypot(tank.x - b.x, tank.y - b.y) <= tank.radius + b.radius) {
         damageTank(state, tank, b.damage, b.team, b.playerIndex, random);
         if (b.splashRadius > 0) {
-          detonateExplosion(state, b.x, b.y, b.splashRadius, 1, b.team, b.playerIndex, b.pierceSteel, random);
+          // The splash is for everything *around* the target; the direct hit already paid in full.
+          detonateExplosion(state, b.x, b.y, b.splashRadius, 1, b.team, b.playerIndex, b.pierceSteel, random, tank.id);
         }
         if (!b.pierceTanks) {
           b.life = 0;
@@ -1109,6 +1681,9 @@ export function stepArena(
   state.cues = [];
   state.screenShake = Math.max(0, state.screenShake - dt * 26);
   state.bannerTimer = Math.max(0, state.bannerTimer - dt);
+  state.baseFlash = Math.max(0, state.baseFlash - dt);
+  state.comboTimer = Math.max(0, state.comboTimer - dt);
+  for (const tank of state.tanks) tank.hitFlash = Math.max(0, tank.hitFlash - dt);
 
   for (const p of state.particles) {
     p.x += p.vx * dt;
@@ -1154,23 +1729,51 @@ export function stepArena(
     }
   }
 
-  // Co-op Enemy Spawning
-  if (state.mode === 'coop' && state.enemiesRemainingToSpawn.length > 0) {
-    const activeEnemies = state.tanks.filter((t) => t.alive && t.team === 3).length;
-    const maxConcurrent = state.stageIndex < 2 ? 2 : 3;
-    if (activeEnemies < maxConcurrent) {
-      state.spawnTimer -= dt;
-      if (state.spawnTimer <= 0) {
-        const spawnCols = [0, 9, 19];
-        const col = spawnCols[state.nextEntityId % spawnCols.length];
-        const nextType = state.enemiesRemainingToSpawn.shift()!;
-        const enemy = createEnemyTank(`e${state.nextEntityId++}`, nextType, col, 0);
-        state.tanks.push(enemy);
-        state.spawnTimer = 2.6;
-        addShockwave(state, enemy.x, enemy.y, 38, '#ff6b81');
-        if (enemy.isBoss) {
-          state.bannerKey = 'banner.bossIncoming';
-          state.bannerTimer = 2.8;
+  // Co-op Enemy Spawning: a flashing marker warns of each arrival before the tank drops in.
+  if (state.mode === 'coop') {
+    for (const warn of state.spawnWarnings) warn.timer -= dt;
+    for (let i = state.spawnWarnings.length - 1; i >= 0; i--) {
+      const warn = state.spawnWarnings[i];
+      if (warn.timer > 0) continue;
+      const pos = cellCenter(warn.col, 0);
+      if (state.tanks.some((t) => t.alive && t.team === 3 && Math.hypot(t.x - pos.x, t.y - pos.y) < TILE * 0.85)) {
+        warn.timer = 0.15; // someone is parked on the pad; try again in a moment
+        continue;
+      }
+      state.spawnWarnings.splice(i, 1);
+      const enemy = createEnemyTank(`e${state.nextEntityId++}`, warn.archetype, warn.col, 0, state.loop);
+      state.tanks.push(enemy);
+      addShockwave(state, enemy.x, enemy.y, 38, '#ff6b81');
+    }
+    if (state.enemiesRemainingToSpawn.length > 0) {
+      const activeEnemies = state.tanks.filter((t) => t.alive && t.team === 3).length + state.spawnWarnings.length;
+      const defenders = state.tanks.filter((t) => t.team === 1).length;
+      const maxConcurrent = Math.min(7, (state.stageIndex < 1 ? 4 : state.stageIndex < 3 ? 5 : 6) + (defenders > 1 ? 1 : 0) + Math.min(1, state.loop));
+      if (activeEnemies < maxConcurrent) {
+        state.spawnTimer -= dt;
+        if (state.spawnTimer <= 0) {
+          const spawnCols = [0, 19, 9];
+          let col = -1;
+          for (let k = 0; k < spawnCols.length; k++) {
+            const candidate = spawnCols[(state.spawnCount + k) % spawnCols.length];
+            if (!state.spawnWarnings.some((w) => w.col === candidate)) {
+              col = candidate;
+              break;
+            }
+          }
+          if (col < 0) {
+            state.spawnTimer = 0.3;
+          } else {
+            state.spawnCount += 1;
+            const nextType = state.enemiesRemainingToSpawn.shift()!;
+            state.spawnWarnings.push({ col, timer: 0.9, archetype: nextType });
+            state.spawnTimer = Math.max(1.0, 1.9 - state.stageIndex * 0.15 - (defenders > 1 ? 0.2 : 0));
+            if (nextType === 'boss-behemoth' || nextType === 'boss-omega') {
+              state.bannerKey = 'banner.bossIncoming';
+              state.bannerTimer = 2.8;
+              state.cues.push('warn');
+            }
+          }
         }
       }
     }
@@ -1208,6 +1811,10 @@ export function stepArena(
           tank.x = fresh.x;
           tank.y = fresh.y;
           tank.dir = fresh.dir;
+          tank.turretAngle = fresh.turretAngle;
+          tank.weapon = null;
+          tank.weaponTimer = 0;
+          tank.dashTimer = 0;
           tank.hp = fresh.maxHp;
           tank.alive = true;
           tank.spawnProtected = 2.5;
@@ -1242,9 +1849,13 @@ export function stepArena(
 
     moveTankWithSlide(state, tank, input.moveX, input.moveY, dt);
 
+    if (input.dashJustPressed) {
+      triggerTankDash(state, tank);
+    }
     if (input.specialJustPressed) {
       triggerTankSpecial(state, tank);
     }
+    if (tank.isBoss) updateBossSpecial(state, tank, dt);
     if (input.fire || input.fireJustPressed) {
       fireTankWeapon(state, tank);
     }
@@ -1289,16 +1900,17 @@ export function stepArena(
     if (!playersAliveOrRespawning) {
       state.cues.push('lose');
       state.outcome = 'coop-defeat';
+      state.defeatReason = 'tanks';
       state.outcomeTimer = 2.4;
       state.bannerKey = 'banner.gameOver';
       state.bannerTimer = 99;
       return;
     }
-    const enemiesLeft =
-      state.enemiesRemainingToSpawn.length + state.tanks.filter((t) => t.alive && t.team === 3).length;
-    if (enemiesLeft === 0) {
+    if (state.outcome === 'none' && enemiesLeft(state) === 0) {
       state.cues.push('win');
-      state.score += 500;
+      // Clear bonus rewards an intact Eagle.
+      state.clearBonus = 500 + baseHp(state) * 100;
+      state.score += state.clearBonus;
       if (state.stageIndex >= 5) {
         state.outcome = 'coop-victory';
         state.bannerKey = 'banner.victory';

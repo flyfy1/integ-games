@@ -31,7 +31,9 @@ export function createTankAudio(isMuted: () => boolean) {
       case 'dash': return tone(190, 0.2, 'sawtooth', 0.09, 0, 620);
       case 'crash': return tone(110, 0.12, 'square', 0.17, 0, 54);
       case 'revive': sound.chime(523); sound.chime(659, 0.14, 0.09); return sound.chime(784, 0.14, 0.18);
-      case 'hit': return tone(200, 0.17, 'square', 0.2, 0, 62);
+      case 'hit':
+        if (item.by === item.tank) tone(520, 0.3, 'triangle', 0.12, 0.06, 180); // A rueful slide for an own goal.
+        return tone(200, 0.17, 'square', 0.2, 0, 62);
       case 'explode': return boom(item.radius / 80);
       case 'pickup': tone(660, 0.09, 'square', 0.1); tone(880, 0.09, 'square', 0.1, 0.08); return tone(1320, 0.14, 'square', 0.1, 0.16);
       case 'fall': return tone(900, 0.68, 'sine', 0.17, 0, 80);

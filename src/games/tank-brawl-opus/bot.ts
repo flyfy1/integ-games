@@ -1,14 +1,25 @@
 /** A bot only produces the same Intent a player's controller would, so it can never cheat the rules. */
 import { COLS, ROWS, TILE } from './arenas';
-import { angleGap, idle, isPit, isSolid, lineOfSight, muzzle, traceShot, type Intent, type Tank, type World } from './sim';
+import { angleGap, idle, isPit, isSolid, lineOfSight, muzzle, traceShot, type EnemyKind, type Intent, type Tank, type World } from './sim';
 
 export type BotSkill = { aim: number; reaction: number; dodge: number; bounceShots: boolean };
+/** Easy, Normal, Hard, and the Boss that is unlocked by beating Hard (it also brings two extra hearts). */
 export const SKILLS: readonly BotSkill[] = [
   { aim: 0.34, reaction: 1.3, dodge: 0.15, bounceShots: false },
   { aim: 0.2, reaction: 0.85, dodge: 0.5, bounceShots: false },
-  { aim: 0.1, reaction: 0.5, dodge: 0.9, bounceShots: true }
+  { aim: 0.1, reaction: 0.5, dodge: 0.9, bounceShots: true },
+  { aim: 0.06, reaction: 0.38, dodge: 1, bounceShots: true }
 ];
 export const ENEMY_SKILL: BotSkill = { aim: 0.26, reaction: 0.8, dodge: 0.1, bounceShots: false };
+/** Wave enemies are fodder first and a threat second: grunts dawdle, the King means it. */
+const ENEMY_SKILLS: Record<EnemyKind, BotSkill> = {
+  grunt: { aim: 0.36, reaction: 1.6, dodge: 0, bounceShots: false },
+  zippy: { aim: 0.32, reaction: 1.2, dodge: 0.2, bounceShots: false },
+  bouncer: { aim: 0.28, reaction: 1.15, dodge: 0.1, bounceShots: false },
+  heavy: { aim: 0.24, reaction: 1.3, dodge: 0, bounceShots: false },
+  king: { aim: 0.22, reaction: 1.5, dodge: 0, bounceShots: false }
+};
+export const enemySkill = (kind: EnemyKind | undefined): BotSkill => (kind ? ENEMY_SKILLS[kind] : ENEMY_SKILL);
 
 type Memory = { path: Array<[number, number]>; think: number; aimError: number; ready: number; dodge: [number, number] | null; dodgeLeft: number };
 const memories = new WeakMap<Tank, Memory>();
@@ -76,7 +87,8 @@ export function botIntent(world: World, tank: Tank, skill: BotSkill): Intent {
   if (memory.think <= 0) {
     memory.think = 0.35;
     const prize = tank.enemy ? undefined : world.pickups.find((pickup) => pickup.drop <= 0 && Math.hypot(pickup.x - tank.x, pickup.y - tank.y) < nearest);
-    memory.path = findPath(world, col, row, Math.floor((prize ?? target).x / TILE), Math.floor((prize ?? target).y / TILE));
+    const refuge = world.warnRing >= 0 && ringOf(col, row) <= world.warnRing ? saferTile(world, col, row) : null;
+    memory.path = refuge ? findPath(world, col, row, refuge[0], refuge[1]) : findPath(world, col, row, Math.floor((prize ?? target).x / TILE), Math.floor((prize ?? target).y / TILE));
     memory.aimError = (world.random() - 0.5) * 2 * skill.aim;
     if (memory.dodgeLeft <= 0 && world.random() < skill.dodge) {
       const away = threat(world, tank);
@@ -110,6 +122,20 @@ export function botIntent(world: World, tank: Tank, skill: BotSkill): Intent {
     memory.ready = skill.reaction * (0.6 + world.random() * 0.8);
   }
   return intent;
+}
+
+const ringOf = (col: number, row: number) => Math.min(col, row, COLS - 1 - col, ROWS - 1 - row);
+
+/** The nearest standable tile inside the ring that is about to crumble, so a bot walks inward instead of waiting to fall. */
+function saferTile(world: World, col: number, row: number): [number, number] | null {
+  let best: [number, number] | null = null, distance = Infinity;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const tile = world.tiles[r][c];
+    if (ringOf(c, r) <= world.warnRing || isSolid(tile) || isPit(tile)) continue;
+    const away = Math.abs(c - col) + Math.abs(r - row);
+    if (away < distance) { distance = away; best = [c, r]; }
+  }
+  return best;
 }
 
 /** Look one tile ahead and steer around pits, because a bot that dives into lava unprompted is not a good opponent. */

@@ -3,12 +3,13 @@ import { createMobileControls } from '../_shared/mobile-controls';
 import { createInput, startLoop, type KeyboardMap, type PadState, type VirtualPad } from '../_shared/gamepad-kit';
 import { ARENAS, arenaById } from './arenas';
 import { createTankAudio } from './audio';
-import { botIntent, ENEMY_SKILL, SKILLS } from './bot';
+import { botIntent, enemySkill, SKILLS } from './bot';
+import { BOSS, botLevels, matchBonus, MEDALS, medalRow, recordCoopRun, recordSoloMatch, roundScore, validCareer } from './career';
 import { createRenderer, HEIGHT, menuRowBox, SEAT_COLORS, START_BOX, WIDTH, type MenuRow, type Overlay, type Touch } from './render';
-import { arenaForRound, createMatch, createWorld, idle, makeTank, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
+import { arenaForRound, COOP_HP, createMatch, createWorld, heartsAfterWave, idle, makeTank, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, suddenDeathAt, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
 
 const ACCENT = '#ffd34d';
-const VERSUS_HP = 5, COOP_HP = 5, FIRE = 0, DASH = 1, HONK = 2, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9;
+const VERSUS_HP = 5, FIRE = 0, DASH = 1, HONK = 2, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9;
 const KEYS: KeyboardMap[] = [
   { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', buttons: [['KeyF', 'Space'], 'KeyG', 'KeyR', [], [], [], [], [], 'KeyT', 'KeyP'] },
   { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', buttons: [['KeyK', 'Enter'], 'KeyL', 'Semicolon', [], [], [], [], [], 'Quote', 'KeyO'] }
@@ -17,10 +18,12 @@ const zh = () => /^zh\b/i.test(navigator.language || '');
 
 type Screen = 'menu' | 'card' | 'count' | 'fight' | 'ko' | 'result' | 'over';
 type Settings = { mode: Mode; players: 1 | 2; skill: number; arena: string; target: number };
-const DEFAULTS: Settings = { mode: 'versus', players: 2, skill: 1, arena: 'shuffle', target: 3 };
+const DEFAULTS: Settings = { mode: 'versus', players: 2, skill: 0, arena: 'shuffle', target: 3 };
+const coarsePointer = () => globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
 
+/** A first visit on a phone is almost always one person, so it opens on the bot; a keyboard keeps the couch default. */
 function validSettings(raw: Partial<Settings> | null): Settings {
-  const merged = { ...DEFAULTS, ...raw };
+  const merged = { ...DEFAULTS, players: coarsePointer() ? 1 : 2, ...raw };
   return {
     mode: merged.mode === 'coop' ? 'coop' : 'versus', players: merged.players === 1 ? 1 : 2,
     skill: SKILLS[merged.skill] ? merged.skill : 1,
@@ -33,6 +36,8 @@ function mount(host: HTMLElement, services: GameServices) {
   const lang = zh() ? 1 : 0;
   const tr = (en: string, cn: string) => (lang ? cn : en);
   let settings = validSettings(services.storage.get<Partial<Settings> | null>('settings', null));
+  let career = validCareer(services.storage.get<unknown>('career', null));
+  if (settings.skill >= botLevels(career)) settings.skill = botLevels(career) - 1;
 
   const root = document.createElement('div');
   root.dataset.tankBrawl = '';
@@ -47,7 +52,7 @@ function mount(host: HTMLElement, services: GameServices) {
   root.append(canvas); host.replaceChildren(root); canvas.focus({ preventScroll: true });
 
   const context = canvas.getContext('2d');
-  const renderer = context ? createRenderer(context, services.isReducedMotion) : null;
+  const renderer = context ? createRenderer(context, services.isReducedMotion, lang === 1) : null;
   const audio = createTankAudio(() => services.sound.muted);
   const listeners = new AbortController();
   const signal = listeners.signal;
@@ -55,10 +60,11 @@ function mount(host: HTMLElement, services: GameServices) {
   const shellControls = createMobileControls(root, { shape: 'single-action', labels: [], pause: true, onChange: () => undefined });
 
   const fingers = new Map<number, { seat: number; kind: 'stick' | 'fire' | 'dash'; x: number; y: number; dx: number; dy: number }>();
-  let touched = globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
+  let touched = coarsePointer();
+  const FIRE_R = 66, DASH_R = 54;
   const seatButtons = (seat: number) => {
-    if (settings.players === 1) return { fire: { x: 1185, y: 625 }, dash: { x: 1060, y: 655 } };
-    return seat === 0 ? { fire: { x: 330, y: 650 }, dash: { x: 210, y: 665 } } : { fire: { x: WIDTH - 330, y: 650 }, dash: { x: WIDTH - 210, y: 665 } };
+    if (settings.players === 1) return { fire: { x: 1178, y: 606 }, dash: { x: 1030, y: 648 } };
+    return seat === 0 ? { fire: { x: 330, y: 632 }, dash: { x: 190, y: 652 } } : { fire: { x: WIDTH - 330, y: 632 }, dash: { x: WIDTH - 190, y: 652 } };
   };
   const virtual = (player: number): VirtualPad | undefined => {
     let x = 0, y = 0, fire = false, dash = false;
@@ -73,6 +79,8 @@ function mount(host: HTMLElement, services: GameServices) {
   let screen: Screen = 'menu', timer = 0, paused = false, userPaused = false, accumulator = 0, hitStop = 0, cursor = 5, rollNext = 0;
   let match: Match | null = null, world: World = demoWorld(), rolledTwist: Twist = TWISTS[0], heroes: Tank[] = [], lastCount = 0, overHold = 0;
   let overlayResult: Overlay = { kind: 'none' };
+  /** Solo-versus score for the leaderboard, and who has actually touched their controls this match. */
+  let soloScore = 0, seatSeen = [false, false], autoBot = [false, false], takeoverNote = 0, skipCard = false, rotated = false, taught = false;
   renderer?.setWorld(world);
 
   function demoWorld() {
@@ -89,16 +97,25 @@ function mount(host: HTMLElement, services: GameServices) {
     return [
       { label: tr('Mode', '模式'), value: versus ? tr('⚔️ Versus', '⚔️ 对战') : tr('🤝 Co-op Waves', '🤝 合作闯关'), enabled: true },
       { label: tr('Players', '玩家'), value: solo ? tr('1 Player', '单人') : tr('2 Players', '双人'), enabled: true },
-      { label: tr('Bot', '电脑'), value: [tr('Easy', '简单'), tr('Normal', '普通'), tr('Hard', '困难')][settings.skill], enabled: solo && versus },
+      { label: tr('Bot', '电脑'), value: `${career.botWins[settings.skill] > 0 ? `${MEDALS[settings.skill]} ` : ''}${skillName(settings.skill)}`, enabled: solo && versus },
       { label: tr('Arena', '场地'), value: settings.arena === 'shuffle' ? tr('🎲 Shuffle', '🎲 随机轮换') : arenaById(settings.arena).name[lang], enabled: true },
       { label: tr('First to', '先赢'), value: tr(`${settings.target} rounds`, `${settings.target} 局`), enabled: versus }
     ];
+  }
+  const skillName = (skill: number) => [tr('Easy', '简单'), tr('Normal', '普通'), tr('Hard', '困难'), tr('Boss', '魔王')][skill];
+  function recordLine() {
+    if (settings.mode === 'coop') return career.bestScore > 0 ? tr(`🏆 Best run: wave ${Math.min(career.bestWave + 1, WAVES)} of ${WAVES} · score ${career.bestScore}`, `🏆 最佳：第 ${Math.min(career.bestWave + 1, WAVES)}/${WAVES} 波 · ${career.bestScore} 分`) : tr(`Survive ${WAVES} waves. The King Tank waits at wave 5 👑`, `撑过 ${WAVES} 波，第 5 波有坦克大王 👑`);
+    if (settings.players === 2) return tr('Loser of every round wears one more hat 🎩', '每输一局多戴一顶帽子 🎩');
+    const locked = botLevels(career) <= 3;
+    const ladder = tr(`Bot ladder  ${medalRow(career)}`, `电脑段位  ${medalRow(career)}`);
+    if (career.matches === 0) return tr(`${ladder}   ·   beat each bot to climb`, `${ladder}   ·   逐个击败电脑来升级`);
+    return `${ladder}   ·   ${tr(`streak ${career.streak} (best ${career.bestStreak})`, `连胜 ${career.streak}（最高 ${career.bestStreak}）`)}   ·   ${locked ? tr('beat Hard to unlock the Boss', '击败困难解锁魔王') : tr(`best ${career.soloBest}`, `最高 ${career.soloBest} 分`)}`;
   }
   function changeRow(row: number, direction: number) {
     const cycle = <T,>(items: readonly T[], value: T) => items[(items.indexOf(value) + direction + items.length) % items.length];
     if (row === 0) settings.mode = settings.mode === 'versus' ? 'coop' : 'versus';
     else if (row === 1) settings.players = settings.players === 1 ? 2 : 1;
-    else if (row === 2) settings.skill = cycle([0, 1, 2], settings.skill);
+    else if (row === 2) settings.skill = cycle(Array.from({ length: botLevels(career) }, (_, level) => level), settings.skill);
     else if (row === 3) settings.arena = cycle(arenaChoices, settings.arena);
     else settings.target = cycle([3, 5, 7], settings.target);
     audio.move(); saveSettings();
@@ -112,6 +129,7 @@ function mount(host: HTMLElement, services: GameServices) {
   function startMatch() {
     const arenas = settings.arena === 'shuffle' ? ARENAS : [arenaById(settings.arena)];
     match = createMatch(settings.mode, settings.target, arenas, services.random);
+    soloScore = 0; seatSeen = [false, false]; autoBot = [false, false]; takeoverNote = 0;
     services.reportScore(0);
     audio.pick();
     startRound();
@@ -127,7 +145,8 @@ function mount(host: HTMLElement, services: GameServices) {
     const seats = coop && settings.players === 1 ? [0] : [0, 1];
     for (const seat of seats) {
       const [x, y] = spawnPoint(arena, seat);
-      const hp = coop ? COOP_HP : VERSUS_HP;
+      const boss = !coop && settings.players === 1 && seat === 1 && settings.skill === BOSS;
+      const hp = coop ? COOP_HP : (rolledTwist.hp ?? VERSUS_HP) + (boss ? 2 : 0);
       const tank = makeTank(world, coop ? 0 : seat, seat, x, y, hp);
       if (coop && match.hp[seat] > 0) tank.hp = match.hp[seat];
       heroes.push(tank);
@@ -135,24 +154,42 @@ function mount(host: HTMLElement, services: GameServices) {
     if (coop) spawnWave(world, match.wave);
     renderer?.setWorld(world);
     fingers.clear();
-    screen = 'card'; timer = 0; rollNext = 0;
+    screen = 'card'; timer = 0; rollNext = 0; skipCard = false;
   }
 
   const overPrompt = (again: string) => (touched ? tr(`Tap left: ${again}  ·  Tap right: menu`, `点左边：${again} · 点右边：回菜单`) : tr(`Fire: ${again}  ·  Dash: menu`, `开火：${again} · 冲刺：回菜单`));
   const seatName = (seat: number) => (settings.players === 1 && seat === 1 ? tr('BOT', '电脑') : `P${seat + 1}`);
 
+  const soloVersus = () => settings.players === 1 && match?.mode === 'versus';
+  const saveCareer = () => services.storage.set('career', career);
+
   function finishRound() {
     if (!match) return;
     timer = 0;
     if (match.mode === 'coop') return finishWave();
-    const winner = world.winner, champion = recordRound(match, winner);
-    services.reportScore(match.wins[0] * 100);
+    const winner = world.winner, champion = recordRound(match, winner), solo = soloVersus(), level = settings.skill;
+    if (solo && winner === 0) soloScore += roundScore(level, heroes[0]?.hp ?? 0);
+    if (solo && champion === 0) soloScore += matchBonus(level, match.wins[1]);
+    services.reportScore(solo ? soloScore : match.wins[0] * 100);
     const score = `P1  ${match.wins[0]} : ${match.wins[1]}  ${seatName(1)}`;
     if (champion >= 0) {
-      const humanLost = settings.players === 1 && champion === 1;
+      const humanLost = solo && champion === 1;
       humanLost ? audio.sad() : audio.fanfare();
       services.reportComplete(1);
-      overlayResult = { kind: 'result', title: tr(`${seatName(champion)} WINS!`, `${seatName(champion)} 胜利！`), color: SEAT_COLORS[champion], lines: [score, tr(`Hats of shame: ${match.hats[champion ? 0 : 1]} 🎩`, `败者帽子：${match.hats[champion ? 0 : 1]} 顶 🎩`)], prompt: overPrompt(tr('rematch', '再来一局')), party: !humanLost };
+      const hats = tr(`Hats of shame: ${match.hats[champion ? 0 : 1]} 🎩`, `败者帽子：${match.hats[champion ? 0 : 1]} 顶 🎩`);
+      let lines = [score, hats], again = tr('rematch', '再来一局');
+      if (solo) {
+        const result = recordSoloMatch(career, level, !humanLost, soloScore);
+        career = result.career; saveCareer();
+        const points = result.newBest ? tr(`Score ${soloScore} · NEW BEST! 🎉`, `得分 ${soloScore} · 新纪录！🎉`) : tr(`Score ${soloScore} · best ${career.soloBest}`, `得分 ${soloScore} · 最高 ${career.soloBest}`);
+        const next = level + 1 < botLevels(career) ? level + 1 : -1;
+        if (humanLost) lines = [score, points, level > 0 ? tr(`${hats} · streak over`, `${hats} · 连胜中断`) : hats];
+        else if (result.firstWin) {
+          lines = [score, points, tr(`${MEDALS[level]} ${skillName(level)} bot beaten!`, `${MEDALS[level]} 击败了${skillName(level)}电脑！`) + (result.unlockedBoss ? tr(' Boss unlocked 👑', ' 魔王已解锁 👑') : '')];
+          if (next >= 0) { settings.skill = next; saveSettings(); again = tr(`fight ${skillName(next)} bot`, `挑战${skillName(next)}电脑`); }
+        } else lines = [score, points, tr(`Win streak ${career.streak} 🔥 (best ${career.bestStreak})`, `连胜 ${career.streak} 🔥（最高 ${career.bestStreak}）`)];
+      }
+      overlayResult = { kind: 'result', title: tr(`${seatName(champion)} WINS!`, `${seatName(champion)} 胜利！`), color: SEAT_COLORS[champion], lines, prompt: overPrompt(again), party: !humanLost };
       screen = 'over'; overHold = 0.9;
       return;
     }
@@ -165,8 +202,9 @@ function mount(host: HTMLElement, services: GameServices) {
   function finishWave() {
     if (!match) return;
     const cleared = world.winner === 0;
+    let healed = 0;
     if (cleared) {
-      heroes.forEach((tank) => { match!.hp[tank.seat] = Math.min(COOP_HP, Math.max(tank.downed ? 2 : tank.hp, 1) + 1); });
+      heroes.forEach((tank) => { const hearts = heartsAfterWave(tank, heroes.length); healed = Math.max(healed, hearts - Math.max(tank.hp, 0)); match!.hp[tank.seat] = hearts; });
       match.wave++; match.round++;
     }
     const score = waveScore(match);
@@ -175,12 +213,15 @@ function mount(host: HTMLElement, services: GameServices) {
       const won = cleared;
       won ? audio.fanfare() : audio.sad();
       services.reportComplete(won ? 1 : (match.wave - 1) / WAVES);
-      overlayResult = { kind: 'result', title: won ? tr('ALL WAVES CLEARED!', '全部通关！') : tr('TANKS DOWN', '全军覆没'), color: won ? '#ffd34d' : '#ff7d8b', lines: [tr(`Reached wave ${Math.min(match.wave, WAVES)} of ${WAVES}`, `到达第 ${Math.min(match.wave, WAVES)} / ${WAVES} 波`), tr(`Score ${score}`, `得分 ${score}`)], prompt: overPrompt(tr('try again', '再试一次')), party: won };
+      const run = recordCoopRun(career, match.wave - 1, score);
+      career = run.career; saveCareer();
+      const points = run.newBest ? tr(`Score ${score} · NEW BEST! 🎉`, `得分 ${score} · 新纪录！🎉`) : tr(`Score ${score} · best ${career.bestScore}`, `得分 ${score} · 最高 ${career.bestScore}`);
+      overlayResult = { kind: 'result', title: won ? tr('ALL WAVES CLEARED!', '全部通关！') : tr('TANKS DOWN', '全军覆没'), color: won ? '#ffd34d' : '#ff7d8b', lines: [tr(`Reached wave ${Math.min(match.wave, WAVES)} of ${WAVES}`, `到达第 ${Math.min(match.wave, WAVES)} / ${WAVES} 波`), points], prompt: overPrompt(tr('try again', '再试一次')), party: won };
       screen = 'over'; overHold = 0.9;
       return;
     }
     audio.tick();
-    overlayResult = { kind: 'result', title: tr(`WAVE ${match.wave - 1} CLEAR!`, `第 ${match.wave - 1} 波完成！`), color: '#70f0c2', lines: [tr(`Score ${score}  ·  +1 ❤️`, `得分 ${score} · +1 ❤️`)], party: false };
+    overlayResult = { kind: 'result', title: tr(`WAVE ${match.wave - 1} CLEAR!`, `第 ${match.wave - 1} 波完成！`), color: '#70f0c2', lines: [tr(`Score ${score}`, `得分 ${score}`) + (healed > 0 ? ` · +${healed} ❤️` : '')], party: false };
     screen = 'result';
   }
 
@@ -194,14 +235,25 @@ function mount(host: HTMLElement, services: GameServices) {
     return { x: pad.x, y: pad.y, ax: pad.rx, ay: pad.ry, fire: down[FIRE] || down[R1] || down[R2], dash: down[DASH] || down[L1] || down[L2], honk: down[HONK] || down[3] };
   }
 
+  /**
+   * Two-player is the default, so a lone visitor would otherwise fight a parked tank. A seat nobody has touched
+   * four seconds into a round, while the other one is busy, gets an easy bot until its owner presses something.
+   */
+  function seatIntent(tank: Tank, pads: PadState[] | null): Intent {
+    const seat = tank.seat, mine = pads ? padIntent(pads[seat]) : idle();
+    if (mine.x || mine.y || mine.fire || mine.dash || mine.honk) { seatSeen[seat] = true; autoBot[seat] = false; return mine; }
+    if (!autoBot[seat] && !seatSeen[seat] && seatSeen[seat ? 0 : 1] && world.time > 4 && screen === 'fight') { autoBot[seat] = true; takeoverNote = 5; }
+    return autoBot[seat] ? botIntent(world, tank, SKILLS[0]) : mine;
+  }
+
   function stepWorld(pads: PadState[] | null, merged: PadState) {
     const intents = new Map<number, Intent>();
     for (const tank of world.tanks) {
       if (!tank.alive) continue;
       if (screen === 'menu') intents.set(tank.id, botIntent(world, tank, SKILLS[1]));
-      else if (tank.enemy) intents.set(tank.id, botIntent(world, tank, ENEMY_SKILL));
+      else if (tank.enemy) intents.set(tank.id, botIntent(world, tank, enemySkill(tank.enemy)));
       else if (settings.players === 1) intents.set(tank.id, tank.seat === 0 ? padIntent(merged) : botIntent(world, tank, SKILLS[settings.skill]));
-      else intents.set(tank.id, pads ? padIntent(pads[tank.seat]) : idle());
+      else intents.set(tank.id, seatIntent(tank, pads));
     }
     step(world, intents);
     if (screen === 'menu') { world.events.length = 0; return; }
@@ -225,9 +277,11 @@ function mount(host: HTMLElement, services: GameServices) {
     }
     if (screen === 'card') {
       const rolling = match?.mode === 'versus' && match.round > 0;
-      const length = rolling ? 2.6 : 1.8;
+      const length = rolling ? 2.6 : teaching() ? 3.2 : 1.8;
+      if (timer > 0.5 && (skipCard || merged.justPressed[FIRE])) timer = Math.max(timer, length);
+      skipCard = false;
       if (rolling && timer < 1.1 && timer >= rollNext) { rollNext = timer + 0.09; audio.roll(); }
-      if (timer >= length) { screen = 'count'; timer = 0; lastCount = 0; }
+      if (timer >= length) { if (match?.round === 0) taught = true; screen = 'count'; timer = 0; lastCount = 0; }
       return;
     }
     if (screen === 'count') {
@@ -238,6 +292,7 @@ function mount(host: HTMLElement, services: GameServices) {
     }
     if (screen === 'fight' || screen === 'ko') {
       const slow = screen === 'ko' && timer < 1 && !services.isReducedMotion ? 0.28 : 1;
+      takeoverNote = Math.max(0, takeoverNote - dt);
       if (hitStop > 0) { hitStop -= dt; return; }
       accumulator += dt * slow;
       while (accumulator >= STEP) { accumulator -= STEP; stepWorld(pads, merged); }
@@ -261,10 +316,13 @@ function mount(host: HTMLElement, services: GameServices) {
   }
 
   function overlay(): Overlay {
-    if (userPaused) return { kind: 'paused', title: tr('PAUSED', '已暂停'), hint: tr('Start: resume  ·  Select: quit to menu', 'Start：继续 · Select：回菜单') };
+    if (userPaused) return { kind: 'paused', title: tr('PAUSED', '已暂停'), hint: touched ? tr('Tap to resume', '点一下继续') : tr('P or Start: resume  ·  T or Select: quit to menu', 'P 或 Start：继续 · T 或 Select：回菜单') };
     if (screen === 'menu') return {
-      kind: 'menu', title: tr('TANK BRAWL', '坦克大乱斗'), subtitle: tr('Bouncing shells, knockback chaos, and a new hat for every loss.', '弹射炮弹、击退混战，输一局多戴一顶帽子'), rows: menuRows(), cursor, start: tr('▶  START', '▶  开战'),
-      legend: [
+      kind: 'menu', title: tr('TANK BRAWL', '坦克大乱斗'), subtitle: tr('Bouncing shells, knockback chaos, and a new hat for every loss.', '弹射炮弹、击退混战，输一局多戴一顶帽子'), rows: menuRows(), cursor, start: tr('▶  START', '▶  开战'), record: recordLine(),
+      legend: touched ? [
+        [tr('Drive', '移动'), settings.players === 2 ? tr('Drag anywhere on your half of the screen', '在自己那半边屏幕上拖动') : tr('Drag anywhere on the screen', '在屏幕任意位置拖动'), SEAT_COLORS[0]],
+        [tr('Fight', '战斗'), tr('FIRE shoots · DASH jumps pits and rams', '开火射击 · 冲刺能飞跃坑洞、撞飞对手'), SEAT_COLORS[1]]
+      ] : [
         [tr('P1', '玩家1'), tr('WASD move · F or Space fire · G dash · R honk', 'WASD 移动 · F 或空格 开火 · G 冲刺 · R 喇叭'), SEAT_COLORS[0]],
         [tr('P2', '玩家2'), tr('Arrows move · K or Enter fire · L dash · ; honk', '方向键 移动 · K 或回车 开火 · L 冲刺 · ; 喇叭'), SEAT_COLORS[1]],
         [tr('Pads', '手柄'), tr('Stick move · ✕/A fire · ○/B dash · right stick aims · Start pause', '摇杆移动 · ✕/A 开火 · ○/B 冲刺 · 右摇杆瞄准 · Start 暂停'), '#ffd34d']
@@ -274,8 +332,10 @@ function mount(host: HTMLElement, services: GameServices) {
       const rolling = match.mode === 'versus' && match.round > 0;
       const spinning = rolling && timer < 1.1;
       const shown = spinning ? TWISTS[Math.floor(timer * 11) % TWISTS.length] : world.twist;
-      if (match.mode === 'coop') return { kind: 'card', top: world.arena.name[lang], title: tr(`WAVE ${match.wave}`, `第 ${match.wave} 波`) + (match.wave === 5 || match.wave === WAVES ? ' 👑' : ''), hint: match.wave === 5 || match.wave === WAVES ? tr('The King Tank arrives!', '坦克大王驾到！') : world.arena.tagline[lang], progress: timer / 1.8, rolling: false };
-      return { kind: 'card', top: tr(`Round ${match.round + 1} · ${world.arena.name[0]}`, `第 ${match.round + 1} 局 · ${world.arena.name[1]}`), title: rolling ? shown.name[lang] : tr('Fight!', '开打！'), hint: rolling ? shown.hint[lang] : world.arena.tagline[lang], progress: timer / 2.4, rolling: spinning };
+      const lines = teaching() ? controlLines() : undefined;
+      if (match.mode === 'coop') return { kind: 'card', top: world.arena.name[lang], title: tr(`WAVE ${match.wave}`, `第 ${match.wave} 波`) + (match.wave === 5 || match.wave === WAVES ? ' 👑' : ''), hint: match.wave === 5 || match.wave === WAVES ? tr('The King Tank arrives!', '坦克大王驾到！') : world.arena.tagline[lang], progress: timer / 1.8, rolling: false, lines };
+      const point = Math.max(...match.wins) === match.target - 1 && match.round > 0;
+      return { kind: 'card', top: tr(`Round ${match.round + 1} · ${world.arena.name[0]}`, `第 ${match.round + 1} 局 · ${world.arena.name[1]}`), title: rolling ? shown.name[lang] : tr('Fight!', '开打！'), hint: rolling ? shown.hint[lang] : world.arena.tagline[lang], progress: timer / 2.4, rolling: spinning, lines, alert: point ? tr('MATCH POINT', '赛点') : undefined };
     }
     if (screen === 'count') { const beat = 3 - Math.floor(timer / 0.55); return { kind: 'count', value: beat > 0 ? String(beat) : tr('GO!', '开炮！') }; }
     if (screen === 'fight' && timer < 0.6) return { kind: 'count', value: tr('GO!', '开炮！') };
@@ -283,12 +343,21 @@ function mount(host: HTMLElement, services: GameServices) {
     return { kind: 'none' };
   }
 
+  /** Shown on the first card of a match, which is the moment a new player actually needs them. */
+  const teaching = () => match?.round === 0 && !taught;
+  function controlLines() {
+    if (touched) return [tr('Drag to drive  ·  FIRE to shoot  ·  DASH to leap pits', '拖动行驶 · 开火射击 · 冲刺飞跃坑洞'), tr('Shells bounce — your own can hit you!', '炮弹会反弹，小心打到自己！')];
+    if (settings.players === 1) return [tr('Move WASD  ·  Fire F or Space  ·  Dash G', '移动 WASD · 开火 F 或空格 · 冲刺 G'), tr('Shells bounce — your own can hit you!', '炮弹会反弹，小心打到自己！')];
+    return [tr('P1  WASD move · F fire · G dash', '玩家1  WASD 移动 · F 开火 · G 冲刺'), tr('P2  Arrows move · K fire · L dash', '玩家2  方向键 移动 · K 开火 · L 冲刺')];
+  }
+
   function hudLabels() {
     if (screen === 'menu' || !match) return null;
-    const names = settings.players === 1 ? [tr('P1', '玩家1'), tr('BOT', '电脑')] : [tr('P1', '玩家1'), tr('P2', '玩家2')];
+    const names = settings.players === 1 ? [tr('P1', '玩家1'), tr('BOT', '电脑')] : [autoBot[0] ? tr('BOT', '电脑') : tr('P1', '玩家1'), autoBot[1] ? tr('BOT', '电脑') : tr('P2', '玩家2')];
+    if (takeoverNote > 0 && (autoBot[0] || autoBot[1])) { const who = autoBot[0] ? 'P1' : 'P2'; return { center: tr(`A bot is driving ${who}`, `电脑正在代打 ${who}`), sub: tr(`Press any ${who} control to take over`, `按任意 ${who} 按键即可接管`), names }; }
     if (match.mode === 'coop') return { center: tr(`WAVE ${Math.min(match.wave, WAVES)}/${WAVES}`, `第 ${Math.min(match.wave, WAVES)}/${WAVES} 波`), sub: tr(`Enemies ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · Score ${waveScore(match)}`, `敌人 ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · 得分 ${waveScore(match)}`), names };
-    const left = Math.ceil(Math.max(0, 50 - world.time));
-    return { center: world.twist.name[lang], sub: world.suddenDeath ? tr('SUDDEN DEATH: the floor is crumbling!', '决战时刻：地面正在崩塌！') : tr(`Sudden death in ${left}s`, `${left} 秒后地面崩塌`), names };
+    const left = Math.ceil(Math.max(0, suddenDeathAt(world.twist) - world.time));
+    return { center: world.twist.name[lang], sub: world.suddenDeath ? tr('SUDDEN DEATH: the floor is crumbling!', '决战时刻：地面正在崩塌！') : tr(`Floor crumbles in ${left}s`, `${left} 秒后地面崩塌`), names };
   }
 
   function touchLayer(): Touch | null {
@@ -299,13 +368,15 @@ function mount(host: HTMLElement, services: GameServices) {
       sticks: seats.map((seat) => { const finger = [...fingers.values()].find((item) => item.seat === seat && item.kind === 'stick'); return finger ? { x: finger.x, y: finger.y, dx: finger.dx, dy: finger.dy } : null; }),
       buttons: seats.flatMap((seat) => {
         const spot = seatButtons(seat);
-        return [{ ...spot.fire, r: 52, label: tr('FIRE', '开火'), held: held(seat, 'fire') }, { ...spot.dash, r: 44, label: tr('DASH', '冲刺'), held: held(seat, 'dash') }];
+        return [{ ...spot.fire, r: FIRE_R, label: tr('FIRE', '开火'), held: held(seat, 'fire') }, { ...spot.dash, r: DASH_R, label: tr('DASH', '冲刺'), held: held(seat, 'dash') }];
       })
     };
   }
 
   const point = (event: PointerEvent) => {
     const box = canvas.getBoundingClientRect();
+    // Turned a quarter clockwise, the canvas's x runs down the screen and its y runs right to left.
+    if (rotated) return { x: (event.clientY - box.top) * WIDTH / box.height, y: (box.right - event.clientX) * HEIGHT / box.width };
     return { x: (event.clientX - box.left) * WIDTH / box.width, y: (event.clientY - box.top) * HEIGHT / box.height };
   };
   const inside = (x: number, y: number, area: { x: number; y: number; w: number; h: number }) => x >= area.x && y >= area.y && x <= area.x + area.w && y <= area.y + area.h;
@@ -327,10 +398,11 @@ function mount(host: HTMLElement, services: GameServices) {
     if (userPaused) { userPaused = false; return; }
     if (screen === 'menu') { menuTap(x, y); return; }
     if (screen === 'over') { if (overHold > 0) return; if (touched && x >= WIDTH / 2) backToMenu(); else startMatch(); return; }
-    if (!touched || screen === 'result' || screen === 'card') return;
+    if (screen === 'card') { skipCard = true; return; }
+    if (!touched || screen === 'result') return;
     const seat = settings.players === 1 ? 0 : x < WIDTH / 2 ? 0 : 1;
     const spot = seatButtons(seat);
-    const kind = Math.hypot(x - spot.fire.x, y - spot.fire.y) < 62 ? 'fire' : Math.hypot(x - spot.dash.x, y - spot.dash.y) < 54 ? 'dash' : 'stick';
+    const kind = Math.hypot(x - spot.fire.x, y - spot.fire.y) < FIRE_R + 12 ? 'fire' : Math.hypot(x - spot.dash.x, y - spot.dash.y) < DASH_R + 12 ? 'dash' : 'stick';
     fingers.set(event.pointerId, { seat, kind, x, y, dx: 0, dy: 0 });
     try { canvas.setPointerCapture?.(event.pointerId); } catch { /* The finger already lifted; pointerup cleans up. */ }
   }, { signal });
@@ -345,13 +417,21 @@ function mount(host: HTMLElement, services: GameServices) {
   canvas.addEventListener('pointercancel', release, { signal });
   addEventListener('keydown', () => audio.unlock(), { signal, capture: true });
 
-  let fullscreen = false;
+  /**
+   * Full screen on a phone held upright (iOS cannot lock landscape) would squeeze the arena into a 390px strip,
+   * so the canvas is turned a quarter instead and the player turns the phone. The top edge keeps clear of the
+   * shell's close and pause buttons.
+   */
+  let layout = '';
   function fitScreen() {
-    const full = Boolean(root.closest('.is-immersive'));
-    if (full === fullscreen) return;
-    fullscreen = full;
+    const full = Boolean(root.closest('.is-immersive')), wide = innerWidth, tall = innerHeight;
+    const turn = full && touched && tall > wide * 1.15;
+    const next = `${full}|${turn}|${wide}x${tall}`;
+    if (next === layout) return;
+    layout = next; rotated = turn; canvas.dataset.rotated = turn ? '1' : '0';
     root.style.cssText = full ? `${rootStyle};position:fixed;inset:0;max-width:none;display:flex;align-items:center;justify-content:center;background:#10162a` : rootStyle;
-    canvas.style.cssText = full ? `${canvasStyle};width:min(100vw,calc(100dvh*16/9));border:0;border-radius:0` : canvasStyle;
+    if (turn) canvas.style.cssText = `${canvasStyle};position:absolute;left:50%;top:calc(50% + 28px);width:${Math.floor(Math.min(tall - 64, wide * 16 / 9))}px;max-width:none;border:0;border-radius:0;transform:translate(-50%,-50%) rotate(90deg)`;
+    else canvas.style.cssText = full ? `${canvasStyle};width:min(100vw,calc(100dvh*16/9));border:0;border-radius:0` : canvasStyle;
   }
 
   function frame(dt: number) {
@@ -374,7 +454,7 @@ function mount(host: HTMLElement, services: GameServices) {
 
   void input.reconnect();
   const stop = startLoop(frame);
-  const debug = { state: () => ({ screen, settings, match, tanks: world.tanks.map(({ x, y, hp, seat }) => ({ x, y, hp, seat })), shells: world.shells.length }) };
+  const debug = { state: () => ({ screen, settings, match, career, soloScore, autoBot, rotated, twist: world.twist.id, time: world.time, tanks: world.tanks.map(({ x, y, hp, seat, team }) => ({ x, y, hp, seat, team })), shells: world.shells.length }) };
   (globalThis as { __tankBrawl?: typeof debug }).__tankBrawl = debug;
 
   return {
@@ -393,7 +473,7 @@ const game: GameModule = {
   meta: {
     slug: 'tank-brawl-opus', title: 'Tank Brawl', category: 'action',
     description: 'A silly couch tank brawl: bouncing shells, knockback into lava, power-up ducks, a new twist every round, and one more hat for every loss.',
-    instructions: 'Versus or co-op, two players or one against a bot. P1: WASD, F or Space fires, G dashes. P2: arrows, K or Enter fires, L dashes. Controllers and touch work too. Dash jumps pits and rams tanks; your own shells bounce back and hurt.',
+    instructions: 'Versus or co-op, two players or one against a bot ladder (beat Hard to unlock the Boss). P1: WASD, F or Space fires, G dashes. P2: arrows, K or Enter fires, L dashes. Controllers and touch work too; on a phone, turn it sideways. Dash jumps pits and rams tanks; your own shells bounce back and hurt.',
     accent: '#ffd34d', mechanic: 'Bounce shells, ram, grab power-ups'
   },
   mount

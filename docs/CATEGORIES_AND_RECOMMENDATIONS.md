@@ -4,6 +4,12 @@
 
 Classification should help a visitor answer two questions quickly: “what kind of play is this?” and “what should I try next?” The home page uses four balanced, mechanic-led categories. Every card and play page also shows two compact traits. Recommendations are editorial, not simply the first games sharing a category.
 
+## Listed arcade (2026-11-10)
+
+The catalog still installs 26 modules, but the arcade lists only the ten in `featuredSlugs` (`src/core/catalog.ts`), in this order: Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
+
+Listed categories: Puzzle & Strategy (Merge 2048, Geo Quiz), Match & Build (Block Drop, Fruit Orbit), Quick Reflex (Tank Brawl, Pocket Survivor, Pad Pals), Action & Adventure (Ashfall, Pelican Pedal, Tank Clash). Tank Brawl and Pocket Survivor moved to Quick Reflex because their rounds and runs are short. `recommendationsFor` returns only listed games: the editorial picks that are still listed, topped up in arcade order to four. The table below records the original 26-game editorial picks and is historical for hidden games.
+
 ## Primary categories
 
 | Key | Label | Promise |

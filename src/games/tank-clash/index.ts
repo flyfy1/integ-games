@@ -9,28 +9,26 @@ import {
 } from '../_shared/gamepad-kit';
 import { createMobileControls } from '../_shared/mobile-controls';
 import {
+  baseHp,
   createArenaState,
   stepArena,
   type ArenaState,
   type SoundCue
 } from './engine';
 import { defaultLang, isLang, t, type Key, type Lang } from './i18n';
-import { CHASSIS_ORDER, HEIGHT, WIDTH } from './maps';
-import {
-  drawArenaScene,
-  drawLobbyOverlay,
-  drawPauseOverlay,
-  type LobbyConfig,
-  type LobbyHitbox
-} from './render';
+import { CHASSIS_ORDER } from './maps';
+import { COMPACT_LAYOUT, drawArenaScene, WIDE_LAYOUT, type HudLayout, type LobbyConfig } from './render';
 import type { ChassisId, GameMode, PlayerControlInput, TeamSetup } from './types';
+import { createUi, teamOrder, type ResultsView } from './ui';
 
 const ACCENT = '#36d6ff';
-const MAX_HEIGHT = 960; // Up to 4:3 full-screen aspect without shrinking the arena.
+const COOP_STAGES = 6;
+const DUEL_ARENAS = 5;
 
 /**
- * Dedicated 2-player keyboard layout so P1 (WASD + Space/J + K/Q) and
- * P2 (Arrows + Enter/Numpad0/Slash + RightShift/Period) can play simultaneously on one keyboard without key conflicts.
+ * Dedicated 2-player keyboard layout so both can play on one keyboard without key conflicts:
+ * P1 WASD + Space/J fire + K/F mine + L/G dash; P2 Arrows + Enter/Numpad0/Slash fire + RightShift/Period mine + Comma/Quote dash.
+ * With a single human both sets drive Player 1. P (or Digit2 / pad Start) opens the pause menu.
  */
 export const TANK_CLASH_KEYBOARD: readonly KeyboardMap[] = [
   {
@@ -40,15 +38,15 @@ export const TANK_CLASH_KEYBOARD: readonly KeyboardMap[] = [
     right: 'KeyD',
     buttons: [
       ['Space', 'KeyJ'], // south: Fire
-      'KeyL', // east
-      ['KeyK', 'KeyF'], // west: Mine / Dash
+      ['KeyL', 'KeyG'], // east: Dash
+      ['KeyK', 'KeyF'], // west: Mine
       'KeyU', // north
       'KeyQ', // l1: prev chassis
       'KeyE', // r1: next chassis
       'KeyZ',
       'KeyC',
       'Digit1',
-      'Digit2'
+      ['Digit2', 'KeyP'] // start: Pause menu
     ]
   },
   {
@@ -58,8 +56,8 @@ export const TANK_CLASH_KEYBOARD: readonly KeyboardMap[] = [
     right: 'ArrowRight',
     buttons: [
       ['Enter', 'NumpadEnter', 'Numpad0', 'Slash'], // south: Fire
-      'Quote', // east
-      ['ShiftRight', 'Period', 'NumpadDecimal'], // west: Mine / Dash
+      ['Quote', 'Comma'], // east: Dash
+      ['ShiftRight', 'Period', 'NumpadDecimal'], // west: Mine
       'Semicolon', // north
       'KeyN', // l1: prev chassis
       'KeyM', // r1: next chassis
@@ -82,41 +80,53 @@ function mount(host: HTMLElement, services: GameServices) {
   const tr = (key: Key, params?: Record<string, string | number>) => t(lang, key, params);
 
   const storedMaps = services.storage.get<Record<string, number[]>>('button-maps', {});
+  const storedMode = services.storage.get<GameMode>('mode', 'coop');
+  const storedTeam = services.storage.get<TeamSetup | null>('teamSetup', null);
+  const initialMode: GameMode = storedMode === 'duel' ? 'duel' : 'coop';
   let lobbyConfig: LobbyConfig = {
-    mode: services.storage.get<GameMode>('mode', 'coop'),
-    teamSetup: services.storage.get<TeamSetup>('teamSetup', '2p'),
+    mode: initialMode,
+    // A lone visitor is the common case, so the default gives them an AI partner rather than an idle second tank.
+    teamSetup: storedTeam && teamOrder(initialMode).includes(storedTeam) ? storedTeam : '1p-ai',
     stageIndex: 0,
     p1Chassis: services.storage.get<ChassisId>('p1Chassis', 'vanguard'),
     p2Chassis: services.storage.get<ChassisId>('p2Chassis', 'titan')
   };
+  if (!CHASSIS_ORDER.includes(lobbyConfig.p1Chassis)) lobbyConfig.p1Chassis = 'vanguard';
+  if (!CHASSIS_ORDER.includes(lobbyConfig.p2Chassis)) lobbyConfig.p2Chassis = 'titan';
 
   let inLobby = true;
   let paused = false;
   let gamePaused = false;
-  let pauseCursor = 0;
-  let lobbyCursorId = 'start-battle';
   let time = 0;
   let bestScore = services.storage.get<number>('best', 0);
+  let bestAtStart = bestScore;
+  let loop = 0;
+  let stageStartScore = 0;
+  let battleClock = 0;
+  let p2Seen = false;
+  let outcomeAge = 0;
+  let resultsOpen = false;
+  let autoAdvance = 0;
   let state: ArenaState = createArenaState(lobbyConfig);
-  let hitboxes: LobbyHitbox[] = [];
-  let pauseHitboxes: LobbyHitbox[] = [];
 
   const root = document.createElement('div');
   root.dataset.tankClash = '';
-  root.style.cssText =
+  const rootStyle =
     'width:100%;max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:8px;color:#F7F9FF;font-family:system-ui,sans-serif;position:relative';
+  root.style.cssText = rootStyle;
 
   const canvas = document.createElement('canvas');
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
+  canvas.width = WIDE_LAYOUT.width;
+  canvas.height = WIDE_LAYOUT.height;
   canvas.tabIndex = 0;
   canvas.setAttribute('role', 'application');
   canvas.setAttribute('aria-label', 'Tank Clash');
-  canvas.style.cssText = `display:block;width:min(100%,calc((100dvh - 96px)*16/9));aspect-ratio:16/9;margin:0 auto;border-radius:16px;background:#070b14;border:1px solid ${ACCENT}55;touch-action:none;outline:none`;
+  const canvasBase = 'display:block;margin:0 auto;background:#070b14;touch-action:none;outline:none;flex:0 0 auto';
 
   const bar = document.createElement('div');
-  bar.style.cssText =
-    'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;font-size:13px;min-height:40px';
+  const barStyle =
+    'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;font-size:14.5px;min-height:44px';
+  bar.style.cssText = barStyle;
   const live = document.createElement('p');
   live.setAttribute('role', 'status');
   live.style.cssText = 'margin:0;padding:0 6px;color:#A8B1C5';
@@ -125,58 +135,68 @@ function mount(host: HTMLElement, services: GameServices) {
   host.replaceChildren(root);
   canvas.focus({ preventScroll: true });
   const g = canvas.getContext('2d')!;
-  const rootStyle = root.style.cssText;
-  const canvasStyle = canvas.style.cssText;
-  const barStyle = bar.style.cssText;
-  let headroom = 0;
-  let fullscreen = false;
-  let barLeft = 0;
+  let layout: HudLayout = WIDE_LAYOUT;
+  let layoutKey = '';
 
-  function fitScreen() {
-    const full = Boolean(root.closest('.is-immersive'));
-    const nextHeight = full
-      ? Math.round(Math.min(MAX_HEIGHT, Math.max(HEIGHT, (WIDTH * innerHeight) / Math.max(1, innerWidth))))
-      : HEIGHT;
-    if (full !== fullscreen) {
-      fullscreen = full;
-      root.style.cssText = full
-        ? `${rootStyle};position:fixed;inset:0;max-width:none;align-items:center;justify-content:center;background:#070b14`
-        : rootStyle;
-      bar.style.cssText = full
-        ? `${barStyle};position:absolute;top:8px;left:0;right:0;z-index:2;transition:opacity .2s`
-        : barStyle;
-      if (!full) {
-        canvas.style.cssText = canvasStyle;
-        bar.style.opacity = '1';
-        bar.style.pointerEvents = 'auto';
-      }
-    }
-    if (full) {
-      canvas.style.cssText = `${canvasStyle};width:min(100vw,calc(100dvh*${WIDTH}/${nextHeight}));aspect-ratio:${WIDTH}/${nextHeight};border:0;border-radius:0`;
-      bar.style.opacity = barLeft > 0 ? '1' : '0';
-      bar.style.pointerEvents = barLeft > 0 ? 'auto' : 'none';
-    } else if (canvas.height !== HEIGHT) {
-      canvas.style.cssText = canvasStyle;
-    }
-    if (canvas.height !== nextHeight) canvas.height = nextHeight;
-    headroom = nextHeight - HEIGHT;
-  }
-
-  // Mobile virtual stick & buttons for Player 1
-  const mobileHeld = { up: false, down: false, left: false, right: false, fire: false, mine: false };
+  // Touch controls for Player 1: stick + Fire / Mine / Dash.
+  const mobileHeld = { up: false, down: false, left: false, right: false, fire: false, mine: false, dash: false };
+  const mobileTapped = { fire: false, mine: false, dash: false };
   const mobileControls = createMobileControls(root, {
     shape: 'stick-action',
-    labels: ['Fire', 'Mine'],
+    labels: ['Fire', 'Mine', 'Dash'],
     pause: true,
     onChange(action, held) {
       if (action in mobileHeld) {
         mobileHeld[action as keyof typeof mobileHeld] = held;
-      }
-      if (held && inLobby && (action === 'fire' || action === 'mine')) {
-        startBattle();
+        // Latch the press so a tap shorter than one frame still fires / mines / dashes.
+        if (held && action in mobileTapped) mobileTapped[action as keyof typeof mobileTapped] = true;
       }
     }
   });
+  const touchPad = root.querySelector<HTMLElement>('.mobile-controls');
+  const touch = Boolean(touchPad);
+
+  function labelTouchButtons() {
+    const buttons = root.querySelectorAll<HTMLElement>('.mobile-control');
+    (['fire', 'mine', 'dash'] as const).forEach((action, i) => {
+      const el = buttons[i];
+      if (!el) return;
+      el.dataset.tcAct = action;
+      el.textContent = tr(`ctl.${action}` as Key);
+      el.setAttribute('aria-label', tr(`ctl.${action}` as Key));
+    });
+  }
+
+  function fitScreen() {
+    const full = Boolean(root.closest('.is-immersive'));
+    const vw = typeof innerWidth === 'number' ? innerWidth : 1280;
+    const vh = typeof innerHeight === 'number' ? innerHeight : 720;
+    const hostW = full ? vw : root.clientWidth || 1080;
+    const portrait = vh > vw;
+    // Phones get the big-type layout; so does any stage too narrow for the side panels to stay readable.
+    const compact = full ? portrait || vh < 560 || vw < 760 : hostW < 700;
+    const next = compact ? COMPACT_LAYOUT : WIDE_LAYOUT;
+    const key = `${full}|${next.kind}|${portrait}|${touch}`;
+    if (key === layoutKey) return;
+    layoutKey = key;
+    layout = next;
+    canvas.width = next.width;
+    canvas.height = next.height;
+    const ratio = `${next.width}/${next.height}`;
+    if (full) {
+      // Portrait: board at the top (clear of the corner buttons), thumbs at the bottom.
+      const reserve = portrait ? (touch ? 216 : 64) : 0;
+      root.style.cssText = `${rootStyle};position:fixed;z-index:0;inset:0;max-width:none;align-items:center;justify-content:${portrait ? 'flex-start' : 'center'};background:#070b14;box-sizing:border-box;padding-top:${portrait ? 58 : 0}px;gap:0`;
+      canvas.style.cssText = `${canvasBase};width:min(100vw,calc((100dvh - ${reserve}px)*${ratio}));aspect-ratio:${ratio};border:0;border-radius:0`;
+      bar.style.display = 'none';
+      if (touchPad) touchPad.style.marginTop = portrait ? 'auto' : '';
+    } else {
+      root.style.cssText = rootStyle;
+      canvas.style.cssText = `${canvasBase};width:min(100%,calc((100dvh - 96px)*${ratio}));aspect-ratio:${ratio};border-radius:16px;border:1px solid ${ACCENT}55`;
+      bar.style.cssText = barStyle;
+      if (touchPad) touchPad.style.marginTop = '';
+    }
+  }
 
   const virtualPad = (player: number): VirtualPad | undefined => {
     if (player !== 0) return undefined;
@@ -187,7 +207,7 @@ function mount(host: HTMLElement, services: GameServices) {
       hy: 0,
       rx: 0,
       ry: 0,
-      buttons: [mobileHeld.fire, false, mobileHeld.mine]
+      buttons: [mobileHeld.fire || mobileTapped.fire, mobileHeld.dash || mobileTapped.dash, mobileHeld.mine || mobileTapped.mine]
     };
   };
 
@@ -200,6 +220,7 @@ function mount(host: HTMLElement, services: GameServices) {
   });
   Object.entries(storedMaps).forEach(([kind, map]) => input.setButtonMap(kind, map));
 
+  let lastAlarm = -9;
   function playCue(cue: SoundCue) {
     switch (cue) {
       case 'shoot':
@@ -230,6 +251,10 @@ function mount(host: HTMLElement, services: GameServices) {
         services.sound.play('move');
         synth.tone(420, 0.12, 'sine', 0.1, 0, 840);
         break;
+      case 'dash':
+        services.sound.play('move');
+        synth.tone(300, 0.14, 'triangle', 0.1, 0, 900);
+        break;
       case 'mine':
         services.sound.play('tap');
         synth.tone(360, 0.08, 'triangle', 0.09, 0, 520);
@@ -237,6 +262,23 @@ function mount(host: HTMLElement, services: GameServices) {
       case 'freeze':
         services.sound.play('collect');
         synth.chime(1046, 0.15, 0);
+        break;
+      case 'combo':
+        services.sound.play('collect');
+        synth.chime(784, 0.1, 0);
+        synth.chime(1175, 0.12, 0.06);
+        break;
+      case 'alarm':
+        // Two-tone klaxon, rate-limited so a burst of hits does not turn into noise.
+        if (time - lastAlarm > 0.5) {
+          lastAlarm = time;
+          services.sound.play('fail');
+          synth.tone(660, 0.12, 'square', 0.12, 0, 660);
+          synth.tone(440, 0.16, 'square', 0.12, 0.13, 440);
+        }
+        break;
+      case 'warn':
+        synth.tone(180, 0.3, 'sawtooth', 0.12, 0, 260);
         break;
       case 'win':
         services.sound.play('success');
@@ -256,51 +298,90 @@ function mount(host: HTMLElement, services: GameServices) {
     services.storage.set('p2Chassis', lobbyConfig.p2Chassis);
   }
 
+  function padStatusText(): string {
+    const padStatus = input.status();
+    const count = (padStatus.connected ? 2 : 0) + padStatus.standard;
+    return count > 0 ? tr('pad.ready', { n: count }) : touch ? '' : tr('pad.none');
+  }
+
+  function showLobby() {
+    inLobby = true;
+    gamePaused = false;
+    resultsOpen = false;
+    const padStatus = input.status();
+    ui.showLobby({
+      cfg: lobbyConfig,
+      lang,
+      best: bestScore,
+      touch,
+      canConnectPad: !padStatus.connected && padStatus.hidAvailable,
+      padStatus: padStatusText()
+    });
+    renderBar();
+  }
+
   function updateLobbyConfig(patch: Partial<LobbyConfig>) {
     lobbyConfig = { ...lobbyConfig, ...patch };
+    if (!teamOrder(lobbyConfig.mode).includes(lobbyConfig.teamSetup)) lobbyConfig.teamSetup = '1p-ai';
     savePreferences();
     state = createArenaState(lobbyConfig);
-    renderBar();
+    if (inLobby) showLobby();
     render();
+  }
+
+  function beginStage(opts: Parameters<typeof createArenaState>[0]) {
+    state = createArenaState(opts);
+    stageStartScore = state.score;
+    outcomeAge = 0;
+    resultsOpen = false;
+    gamePaused = false;
+    autoAdvance = 0;
+    if (!inLobby) ui.hide();
   }
 
   function startBattle() {
     synth.unlock();
     inLobby = false;
-    gamePaused = false;
-    state = createArenaState(lobbyConfig);
+    loop = 0;
+    battleClock = 0;
+    p2Seen = false;
+    bestAtStart = bestScore;
+    beginStage({ ...lobbyConfig, loop });
     renderBar();
+    canvas.focus({ preventScroll: true });
     render();
   }
 
+  function restartStage() {
+    beginStage({
+      ...lobbyConfig,
+      stageIndex: state.stageIndex,
+      loop,
+      carryScore: state.mode === 'coop' ? stageStartScore : 0,
+      roundNumber: 1,
+      p1Wins: 0,
+      p2Wins: 0
+    });
+  }
+
   function advanceAfterOutcome() {
+    if (state.outcome === 'none') return;
     if (state.outcome === 'stage-clear') {
-      const nextStage = (state.stageIndex + 1) % 6;
+      const nextStage = (state.stageIndex + 1) % COOP_STAGES;
       lobbyConfig.stageIndex = nextStage;
-      state = createArenaState({
-        ...lobbyConfig,
-        stageIndex: nextStage,
-        carryScore: state.score
-      });
-      services.reportComplete((nextStage) / 6);
+      services.reportComplete(nextStage / COOP_STAGES);
+      beginStage({ ...lobbyConfig, stageIndex: nextStage, loop, carryScore: state.score });
     } else if (state.outcome === 'coop-victory') {
-      services.reportComplete(1);
-      const nextStage = (state.stageIndex + 1) % 6;
-      lobbyConfig.stageIndex = nextStage;
-      state = createArenaState({
-        ...lobbyConfig,
-        stageIndex: nextStage,
-        carryScore: state.score
-      });
+      // New Game+: back to stage 1 with tougher, faster enemies and the score kept.
+      loop += 1;
+      lobbyConfig.stageIndex = 0;
+      beginStage({ ...lobbyConfig, stageIndex: 0, loop, carryScore: state.score });
     } else if (state.outcome === 'coop-defeat') {
-      state = createArenaState({
-        ...lobbyConfig,
-        carryScore: 0
-      });
+      beginStage({ ...lobbyConfig, stageIndex: state.stageIndex, loop, carryScore: stageStartScore });
     } else if (state.outcome === 'round-over') {
-      const nextMap = (state.stageIndex + 1) % 5;
+      const nextMap = (state.stageIndex + 1) % DUEL_ARENAS;
       lobbyConfig.stageIndex = nextMap;
-      state = createArenaState({
+      beginStage({
         ...lobbyConfig,
         stageIndex: nextMap,
         roundNumber: state.roundNumber + 1,
@@ -309,46 +390,162 @@ function mount(host: HTMLElement, services: GameServices) {
         carryScore: state.score
       });
     } else if (state.outcome === 'duel-victory') {
-      services.reportComplete(1);
-      state = createArenaState({
-        ...lobbyConfig,
-        roundNumber: 1,
-        p1Wins: 0,
-        p2Wins: 0,
-        carryScore: 0
-      });
+      beginStage({ ...lobbyConfig, roundNumber: 1, p1Wins: 0, p2Wins: 0, carryScore: 0 });
     }
     renderBar();
   }
 
+  function clock(seconds: number): string {
+    const s = Math.max(0, Math.round(seconds));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function openResults() {
+    resultsOpen = true;
+    const s = state;
+    const lobbyBtn = { id: 'res-lobby', label: tr('res.lobby') };
+    const newBest = s.score > bestAtStart && s.score > 0;
+    const scoreRows: Array<[string, string]> = [
+      [tr('res.score'), String(s.score)],
+      [tr('res.best'), String(Math.max(bestScore, s.score))]
+    ];
+    let view: ResultsView;
+    if (s.outcome === 'stage-clear' || s.outcome === 'coop-victory') {
+      const victory = s.outcome === 'coop-victory';
+      if (victory) services.reportComplete(1);
+      view = {
+        tone: 'win',
+        title: tr(victory ? 'banner.victory' : 'banner.stageClear', { n: s.stageIndex + 1 }),
+        subtitle: victory ? tr('res.victory.sub') : undefined,
+        badge: newBest ? tr('res.newBest') : undefined,
+        rows: [
+          [tr('res.kills'), `${s.stageKills} / ${s.totalEnemies}`],
+          [tr('res.base'), `${baseHp(s)} / 6`],
+          [tr('res.time'), clock(s.roundTimer)],
+          [tr('res.bonus'), `+${s.clearBonus}`],
+          ...scoreRows
+        ],
+        primary: { id: 'res-next', label: victory ? tr('res.loop', { n: loop + 1 }) : tr('res.next') },
+        secondary: lobbyBtn,
+        footnote: touch ? undefined : tr('res.keys')
+      };
+    } else if (s.outcome === 'coop-defeat') {
+      const reason = s.defeatReason === 'tanks' ? 'tanks' : 'base';
+      view = {
+        tone: 'lose',
+        title: tr('banner.gameOver'),
+        subtitle: `${tr(`stage.coop.${s.stageIndex % COOP_STAGES}` as Key)} — ${tr(`res.reason.${reason}` as Key)}`,
+        badge: newBest ? tr('res.newBest') : undefined,
+        rows: [[tr('res.kills'), `${s.stageKills} / ${s.totalEnemies}`], ...scoreRows],
+        tip: tr(`res.tip.${reason}` as Key),
+        primary: { id: 'res-next', label: tr('res.retry') },
+        secondary: lobbyBtn,
+        footnote: touch ? undefined : tr('res.keys')
+      };
+    } else {
+      const vsAi = s.tanks.some((tk) => tk.playerIndex === 1 && tk.isAi);
+      const match = s.outcome === 'duel-victory';
+      if (match) services.reportComplete(1);
+      const title =
+        s.roundWinner === -1
+          ? tr('banner.drawRound')
+          : vsAi
+            ? tr(s.roundWinner === 0 ? (match ? 'banner.youMatch' : 'banner.youRound') : match ? 'banner.aiMatch' : 'banner.aiRound')
+            : tr(s.roundWinner === 0 ? (match ? 'banner.p1Match' : 'banner.p1Round') : match ? 'banner.p2Match' : 'banner.p2Round');
+      autoAdvance = match ? 0 : 3.5;
+      view = {
+        tone: s.roundWinner === -1 || !vsAi ? 'neutral' : s.roundWinner === 0 ? 'win' : 'lose',
+        title,
+        subtitle: tr('res.duelScore', { a: s.p1Wins, b: s.p2Wins, name: vsAi ? tr('hud.ai') : '2P' }),
+        rows: match ? scoreRows : [],
+        primary: { id: 'res-next', label: tr(match ? 'res.rematch' : 'res.nextRound') },
+        secondary: lobbyBtn,
+        footnote: match ? (touch ? undefined : tr('res.keys')) : tr('res.auto', { n: Math.ceil(autoAdvance) })
+      };
+    }
+    ui.showResults(view);
+  }
+
   function refreshStatus() {
+    live.textContent = padStatusText();
     const padStatus = input.status();
-    const count = (padStatus.connected ? 2 : 0) + padStatus.standard;
-    live.textContent = count > 0 ? tr('pad.ready', { n: count }) : tr('pad.none');
     const connectBtn = bar.querySelector<HTMLElement>('[data-tc=connect]');
     if (connectBtn) connectBtn.hidden = padStatus.connected || !padStatus.hidAvailable;
   }
 
-  function btnHtml(action: string, label: string, extraAttr = '') {
-    return `<button type="button" class="secondary-button" data-tc="${action}" ${extraAttr} style="min-height:38px;padding:0 12px">${label}</button>`;
+  function btnHtml(action: string, label: string) {
+    return `<button type="button" class="secondary-button" data-tc="${action}" style="min-height:44px;padding:0 14px;font-size:15px">${label}</button>`;
   }
 
   function renderBar() {
-    const modeLabel = tr(lobbyConfig.mode === 'coop' ? 'mode.coop' : 'mode.duel');
-    const teamLabel = tr(`team.${lobbyConfig.teamSetup}` as Key);
-    const parts = [
+    bar.innerHTML = [
+      btnHtml('lobby', `☰ ${tr('btn.menu')}`),
+      inLobby ? '' : btnHtml('pause', `Ⅱ ${tr('btn.pause')} (P)`),
       btnHtml('connect', tr('btn.connect')),
-      btnHtml('mode', tr('btn.mode', { m: modeLabel })),
-      btnHtml('team', tr('btn.team', { t: teamLabel })),
-      btnHtml('map', tr('btn.map', { n: lobbyConfig.stageIndex + 1 })),
-      btnHtml('lobby', tr('btn.lobby')),
       btnHtml('lang', lang === 'zh' ? 'EN' : '中文')
-    ];
-    bar.innerHTML = parts.join('');
+    ].join('');
     bar.append(live);
     refreshStatus();
+    labelTouchButtons();
   }
 
+  function toggleLang() {
+    lang = lang === 'zh' ? 'en' : 'zh';
+    services.storage.set('lang', lang);
+    renderBar();
+    if (inLobby) showLobby();
+    else if (gamePaused) ui.showPause(lang);
+    else if (resultsOpen) openResults();
+    render();
+  }
+
+  function openPause() {
+    if (inLobby || state.outcome !== 'none') return;
+    gamePaused = true;
+    mobileControls.clear();
+    ui.showPause(lang);
+  }
+
+  function closePause() {
+    gamePaused = false;
+    ui.hide();
+  }
+
+  function cycleTeam() {
+    const order = teamOrder(lobbyConfig.mode);
+    updateLobbyConfig({ teamSetup: order[(order.indexOf(lobbyConfig.teamSetup) + 1) % order.length] });
+  }
+
+  function setMode(mode: GameMode) {
+    if (mode !== lobbyConfig.mode) updateLobbyConfig({ mode, stageIndex: 0 });
+  }
+
+  function cycleStage(delta: number) {
+    const count = lobbyConfig.mode === 'coop' ? COOP_STAGES : DUEL_ARENAS;
+    updateLobbyConfig({ stageIndex: (lobbyConfig.stageIndex + delta + count) % count });
+  }
+
+  function onUiAction(id: string) {
+    synth.unlock();
+    services.sound.play('tap');
+    if (id === 'start-battle') startBattle();
+    else if (id === 'lang') toggleLang();
+    else if (id === 'connect') void input.connect().then(() => (inLobby ? showLobby() : refreshStatus()));
+    else if (id === 'stage-prev') cycleStage(-1);
+    else if (id === 'stage-next') cycleStage(1);
+    else if (id.startsWith('team-')) updateLobbyConfig({ teamSetup: id.slice(5) as TeamSetup });
+    else if (id.startsWith('mode-')) setMode(id.slice(5) as GameMode);
+    else if (id.startsWith('p1-chassis-')) updateLobbyConfig({ p1Chassis: id.slice(11) as ChassisId });
+    else if (id.startsWith('p2-chassis-')) updateLobbyConfig({ p2Chassis: id.slice(11) as ChassisId });
+    else if (id === 'pause-resume') closePause();
+    else if (id === 'pause-restart') restartStage();
+    else if (id === 'pause-lobby' || id === 'res-lobby') showLobby();
+    else if (id === 'res-next') advanceAfterOutcome();
+    canvas.focus({ preventScroll: true });
+    render();
+  }
+
+  const ui = createUi(root, onUiAction);
   const listeners = new AbortController();
   const signal = listeners.signal;
 
@@ -361,90 +558,28 @@ function mount(host: HTMLElement, services: GameServices) {
       if (action === 'connect') {
         await input.connect();
         refreshStatus();
-      } else if (action === 'mode') {
-        const nextMode: GameMode = lobbyConfig.mode === 'coop' ? 'duel' : 'coop';
-        const nextTeam: TeamSetup =
-          nextMode === 'duel' && lobbyConfig.teamSetup === '1p-solo' ? '2p' : lobbyConfig.teamSetup;
-        updateLobbyConfig({ mode: nextMode, teamSetup: nextTeam, stageIndex: 0 });
-      } else if (action === 'team') {
-        const order: TeamSetup[] = lobbyConfig.mode === 'coop' ? ['2p', '1p-ai', '1p-solo'] : ['2p', '1p-ai'];
-        const nextTeam = order[(order.indexOf(lobbyConfig.teamSetup) + 1) % order.length];
-        updateLobbyConfig({ teamSetup: nextTeam });
-      } else if (action === 'map') {
-        const maxMaps = lobbyConfig.mode === 'coop' ? 6 : 5;
-        updateLobbyConfig({ stageIndex: (lobbyConfig.stageIndex + 1) % maxMaps });
       } else if (action === 'lobby') {
-        inLobby = !inLobby;
-        render();
+        showLobby();
+      } else if (action === 'pause') {
+        if (gamePaused) closePause();
+        else openPause();
       } else if (action === 'lang') {
-        lang = lang === 'zh' ? 'en' : 'zh';
-        services.storage.set('lang', lang);
-        renderBar();
-        render();
+        toggleLang();
       }
       canvas.focus({ preventScroll: true });
+      render();
     },
     { signal }
   );
-
-  root.addEventListener('pointermove', () => { barLeft = 3; }, { signal });
 
   canvas.addEventListener(
     'pointerdown',
-    (event) => {
+    () => {
       synth.unlock();
-      barLeft = 3;
       canvas.focus({ preventScroll: true });
-      const box = canvas.getBoundingClientRect();
-      const x = ((event.clientX - box.left) * WIDTH) / box.width;
-      const y = ((event.clientY - box.top) * canvas.height) / box.height - Math.round(headroom / 2);
-
-      if (inLobby) {
-        const hit = hitboxes.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
-        if (hit) {
-          lobbyCursorId = hit.id;
-          services.sound.play('tap');
-          hit.action();
-        }
-        return;
-      }
-
-      if (gamePaused) {
-        const hit = pauseHitboxes.find((h) => x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
-        if (hit) {
-          services.sound.play('tap');
-          hit.action();
-        }
-        return;
-      }
-
-      if (state.outcome !== 'none' && state.outcomeTimer <= 1.4) {
-        advanceAfterOutcome();
-      }
     },
     { signal }
   );
-
-  function moveLobbyCursor(dir: 'up' | 'down' | 'left' | 'right') {
-    if (!hitboxes.length) return;
-    const current = hitboxes.find((h) => h.id === lobbyCursorId) ?? hitboxes[hitboxes.length - 1];
-    const dr = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
-    const dc = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
-    const candidates = hitboxes.filter((h) =>
-      dr !== 0 ? Math.sign(h.row - current.row) === dr : h.row === current.row && Math.sign(h.col - current.col) === dc
-    );
-    const next = candidates.sort(
-      (a, b) =>
-        Math.abs(a.row - current.row) * 10 +
-        Math.abs(a.col - current.col) -
-        (Math.abs(b.row - current.row) * 10 + Math.abs(b.col - current.col))
-    )[0];
-    if (next) {
-      lobbyCursorId = next.id;
-      synth.tone(440, 0.04, 'triangle', 0.05);
-      render();
-    }
-  }
 
   function toControlInput(pad: ReturnType<typeof input.read>[number]): PlayerControlInput {
     return {
@@ -454,112 +589,63 @@ function mount(host: HTMLElement, services: GameServices) {
       fireJustPressed: Boolean(
         pad.justPressed[BUTTON_INDEX.south] || pad.justPressed[BUTTON_INDEX.r1] || pad.justPressed[BUTTON_INDEX.r2]
       ),
-      specialJustPressed: Boolean(
-        pad.justPressed[BUTTON_INDEX.west] || pad.justPressed[BUTTON_INDEX.east] || pad.justPressed[BUTTON_INDEX.l1]
-      )
+      specialJustPressed: Boolean(pad.justPressed[BUTTON_INDEX.west] || pad.justPressed[BUTTON_INDEX.l1]),
+      dashJustPressed: Boolean(pad.justPressed[BUTTON_INDEX.east] || pad.justPressed[BUTTON_INDEX.l2])
     };
   }
 
+  const isActive = (c: PlayerControlInput) =>
+    Math.abs(c.moveX) > 0.2 || Math.abs(c.moveY) > 0.2 || c.fire || c.specialJustPressed || Boolean(c.dashJustPressed);
+
   function update(dt: number) {
     time += dt;
-    barLeft = Math.max(0, barLeft - dt);
     const pads = input.read();
+    mobileTapped.fire = mobileTapped.mine = mobileTapped.dash = false;
     const anyJust = (btn: keyof typeof BUTTON_INDEX) =>
       Boolean(pads[0].justPressed[BUTTON_INDEX[btn]] || pads[1].justPressed[BUTTON_INDEX[btn]]);
     const anyDir = pads[0].dirPressed ?? pads[1].dirPressed;
 
     if (inLobby) {
-      if (anyDir) {
-        moveLobbyCursor(anyDir);
-      }
-      // L1 / R1 cycles tank chassis for P1 / P2
-      if (pads[0].justPressed[BUTTON_INDEX.l1]) {
-        updateLobbyConfig({ p1Chassis: cycleChassis(lobbyConfig.p1Chassis, -1) });
-      }
-      if (pads[0].justPressed[BUTTON_INDEX.r1]) {
-        updateLobbyConfig({ p1Chassis: cycleChassis(lobbyConfig.p1Chassis, 1) });
-      }
-      if (pads[1].justPressed[BUTTON_INDEX.l1]) {
-        updateLobbyConfig({ p2Chassis: cycleChassis(lobbyConfig.p2Chassis, -1) });
-      }
-      if (pads[1].justPressed[BUTTON_INDEX.r1]) {
-        updateLobbyConfig({ p2Chassis: cycleChassis(lobbyConfig.p2Chassis, 1) });
-      }
-      // West (X) toggles game mode (Co-op <-> Duel)
-      if (anyJust('west')) {
-        const nextMode: GameMode = lobbyConfig.mode === 'coop' ? 'duel' : 'coop';
-        const nextTeam: TeamSetup =
-          nextMode === 'duel' && lobbyConfig.teamSetup === '1p-solo' ? '2p' : lobbyConfig.teamSetup;
-        updateLobbyConfig({ mode: nextMode, teamSetup: nextTeam, stageIndex: 0 });
-      }
-      // North (Y) cycles player count setup
-      if (anyJust('north')) {
-        const order: TeamSetup[] = lobbyConfig.mode === 'coop' ? ['2p', '1p-ai', '1p-solo'] : ['2p', '1p-ai'];
-        const nextTeam = order[(order.indexOf(lobbyConfig.teamSetup) + 1) % order.length];
-        updateLobbyConfig({ teamSetup: nextTeam });
-      }
-      // L2 / R2 cycles map
-      if (anyJust('l2') || anyJust('r2')) {
-        const maxMaps = lobbyConfig.mode === 'coop' ? 6 : 5;
-        const delta = anyJust('r2') ? 1 : -1;
-        updateLobbyConfig({ stageIndex: (lobbyConfig.stageIndex + delta + maxMaps) % maxMaps });
-      }
-      // Select toggles language
-      if (anyJust('select')) {
-        lang = lang === 'zh' ? 'en' : 'zh';
-        services.storage.set('lang', lang);
-        renderBar();
-        render();
-      }
-      // Start immediately launches battle; South (A / Space / Enter) activates focused Lobby item
-      if (anyJust('start')) {
-        startBattle();
-      } else if (anyJust('south')) {
-        const focused = hitboxes.find((h) => h.id === lobbyCursorId);
-        if (focused) {
-          services.sound.play('tap');
-          focused.action();
-        } else {
-          startBattle();
-        }
-      }
+      if (anyDir && ui.moveCursor(anyDir)) synth.tone(440, 0.04, 'triangle', 0.05);
+      // Gamepad shortcuts: L1 / R1 cycle each player's tank, X mode, Y players, L2 / R2 stage, Select language.
+      if (pads[0].justPressed[BUTTON_INDEX.l1]) updateLobbyConfig({ p1Chassis: cycleChassis(lobbyConfig.p1Chassis, -1) });
+      if (pads[0].justPressed[BUTTON_INDEX.r1]) updateLobbyConfig({ p1Chassis: cycleChassis(lobbyConfig.p1Chassis, 1) });
+      if (pads[1].justPressed[BUTTON_INDEX.l1]) updateLobbyConfig({ p2Chassis: cycleChassis(lobbyConfig.p2Chassis, -1) });
+      if (pads[1].justPressed[BUTTON_INDEX.r1]) updateLobbyConfig({ p2Chassis: cycleChassis(lobbyConfig.p2Chassis, 1) });
+      if (anyJust('west')) setMode(lobbyConfig.mode === 'coop' ? 'duel' : 'coop');
+      if (anyJust('north')) cycleTeam();
+      if (anyJust('l2')) cycleStage(-1);
+      if (anyJust('r2')) cycleStage(1);
+      if (anyJust('select')) toggleLang();
+      if (anyJust('start')) startBattle();
+      else if (anyJust('south')) ui.activate();
       return;
     }
 
-    // In-game Pause menu controlled by Gamepad
     if (gamePaused) {
-      if (anyDir === 'up' || anyDir === 'down') {
-        pauseCursor = (pauseCursor + (anyDir === 'down' ? 1 : 2)) % 3;
-        synth.tone(440, 0.04, 'triangle', 0.05);
-      }
-      if (anyJust('start')) {
-        gamePaused = false;
-      } else if (anyJust('west')) {
-        gamePaused = false;
-        state = createArenaState(lobbyConfig);
-      } else if (anyJust('east') || anyJust('select')) {
-        gamePaused = false;
-        inLobby = true;
-      } else if (anyJust('south')) {
-        pauseHitboxes[pauseCursor]?.action();
-      }
+      if (anyDir && ui.moveCursor(anyDir)) synth.tone(440, 0.04, 'triangle', 0.05);
+      if (anyJust('start')) closePause();
+      else if (anyJust('south')) ui.activate();
+      else if (anyJust('select')) showLobby();
       return;
     }
 
-    if (anyJust('start')) {
-      gamePaused = true;
-      pauseCursor = 0;
-      return;
-    }
-    if (anyJust('select')) {
-      inLobby = true;
-      return;
+    if (state.outcome === 'none') {
+      if (anyJust('start')) {
+        openPause();
+        return;
+      }
+      if (anyJust('select')) {
+        showLobby();
+        return;
+      }
     }
 
     const p1Control = toControlInput(pads[0]);
     const p2Control = toControlInput(pads[1]);
+    battleClock += dt;
 
-    // In 1-player setups (1p-ai or 1p-solo), let P1 also use Arrow keys / Enter (Pad 2 slot) for convenience!
+    // With one human (AI partner or solo) both key sets drive Player 1, so Arrows + Enter just work.
     const effectiveP1: PlayerControlInput =
       state.teamSetup === '2p'
         ? p1Control
@@ -568,22 +654,38 @@ function mount(host: HTMLElement, services: GameServices) {
             moveY: Math.abs(p1Control.moveY) >= Math.abs(p2Control.moveY) ? p1Control.moveY : p2Control.moveY,
             fire: p1Control.fire || p2Control.fire,
             fireJustPressed: p1Control.fireJustPressed || p2Control.fireJustPressed,
-            specialJustPressed: p1Control.specialJustPressed || p2Control.specialJustPressed
+            specialJustPressed: p1Control.specialJustPressed || p2Control.specialJustPressed,
+            dashJustPressed: p1Control.dashJustPressed || p2Control.dashJustPressed
           };
+
+    // "2 players" picked but nobody is on the second set of controls: the AI keeps that tank
+    // useful until a real Player 2 touches a key, then hands it straight back.
+    if (state.teamSetup === '2p') {
+      if (isActive(p2Control)) p2Seen = true;
+      const p2 = state.tanks.find((tk) => tk.playerIndex === 1);
+      if (p2) p2.isAi = !p2Seen && battleClock > 6;
+    }
 
     if (state.outcome !== 'none') {
       stepArena(state, dt, [effectiveP1, p2Control], services.random);
-      if (anyJust('east') || anyJust('select')) {
-        inLobby = true;
+      outcomeAge += dt;
+      if (!resultsOpen) {
+        if (outcomeAge >= 1.1) openResults();
         return;
       }
-      if (
-        state.outcomeTimer <= 0 ||
-        (state.outcomeTimer <= 1.6 &&
-          (effectiveP1.fireJustPressed || p2Control.fireJustPressed || anyJust('south') || anyJust('start')))
-      ) {
-        advanceAfterOutcome();
+      if (anyDir && ui.moveCursor(anyDir)) synth.tone(440, 0.04, 'triangle', 0.05);
+      if (autoAdvance > 0) {
+        autoAdvance -= dt;
+        ui.setFootnote(tr('res.auto', { n: Math.max(1, Math.ceil(autoAdvance)) }));
+        if (autoAdvance <= 0) {
+          advanceAfterOutcome();
+          return;
+        }
       }
+      // A short guard so the shot that ended the stage does not also dismiss the results.
+      if (outcomeAge < 1.7) return;
+      if (anyJust('east') || anyJust('select')) showLobby();
+      else if (anyJust('south') || anyJust('start')) ui.activate();
       return;
     }
 
@@ -602,44 +704,24 @@ function mount(host: HTMLElement, services: GameServices) {
 
   function render() {
     fitScreen();
-    const offsetY = Math.round(headroom / 2);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.fillStyle = '#070b14';
-    g.fillRect(0, 0, WIDTH, canvas.height);
-    g.setTransform(1, 0, 0, 1, 0, offsetY);
-    drawArenaScene(g, state, time, lang);
-    if (inLobby) {
-      hitboxes = drawLobbyOverlay(g, lobbyConfig, lang, lobbyCursorId, updateLobbyConfig, startBattle);
-      pauseHitboxes = [];
-    } else if (gamePaused) {
-      hitboxes = [];
-      pauseHitboxes = drawPauseOverlay(
-        g,
-        lang,
-        pauseCursor,
-        () => {
-          gamePaused = false;
-        },
-        () => {
-          gamePaused = false;
-          state = createArenaState(lobbyConfig);
-        },
-        () => {
-          gamePaused = false;
-          inLobby = true;
-        }
-      );
-    } else {
-      hitboxes = [];
-      pauseHitboxes = [];
-    }
+    const p2Human = state.teamSetup === '2p' && !state.tanks.some((tk) => tk.playerIndex === 1 && tk.isAi);
+    drawArenaScene(g, state, time, lang, {
+      layout,
+      reducedMotion: services.isReducedMotion,
+      best: bestScore,
+      hint: touch ? '' : p2Human ? `${tr('ctl.p1')}    |    ${tr('ctl.p2')}` : tr('ctl.1p')
+    });
   }
 
-  // Expose debug / playtest hook
+  // Debug / playtest hook
   (globalThis as unknown as { __tankClash?: unknown }).__tankClash = {
     getState: () => state,
+    getScreen: () => ui.screen,
+    getLayout: () => layout.kind,
     startBattle,
     setConfig: updateLobbyConfig,
+    action: onUiAction,
     step: (frames = 1, dt = 1 / 60) => {
       for (let i = 0; i < frames; i++) update(dt);
       render();
@@ -647,6 +729,7 @@ function mount(host: HTMLElement, services: GameServices) {
   };
 
   renderBar();
+  showLobby();
   void input.reconnect();
   const stop = startLoop((dt) => {
     if (paused) return;
@@ -662,17 +745,21 @@ function mount(host: HTMLElement, services: GameServices) {
     },
     resume() {
       paused = false;
+      input.read(); // drop key presses that happened while the shell overlay was up
+      mobileTapped.fire = mobileTapped.mine = mobileTapped.dash = false;
       canvas.focus({ preventScroll: true });
     },
     restart() {
       paused = false;
       mobileControls.clear();
-      state = createArenaState(lobbyConfig);
+      if (inLobby) state = createArenaState(lobbyConfig);
+      else restartStage();
       render();
     },
     destroy() {
       stop();
       listeners.abort();
+      ui.destroy();
       mobileControls.destroy();
       input.destroy();
       synth.destroy();
@@ -688,11 +775,11 @@ export const game: GameModule = {
     title: 'Tank Clash',
     category: 'action',
     description:
-      'Two-player tank warfare with Co-op Eagle Base defense, 5-win Versus Ricochet Arenas, four distinct tank chassis, warp portals, and chain-reaction barrels.',
+      'Tank warfare for one or two: Co-op Eagle Base defense with an AI ally, 5-win Versus duels, four distinct tank chassis, warp portals, and chain-reaction barrels.',
     instructions:
-      'Pick Co-op Defense (guard the Eagle Base across 6 stages & Bosses) or Versus Duel (first to 5 wins), and choose 2P, 1P+AI, or Solo. Choose from 4 tank classes (Vanguard, Phantom, Titan, Prism). P1: WASD move, Space/J fire, K/F mine & dash, Q/E switch tank. P2: Arrows move, Enter/0 fire, Right Shift/. mine & dash, N/M switch tank. Supports two gamepads and touch controls.',
+      'Pick Co-op Defense (guard the Eagle Base across 6 stages and 2 bosses, then harder laps) or Versus Duel (first to 5 rounds), with 1 player + AI ally, solo, or 2 players. Four tank classes. P1: WASD move, Space/J fire, K/F mine, L/G dash, P pause. P2: Arrows move, Enter/0 fire, Right Shift/. mine, comma or apostrophe dash. With one player both key sets drive your tank. Supports two gamepads (A fire, X mine, B dash) and touch (stick, FIRE, MINE, DASH).',
     accent: ACCENT,
-    mechanic: 'Co-op base defense & 2P ricochet tank duels'
+    mechanic: 'Co-op base defense & tank duels'
   },
   mount
 };

@@ -42,7 +42,12 @@ export const THEMES: Theme[] = [
     cloud: 'rgba(70,90,140,0.55)', cloudShade: 'rgba(30,45,90,0.55)', far: '#14224a', far2: '#1a2c5c',
     sea: ['#173063', '#081536'], seaHi: 'rgba(255,250,210,0.6)', dune: '#0b1430', dune2: '#0e1938',
     trunk: '#060b1f', leaf: '#060b1f', leaf2: '#060b1f', dirt: '#4b5175', dirt2: '#444a6c', dirtDark: '#353a5a',
-    grass: '#41a08a', grassDark: '#2b7466', water: '#10295a', waterHi: '#9fc4ff', night: true, sil: true }
+    grass: '#41a08a', grassDark: '#2b7466', water: '#10295a', waterHi: '#9fc4ff', night: true, sil: true },
+  { sky: ['#1b2a41', '#3d5a80', '#98c1d9', '#f4b6a0'], sun: '#ffe9d0', sunGlow: 'rgba(255,205,170,0.5)', sunPos: [220, 330, 58],
+    cloud: 'rgba(92,110,140,0.9)', cloudShade: 'rgba(48,62,92,0.9)', far: '#2c4a63', far2: '#3a6079',
+    sea: ['#2e6f8e', '#143a52'], seaHi: 'rgba(255,225,200,0.6)', dune: '#22394d', dune2: '#27445a',
+    trunk: '#122233', leaf: '#122233', leaf2: '#0e1b29', dirt: '#6b7f8e', dirt2: '#61747f', dirtDark: '#4a5a66',
+    grass: '#9ad1a8', grassDark: '#5f9f77', water: '#1d5876', waterHi: '#bfe9ff', night: false, sil: true }
 ];
 
 function mulberry32(a: number) {

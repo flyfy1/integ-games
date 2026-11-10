@@ -23,7 +23,7 @@ npm run build
 npm run test:lighthouse
 ```
 
-Expected catalog count: exactly 26 unique game routes.
+Expected catalog count: exactly 26 unique game routes, of which exactly 10 are listed on the home page (`featuredSlugs`).
 
 ## GitHub Pages
 

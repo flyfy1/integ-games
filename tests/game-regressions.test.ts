@@ -12,8 +12,8 @@ describe('gameplay regressions', () => {
   });
 
   it('does not consume two fruits that are already at the maximum tier', () => {
-    expect(canMergeFruitTier(5)).toBe(true);
-    expect(canMergeFruitTier(6)).toBe(false);
+    expect(canMergeFruitTier(9)).toBe(true);
+    expect(canMergeFruitTier(10)).toBe(false);
   });
 
   it('maps every Sudoku cell to the correct 3 by 3 box', () => {

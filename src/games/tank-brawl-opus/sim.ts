@@ -5,7 +5,7 @@ export const STEP = 1 / 60;
 export const TANK_RADIUS = 20;
 export const MAX_AMMO = 3;
 const RELOAD = 0.75, FIRE_COOLDOWN = 0.26, DASH_TIME = 0.24, DASH_COOLDOWN = 2, DASH_SPEED = 560, BASE_SPEED = 190;
-const ARM_TIME = 0.22, INVULN = 1.1, SUDDEN_DEATH_AT = 50, COLLAPSE_EVERY = 5, REVIVE_TIME = 1.4;
+const ARM_TIME = 0.22, INVULN = 1.1, ENEMY_INVULN = 0.3, SUDDEN_DEATH_AT = 50, COLLAPSE_EVERY = 5, REVIVE_TIME = 1.4;
 
 export type Intent = { x: number; y: number; ax: number; ay: number; fire: boolean; dash: boolean; honk: boolean };
 export const idle = (): Intent => ({ x: 0, y: 0, ax: 0, ay: 0, fire: false, dash: false, honk: false });
@@ -15,6 +15,8 @@ export const POWERS: readonly PowerKind[] = ['triple', 'mega', 'bee', 'laser', '
 const CHARGES: Partial<Record<PowerKind, number>> = { triple: 3, mega: 2, bee: 2, laser: 1, duck: 3 };
 
 export type EnemyKind = 'grunt' | 'zippy' | 'bouncer' | 'heavy' | 'king';
+/** Wave enemies shoot slower shells than players do, so a crowd of them can still be dodged. */
+const ENEMY_SHELL_SPEED: Record<EnemyKind, number> = { grunt: 290, zippy: 290, bouncer: 340, heavy: 300, king: 320 };
 export type Tank = {
   id: number; team: number; seat: number; enemy?: EnemyKind;
   x: number; y: number; vx: number; vy: number;
@@ -36,7 +38,8 @@ export type Beam = { points: Array<[number, number]>; life: number; team: number
 export type GameEvent =
   | { type: 'fire'; x: number; y: number; angle: number; kind: ShellKind | 'duck' | 'laser' }
   | { type: 'bounce' | 'crate' | 'clash' | 'portal' | 'dash' | 'bumper' | 'reflect' | 'crash' | 'revive'; x: number; y: number }
-  | { type: 'hit'; x: number; y: number; tank: number; left: number }
+  /** `by` is the tank that caused it: the victim's own id for a rebound, -1 for the floor. */
+  | { type: 'hit'; x: number; y: number; tank: number; left: number; by: number }
   | { type: 'explode'; x: number; y: number; radius: number }
   | { type: 'pickup'; x: number; y: number; kind: PowerKind; tank: number }
   | { type: 'fall'; x: number; y: number; tank: number }
@@ -45,15 +48,20 @@ export type GameEvent =
   | { type: 'collapse'; ring: number }
   | { type: 'empty'; tank: number };
 
-export type Twist = { id: string; name: readonly [string, string]; hint: readonly [string, string]; bounces: number; speed: number; scale: number; crateEvery: number; knock: number; ammoReload: number };
+export type Twist = { id: string; name: readonly [string, string]; hint: readonly [string, string]; bounces: number; speed: number; scale: number; crateEvery: number; knock: number; ammoReload: number; hp?: number; collapseAt?: number };
 export const TWISTS: readonly Twist[] = [
   { id: 'classic', name: ['Plain Brawl', '普通乱斗'], hint: ['No tricks. Just tanks.', '没有花招，只有坦克'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 1, ammoReload: 1 },
   { id: 'rubber', name: ['Rubber Shells', '橡皮炮弹'], hint: ['Shells bounce six times. Watch your back!', '炮弹能弹六次，小心背后！'], bounces: 6, speed: 1, scale: 1, crateEvery: 6, knock: 1, ammoReload: 1 },
   { id: 'turbo', name: ['Turbo Treads', '涡轮履带'], hint: ['Everybody is far too fast.', '所有坦克都快过头了'], bounces: 2, speed: 1.5, scale: 1, crateEvery: 6, knock: 1, ammoReload: 0.7 },
   { id: 'crates', name: ['Crate Rain', '空投暴雨'], hint: ['Power-ups fall every two seconds.', '每两秒掉一个道具'], bounces: 2, speed: 1, scale: 1, crateEvery: 2, knock: 1, ammoReload: 1 },
   { id: 'fat', name: ['Chonky Tanks', '胖胖坦克'], hint: ['Big tanks, big targets, tiny gaps.', '车身变大，缝隙变小'], bounces: 2, speed: 0.9, scale: 1.35, crateEvery: 6, knock: 1.2, ammoReload: 1 },
-  { id: 'pow', name: ['Super Knockback', '超级击退'], hint: ['One shell sends you flying.', '一炮把你轰上天'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 2.4, ammoReload: 1 }
+  { id: 'pow', name: ['Super Knockback', '超级击退'], hint: ['One shell sends you flying.', '一炮把你轰上天'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 2.4, ammoReload: 1 },
+  { id: 'glass', name: ['Glass Cannons', '玻璃大炮'], hint: ['Two hearts each. Blink and it is over.', '每人只有两颗心，眨眼就结束'], bounces: 2, speed: 1, scale: 1, crateEvery: 5, knock: 1, ammoReload: 0.8, hp: 2 },
+  { id: 'crumble', name: ['Crumbling Floor', '塌方警报'], hint: ['The floor starts falling after 12 seconds!', '12 秒后地面就开始塌！'], bounces: 2, speed: 1, scale: 1, crateEvery: 4, knock: 1.2, ammoReload: 1, collapseAt: 12 },
+  { id: 'tiny', name: ['Teeny Tanks', '迷你坦克'], hint: ['Small, zippy and very hard to hit.', '又小又快，超难打中'], bounces: 3, speed: 1.2, scale: 0.72, crateEvery: 6, knock: 1.1, ammoReload: 0.85 }
 ];
+/** Seconds of normal play before the floor starts to go. */
+export const suddenDeathAt = (twist: Twist) => twist.collapseAt ?? SUDDEN_DEATH_AT;
 
 export type World = {
   arena: Arena; twist: Twist; tiles: Tile[][]; crateHp: number[][];
@@ -89,7 +97,7 @@ export function createWorld(arena: Arena, twist: Twist, random: () => number, fr
   });
   return {
     arena, twist, tiles, crateHp, tanks: [], shells: [], ducks: [], pickups: [], beams: [], events: [],
-    time: 0, crateTimer: 3, collapseRing: 0, collapseTimer: SUDDEN_DEATH_AT, warnRing: -1,
+    time: 0, crateTimer: 3, collapseRing: 0, collapseTimer: suddenDeathAt(twist), warnRing: -1,
     friendlyFire, suddenDeath: false, finished: false, winner: -1, nextId: 1, random
   };
 }
@@ -312,7 +320,7 @@ function spendCharge(tank: Tank) {
 }
 
 function launch(world: World, tank: Tank, kind: ShellKind, x: number, y: number, angle: number) {
-  const speed = kind === 'mega' ? 300 : kind === 'bee' ? 250 : tank.enemy === 'zippy' || tank.enemy === 'grunt' ? 290 : 430;
+  const speed = kind === 'mega' ? 300 : kind === 'bee' ? 250 : tank.enemy ? ENEMY_SHELL_SPEED[tank.enemy] : 430;
   const bounces = kind === 'bee' ? 0 : kind === 'mega' ? 1 : tank.enemy === 'bouncer' ? 4 : tank.enemy ? 1 : world.twist.bounces;
   world.shells.push({
     id: world.nextId++, kind, owner: tank.id, team: tank.team, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
@@ -351,7 +359,7 @@ function fireLaser(world: World, tank: Tank) {
       if (other.team === tank.team && (!world.friendlyFire)) continue;
       if (Math.hypot(other.x - x, other.y - y) < TANK_RADIUS * other.scale + 5) {
         hit.add(other.id);
-        damage(world, other, 2, x, y, dirX * 420, dirY * 420);
+        damage(world, other, 2, x, y, dirX * 420, dirY * 420, false, tank.id);
       }
     }
   }
@@ -450,7 +458,7 @@ function hitTank(world: World, shell: Shell, tank: Tank) {
   const power = shell.kind === 'mega' ? 620 : 380;
   const length = Math.hypot(shell.vx, shell.vy) || 1;
   if (tank.team === shell.team && !world.friendlyFire) { tank.vx += shell.vx / length * power * 0.6; tank.vy += shell.vy / length * power * 0.6; world.events.push({ type: 'bounce', x: shell.x, y: shell.y }); return; }
-  damage(world, tank, shell.damage, shell.x, shell.y, shell.vx / length * power, shell.vy / length * power);
+  damage(world, tank, shell.damage, shell.x, shell.y, shell.vx / length * power, shell.vy / length * power, false, shell.owner);
 }
 
 function clashShells(world: World) {
@@ -468,12 +476,12 @@ function clashShells(world: World) {
   }
 }
 
-export function damage(world: World, tank: Tank, amount: number, x: number, y: number, pushX: number, pushY: number, ignoreGuard = false) {
+export function damage(world: World, tank: Tank, amount: number, x: number, y: number, pushX: number, pushY: number, ignoreGuard = false, by = -1) {
   if (!ignoreGuard && (tank.invuln > 0 || tank.shield > 0)) { tank.vx += pushX * 0.3; tank.vy += pushY * 0.3; return; }
   tank.hp -= amount;
-  tank.flash = 0.2; tank.invuln = INVULN;
+  tank.flash = 0.2; tank.invuln = tank.enemy ? ENEMY_INVULN : INVULN; // Bosses must be burst-able, or a King outlasts any hero.
   tank.vx += pushX * world.twist.knock; tank.vy += pushY * world.twist.knock;
-  world.events.push({ type: 'hit', x, y, tank: tank.id, left: Math.max(0, tank.hp) });
+  world.events.push({ type: 'hit', x, y, tank: tank.id, left: Math.max(0, tank.hp), by });
   if (tank.hp > 0) return;
   tank.hp = 0; tank.laserCharge = 0;
   world.events.push({ type: 'ko', x: tank.x, y: tank.y, tank: tank.id });
@@ -500,7 +508,7 @@ function explode(world: World, x: number, y: number, radius: number, owner: numb
     if (distance > radius + TANK_RADIUS * tank.scale) continue;
     const pushX = dx / distance * 460, pushY = dy / distance * 460;
     if (tank.team === team && !world.friendlyFire) { tank.vx += pushX * 0.6; tank.vy += pushY * 0.6; continue; }
-    damage(world, tank, 1, tank.x, tank.y, pushX, pushY);
+    damage(world, tank, 1, tank.x, tank.y, pushX, pushY, false, owner);
   }
 }
 
@@ -612,7 +620,7 @@ function ram(world: World, attacker: Tank, target: Tank, nx: number, ny: number)
     target.vx += nx * 640 * world.twist.knock; target.vy += ny * 640 * world.twist.knock;
     attacker.dash = 0;
   }
-  if (attacker.giant > 0 && target.giant <= 0 && attacker.team !== target.team) damage(world, target, 1, target.x, target.y, nx * 520, ny * 520);
+  if (attacker.giant > 0 && target.giant <= 0 && attacker.team !== target.team) damage(world, target, 1, target.x, target.y, nx * 520, ny * 520, false, attacker.id);
 }
 
 function stepRevives(world: World) {
@@ -626,18 +634,20 @@ function stepRevives(world: World) {
   }
 }
 
+/** Every ring goes in the end, the middle included: two tanks that cannot reach each other must not stall a round forever. */
+const LAST_RING = Math.ceil(Math.min(COLS, ROWS) / 2);
 /** Sudden death keeps every round short: the map crumbles inward, one warned ring at a time. */
 function stepCollapse(world: World) {
   if (world.friendlyFire === false) return;
   world.collapseTimer -= STEP;
   if (world.collapseTimer > 0) return;
   if (!world.suddenDeath) { world.suddenDeath = true; world.warnRing = 0; world.collapseTimer = COLLAPSE_EVERY; return; }
-  if (world.collapseRing >= 5) return;
+  if (world.collapseRing >= LAST_RING) return;
   const ring = world.collapseRing;
   for (let row = 0; row < ROWS; row++) for (let col = 0; col < COLS; col++) {
     if (Math.min(col, row, COLS - 1 - col, ROWS - 1 - row) === ring) { world.tiles[row][col] = 'o'; world.crateHp[row][col] = 0; }
   }
-  world.collapseRing++; world.warnRing = world.collapseRing < 5 ? world.collapseRing : -1; world.collapseTimer = COLLAPSE_EVERY;
+  world.collapseRing++; world.warnRing = world.collapseRing < LAST_RING ? world.collapseRing : -1; world.collapseTimer = COLLAPSE_EVERY;
   world.events.push({ type: 'collapse', ring });
 }
 
@@ -709,11 +719,14 @@ function shuffle<T>(items: T[], random: () => number) {
 
 export const arenaForRound = (match: Match) => match.order[match.round % match.order.length];
 
-/** Never repeats the previous twist, and the very first round stays plain so new players learn the basics. */
+/** Never repeats the previous twist, cycles through all of them, and keeps the very first round plain so new players learn the basics. */
 export function pickTwist(match: Match, random: () => number): Twist {
   if (match.round === 0 || match.mode === 'coop') return TWISTS[0];
+  // A shuffle bag over the non-plain twists: every one shows up before any comes back.
+  const fancy = TWISTS.slice(1), played = match.twists.slice(1);
+  const recent = new Set(played.slice(played.length - played.length % fancy.length));
   const last = match.twists[match.twists.length - 1];
-  const pool = TWISTS.filter((twist) => twist !== last);
+  const pool = fancy.filter((twist) => twist !== last && !recent.has(twist));
   return pool[Math.floor(random() * pool.length) % pool.length];
 }
 
@@ -727,19 +740,32 @@ export function recordRound(match: Match, winner: number): number {
 }
 
 export type WaveSpec = { grunt: number; zippy: number; bouncer: number; heavy: number; king: number };
-export function waveSpec(wave: number): WaveSpec {
+/** A lone hero faces a thinner wave: the same mix, minus one of whatever there is most of. */
+export function waveSpec(wave: number, heroes = 2): WaveSpec {
+  const spec = fullWave(wave);
+  if (heroes >= 2) return spec;
+  for (let cut = wave >= 7 ? 2 : 1; cut > 0; cut--) {
+    const kinds = (['grunt', 'zippy', 'bouncer', 'heavy'] as const).filter((kind) => spec[kind] > 0);
+    const total = kinds.reduce((sum, kind) => sum + spec[kind], 0) + spec.king;
+    if (total <= 1 || !kinds.length) break;
+    spec[kinds.reduce((most, kind) => (spec[kind] > spec[most] ? kind : most), kinds[0])]--;
+  }
+  return spec;
+}
+function fullWave(wave: number): WaveSpec {
   if (wave === 5) return { grunt: 2, zippy: 0, bouncer: 0, heavy: 0, king: 1 };
   if (wave === WAVES) return { grunt: 0, zippy: 2, bouncer: 2, heavy: 1, king: 1 };
   return { grunt: Math.max(1, 3 - Math.floor(wave / 3)), zippy: wave >= 2 ? Math.min(2, Math.ceil(wave / 3)) : 0, bouncer: wave >= 3 ? Math.min(2, Math.floor(wave / 3)) : 0, heavy: wave >= 6 ? Math.floor(wave / 4) : 0, king: 0 };
 }
 
 const ENEMY_STATS: Record<EnemyKind, { hp: number; speed: number }> = {
-  grunt: { hp: 1, speed: 0.55 }, zippy: { hp: 1, speed: 1.05 }, bouncer: { hp: 2, speed: 0.7 }, heavy: { hp: 4, speed: 0.5 }, king: { hp: 16, speed: 0.55 }
+  grunt: { hp: 1, speed: 0.55 }, zippy: { hp: 1, speed: 1.05 }, bouncer: { hp: 2, speed: 0.7 }, heavy: { hp: 4, speed: 0.5 }, king: { hp: 12, speed: 0.5 }
 };
 
 /** Enemies land as far from the players as the map allows, so a wave never appears on someone's nose. */
 export function spawnWave(world: World, wave: number) {
-  const spec = waveSpec(wave);
+  const heroCount = world.tanks.filter((tank) => tank.team === 0).length;
+  const spec = waveSpec(wave, heroCount);
   const kinds = (Object.keys(spec) as Array<keyof WaveSpec>).flatMap((kind) => Array.from({ length: spec[kind] }, () => kind));
   const heroes = world.tanks.filter((tank) => tank.team === 0);
   const spots: Array<[number, number]> = [];
@@ -749,11 +775,16 @@ export function spawnWave(world: World, wave: number) {
   kinds.forEach((kind, index) => {
     const [x, y] = spots[Math.min(index * 11, spots.length - 1)];
     const stats = ENEMY_STATS[kind];
-    const tank = makeTank(world, 1, -1, x, y, stats.hp, kind);
+    const tank = makeTank(world, 1, -1, x, y, kind === 'king' && heroCount < 2 ? SOLO_KING_HP : stats.hp, kind);
     tank.speed = BASE_SPEED * stats.speed;
     tank.ammo = kind === 'grunt' ? 1 : 2;
     tank.scale = baseScale(world, tank);
   });
 }
+
+const SOLO_KING_HP = 8;
+export const COOP_HP = 5;
+/** Hearts carried into the next wave. A lone hero has nobody to revive them, so they patch up faster. */
+export const heartsAfterWave = (tank: Tank, heroes: number) => Math.min(COOP_HP, Math.max(tank.downed ? 2 : tank.hp, 1) + (heroes < 2 ? 2 : 1));
 
 export function waveScore(match: Match) { return match.kills * 10 + (match.wave - 1) * 50; }

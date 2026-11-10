@@ -17,18 +17,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
 
 const framing = {
   'merge-2048': { fit: 'contain', position: 'center center' },
-  'block-drop': { position: 'center 22%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
+  'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
-  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 52%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
+  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 46%', iconPosition: 'center 50%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
 };
 
 async function clickCanvas(target, x, y, width = 360, height = 560) {
@@ -38,11 +38,13 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
+  'pelican-bike': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(2600); await page.keyboard.down('ArrowRight'); await page.waitForTimeout(2300); await page.keyboard.press('Space'); await page.waitForTimeout(260); await page.keyboard.up('ArrowRight'); },
+  'capital-quiz': async (page) => { await page.locator('.cq-mode[data-mode]').nth(1).click(); await page.waitForTimeout(900); },
   'tank-brawl-opus': async (page) => { await page.waitForFunction(() => !!globalThis.__tankBrawl); await page.keyboard.press('Space'); await page.waitForTimeout(3600); await page.keyboard.down('KeyD'); await page.keyboard.down('ArrowLeft'); await page.keyboard.down('KeyF'); await page.keyboard.down('KeyK'); await page.waitForTimeout(900); await page.keyboard.up('KeyD'); await page.keyboard.up('ArrowLeft'); await page.keyboard.up('KeyF'); await page.keyboard.up('KeyK'); },
-  'tank-clash': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(160); await page.keyboard.down('KeyW'); await page.waitForTimeout(220); await page.keyboard.press('Space'); await page.keyboard.up('KeyW'); await page.waitForTimeout(250); },
+  'tank-clash': async (page) => { await page.locator('[data-tank-clash] [data-id="start-battle"]').click(); await page.waitForTimeout(2600); await page.keyboard.down('KeyW'); await page.waitForTimeout(500); await page.keyboard.press('Space'); await page.keyboard.up('KeyW'); await page.keyboard.down('KeyD'); await page.waitForTimeout(700); await page.keyboard.press('Space'); await page.keyboard.up('KeyD'); await page.waitForTimeout(300); },
   'pad-pals': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(200); await page.keyboard.press('Space'); await page.waitForTimeout(2200); await page.keyboard.press('Space'); await page.waitForTimeout(250); await page.keyboard.press('Space'); await page.waitForTimeout(250); },
-  'merge-2048': async (page) => { await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(180); },
-  'block-drop': async (page) => { await page.keyboard.press('ArrowUp'); for (let i = 0; i < 7; i++) await page.keyboard.press('ArrowDown'); },
+  'merge-2048': async (page) => { for (const key of ['ArrowLeft', 'ArrowDown', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowDown', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowDown']) { await page.keyboard.press(key); await page.waitForTimeout(210); } },
+  'block-drop': async (page) => { const plan = [['ArrowLeft', 4], ['ArrowRight', 4], ['ArrowLeft', 2], ['ArrowRight', 2], ['ArrowLeft', 0], ['ArrowLeft', 3], ['ArrowRight', 3], ['ArrowRight', 1]]; for (const [key, times] of plan) { for (let i = 0; i < times; i++) { await page.keyboard.press(key); await page.waitForTimeout(40); } await page.keyboard.press('Space'); await page.waitForTimeout(260); } await page.keyboard.press('ArrowUp'); await page.waitForTimeout(500); },
   snake: async (page) => { await page.keyboard.press('ArrowDown'); },
   // The capture context fixes the seed below; cell (4,4) is known safe and often cascades.
   mines: async (_page, target) => { await clickCanvas(target, 299, 299, 600, 600); },
@@ -57,7 +59,7 @@ const safeInteraction = {
   runner: async (page) => { await page.keyboard.press('ArrowRight'); },
   platformer: async (page) => { await page.keyboard.press('ArrowRight'); await page.keyboard.press('Space'); },
   drive: async (page) => { await page.keyboard.down('ArrowRight'); await page.waitForTimeout(70); await page.keyboard.up('ArrowRight'); },
-  'fruit-merge': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(560); },
+  'fruit-merge': async (page) => { const plan = [['ArrowLeft', 500], ['ArrowRight', 900], ['ArrowLeft', 300], ['ArrowLeft', 500], ['ArrowRight', 700], ['ArrowRight', 300], ['ArrowLeft', 800], ['ArrowRight', 500], ['ArrowLeft', 200], ['ArrowRight', 600], ['ArrowLeft', 500], ['ArrowRight', 250]]; for (const [key, hold] of plan) { await page.keyboard.down(key); await page.waitForTimeout(hold); await page.keyboard.up(key); await page.keyboard.press('Space'); await page.waitForTimeout(650); } await page.waitForTimeout(700); },
   bubble: async (page) => { await page.keyboard.press('Space'); },
   'hex-puzzle': async (page, target) => {
     // This cabinet intentionally builds its board in restart(); use the real shell control first.
@@ -66,7 +68,7 @@ const safeInteraction = {
     await clickCanvas(target, 180, 180);
   },
   knife: async (page) => { await page.keyboard.press('Space'); },
-  arena: async (page) => { await page.keyboard.down('ArrowRight'); await page.waitForTimeout(70); await page.keyboard.up('ArrowRight'); },
+  arena: async (page) => { for (const key of ['ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp']) { await page.keyboard.down(key); await page.waitForTimeout(2600); await page.keyboard.up(key); await page.keyboard.press('1'); await page.waitForTimeout(450); } },
   // Ashfall's title screen is mostly type; use its debug hook to frame a real boss-arena moment instead.
   ashfall: async (page) => {
     await page.waitForFunction(() => !!globalThis.__ashfall);
@@ -136,9 +138,9 @@ try {
     await page.goto(`http://127.0.0.1:5189/play/${slug}${slug === 'ashfall' ? '?ashfall-debug' : ''}`, { waitUntil: 'networkidle' });
     await page.locator('[data-stage]').waitFor({ state: 'visible' });
     await page.waitForFunction(() => !document.querySelector('[data-stage][aria-busy]'));
-    const target = page.locator(slug === 'merge-2048' ? '.merge-game' : '.game-stage canvas').first();
+    const target = page.locator(slug === 'merge-2048' ? '.merge-game' : slug === 'capital-quiz' ? '.game-stage [data-cq]' : '.game-stage canvas').first();
     await target.waitFor({ state: 'visible' });
-    await page.locator('.game-stage [tabindex]').first().focus();
+    await page.locator('.game-stage [tabindex]').first().focus({ timeout: 1500 }).catch(() => {});
     await safeInteraction[slug](page, target);
     const frame = framing[slug] ?? {};
     await page.waitForTimeout(110 + (frame.delay ?? 0));

@@ -1,11 +1,10 @@
-import { computeSightPath, DUEL_WIN_TARGET, type ArenaState } from './engine';
+import { baseHp, computeSightPath, DASH_COOLDOWN, DUEL_WIN_TARGET, enemiesLeft, type ArenaState } from './engine';
 import { t, type Key, type Lang } from './i18n';
 import {
   ARENA_H,
   ARENA_W,
   ARENA_X,
   ARENA_Y,
-  CHASSIS_ORDER,
   CHASSIS_SPECS,
   COLS,
   HEIGHT,
@@ -14,18 +13,44 @@ import {
   TILE,
   WIDTH
 } from './maps';
-import type { ChassisId, GameMode, TeamSetup } from './types';
+import type { ChassisId, GameMode, Tank, TeamSetup } from './types';
 
-export interface LobbyHitbox {
-  id: string;
-  row: number;
-  col: number;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  action: () => void;
+/**
+ * Two HUD arrangements share one arena renderer:
+ *  - `wide`    1280x720, player panels left and right of the board (desktop / big landscape screens);
+ *  - `compact` the board spans the full width with big-type strips above and below (phones).
+ * `ui` scales in-arena labels so they stay legible when the whole canvas is shrunk onto a phone.
+ */
+export interface HudLayout {
+  kind: 'wide' | 'compact';
+  width: number;
+  height: number;
+  arenaX: number;
+  arenaY: number;
+  ui: number;
 }
+
+export const WIDE_LAYOUT: HudLayout = { kind: 'wide', width: WIDTH, height: HEIGHT, arenaX: ARENA_X, arenaY: ARENA_Y, ui: 1.25 };
+const COMPACT_TOP = 104;
+const COMPACT_BOTTOM = 104;
+export const COMPACT_LAYOUT: HudLayout = {
+  kind: 'compact',
+  width: ARENA_W + 16,
+  height: COMPACT_TOP + ARENA_H + 8 + COMPACT_BOTTOM + 6,
+  arenaX: 8,
+  arenaY: COMPACT_TOP,
+  ui: 2.1
+};
+
+export interface SceneOptions {
+  layout: HudLayout;
+  reducedMotion: boolean;
+  best: number;
+  /** One-line control reminder shown under the board in the wide layout. */
+  hint: string;
+}
+
+const FONT = 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif';
 
 function drawRoundedRect(
   g: CanvasRenderingContext2D,
@@ -329,7 +354,32 @@ function drawBushes(g: CanvasRenderingContext2D, state: ArenaState, time: number
   }
 }
 
-function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time: number, lang: Lang): void {
+function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time: number, lang: Lang, ui: number): void {
+  // Enemy drop-in markers
+  for (const warn of state.spawnWarnings) {
+    const cx = (warn.col + 0.5) * TILE;
+    const cy = TILE / 2;
+    const boss = warn.archetype === 'boss-behemoth' || warn.archetype === 'boss-omega';
+    const pulse = 0.5 + 0.5 * Math.sin(time * 18);
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(time * 3);
+    g.strokeStyle = boss ? '#c084fc' : '#ff6b81';
+    g.globalAlpha = 0.45 + pulse * 0.55;
+    g.lineWidth = 3.5;
+    const rad = (boss ? 22 : 16) * (0.7 + pulse * 0.3);
+    g.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (Math.PI * 2 * i) / 8;
+      const rr = i % 2 === 0 ? rad : rad * 0.45;
+      if (i === 0) g.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+      else g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    g.closePath();
+    g.stroke();
+    g.restore();
+  }
+
   // Landmines
   for (const mine of state.mines) {
     const blink = Math.sin(time * 10) > 0;
@@ -410,6 +460,34 @@ function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time:
       accentColor = '#f87171';
     }
 
+    if (tank.hitFlash > 0) {
+      bodyColor = '#ffffff';
+      accentColor = '#ffffff';
+    }
+    if (tank.team === 3 && tank.spawnProtected > 0) {
+      // Fresh arrivals are briefly shielded so the drop zones cannot be camped.
+      g.save();
+      g.strokeStyle = '#fda4af';
+      g.globalAlpha = 0.4 + 0.4 * Math.sin(time * 20);
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(tank.x, tank.y, tank.radius + 5, 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
+    }
+    // Respawn / dash protection blinks so it is obvious the tank cannot be hurt yet.
+    const ghost = tank.spawnProtected > 0 && tank.playerIndex !== undefined && Math.sin(time * 26) > 0.2;
+    if (ghost) g.globalAlpha = 0.55;
+    if (tank.isBoss && tank.bossCharging) {
+      g.save();
+      g.strokeStyle = '#ff4d8d';
+      g.lineWidth = 4;
+      g.globalAlpha = 0.5 + 0.5 * Math.sin(time * 30);
+      g.beginPath();
+      g.arc(tank.x, tank.y, tank.radius + 12, 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
+    }
     drawTankModel(
       g,
       tank.x,
@@ -420,8 +498,9 @@ function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time:
       accentColor,
       tank.recoil,
       tank.treadPhase,
-      tank.isBoss ? 1.32 : 1
+      tank.isBoss ? 1.5 : 1
     );
+    g.globalAlpha = 1;
 
     // Shield bubble
     if (tank.shieldTimer > 0) {
@@ -441,21 +520,29 @@ function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time:
       drawRoundedRect(g, tank.x - 18, tank.y - 18, 36, 36, 6, '#67e8f955', '#22d3ee', 2);
     }
 
-    // Overhead HP bar & tag
-    const barW = tank.isBoss ? 54 : 32;
+    // Overhead HP bar & tag (one-hit enemies need no bar)
+    const barW = tank.isBoss ? 54 : 34;
+    const barH = ui > 1.5 ? 6 : 4;
     const barX = tank.x - barW / 2;
-    const barY = tank.y - tank.radius - 11;
-    g.fillStyle = '#090d18cc';
-    g.fillRect(barX - 1, barY - 1, barW + 2, 5);
-    g.fillStyle = tank.team === 3 ? '#f43f5e' : tank.playerIndex === 0 ? '#2dd4bf' : '#fb923c';
-    g.fillRect(barX, barY, Math.max(0, (barW * tank.hp) / tank.maxHp), 3);
+    const barY = tank.y - tank.radius - 9 - barH;
+    if (tank.maxHp > 1 && !tank.isBoss) {
+      g.fillStyle = '#090d18cc';
+      g.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+      g.fillStyle = tank.team === 3 ? '#f43f5e' : tank.playerIndex === 0 ? '#2dd4bf' : '#fb923c';
+      g.fillRect(barX, barY, Math.max(0, (barW * tank.hp) / tank.maxHp), barH);
+    }
 
     if (tank.playerIndex !== undefined) {
-      g.font = '800 11px system-ui, sans-serif';
-      g.textAlign = 'center';
-      g.fillStyle = tank.playerIndex === 0 ? '#5eead4' : '#fda4af';
       const label = tank.playerIndex === 0 ? '1P' : tank.isAi ? t(lang, 'hud.ai') : '2P';
-      g.fillText(label, tank.x, barY - 6);
+      const size = Math.round(11 * ui);
+      g.font = `900 ${size}px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'alphabetic';
+      g.lineWidth = 4;
+      g.strokeStyle = '#070b14';
+      g.strokeText(label, tank.x, barY - 5);
+      g.fillStyle = tank.playerIndex === 0 ? '#5eead4' : '#fda4af';
+      g.fillText(label, tank.x, barY - 5);
     }
   }
 
@@ -509,12 +596,82 @@ function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time:
   for (const ft of state.floatingTexts) {
     g.save();
     g.globalAlpha = Math.min(1, ft.life * 1.4);
-    g.font = '800 13px system-ui, sans-serif';
+    g.font = `900 ${Math.round(13 * ui)}px ${FONT}`;
     g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    const text = ft.key ? t(lang, ft.text as Key, { n: ft.n ?? 0 }) : ft.text;
+    const fx = Math.max(60, Math.min(ARENA_W - 60, ft.x));
+    const fy = Math.max(16 * ui, ft.y);
+    g.lineWidth = 4;
+    g.strokeStyle = '#070b14';
+    g.strokeText(text, fx, fy);
     g.fillStyle = ft.color;
-    g.fillText(ft.text, ft.x, ft.y);
+    g.fillText(text, fx, fy);
     g.restore();
   }
+}
+
+function label(
+  g: CanvasRenderingContext2D,
+  str: string,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  align: CanvasTextAlign = 'left',
+  weight = 800,
+  maxWidth?: number
+): void {
+  g.font = `${weight} ${size}px ${FONT}`;
+  g.textAlign = align;
+  g.textBaseline = 'middle';
+  g.fillStyle = color;
+  if (maxWidth) g.fillText(str, x, y, maxWidth);
+  else g.fillText(str, x, y);
+}
+
+function playerAccent(playerIndex: 0 | 1): string {
+  return playerIndex === 0 ? '#2dd4bf' : '#fb7185';
+}
+
+function playerTitle(tank: Tank | undefined, playerIndex: 0 | 1, lang: Lang): string {
+  if (playerIndex === 0) return '1P';
+  return tank?.isAi ? t(lang, 'hud.ai') : '2P';
+}
+
+function drawPips(
+  g: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  value: number,
+  max: number,
+  color: string
+): void {
+  if (max > 10) {
+    // Too many segments to read at a glance: show one solid bar instead.
+    drawRoundedRect(g, x, y, w, h, Math.min(5, h / 2), '#1e293b', '#0b1120', 1);
+    if (value > 0) drawRoundedRect(g, x, y, Math.max(h, (w * value) / max), h, Math.min(5, h / 2), color);
+    return;
+  }
+  const gap = 4;
+  const pipW = (w - gap * (max - 1)) / max;
+  for (let i = 0; i < max; i++) {
+    drawRoundedRect(g, x + i * (pipW + gap), y, pipW, h, Math.min(4, pipW / 2), i < value ? color : '#1e293b', '#0b1120', 1);
+  }
+}
+
+function hpColor(tank: Tank, accent: string, time: number): string {
+  if (tank.hp <= Math.max(1, Math.ceil(tank.maxHp * 0.25))) return Math.sin(time * 10) > 0 ? '#ef4444' : '#fca5a5';
+  return accent;
+}
+
+function drawDashMeter(g: CanvasRenderingContext2D, tank: Tank, x: number, y: number, w: number, h: number): void {
+  const ready = tank.dashCooldown <= 0;
+  const ratio = ready ? 1 : 1 - Math.min(1, tank.dashCooldown / DASH_COOLDOWN);
+  drawRoundedRect(g, x, y, w, h, h / 2, '#0b1120', '#263554', 1);
+  if (ratio > 0.04) drawRoundedRect(g, x, y, w * ratio, h, h / 2, ready ? '#a78bfa' : '#4c3f8a');
 }
 
 function drawPlayerSidebar(
@@ -525,157 +682,232 @@ function drawPlayerSidebar(
   y: number,
   w: number,
   h: number,
-  lang: Lang
+  lang: Lang,
+  time: number,
+  best: number
 ): void {
-  const tank = state.tanks.find((t) => t.playerIndex === playerIndex);
-  const accent = playerIndex === 0 ? '#2dd4bf' : '#fb7185';
+  const tank = state.tanks.find((tk) => tk.playerIndex === playerIndex);
+  const accent = playerAccent(playerIndex);
   drawRoundedRect(g, x, y, w, h, 14, '#111a2ee6', `${accent}66`, 1.8);
-
   const cx = x + w / 2;
-  g.font = '900 18px system-ui, "PingFang SC", sans-serif';
-  g.textAlign = 'center';
-  g.fillStyle = accent;
-  const title = playerIndex === 0 ? 'PLAYER 1' : tank?.isAi ? `P2 · ${t(lang, 'hud.ai')}` : 'PLAYER 2';
-  g.fillText(title, cx, y + 28);
+  const inner = w - 24;
 
   if (!tank) {
-    g.font = '700 13px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = '#94a3b8';
-    g.fillText('SOLO MODE', cx, y + h / 2);
+    // Solo run: use the spare panel for the scoreboard.
+    label(g, t(lang, 'hud.solo'), cx, y + 34, 22, '#94a3b8', 'center', 900, inner);
+    label(g, t(lang, 'hud.score'), cx, y + 96, 19, '#94a3b8', 'center', 700, inner);
+    label(g, `${state.score}`, cx, y + 128, 30, '#ffffff', 'center', 900, inner);
+    label(g, t(lang, 'hud.best'), cx, y + 186, 19, '#94a3b8', 'center', 700, inner);
+    label(g, `${Math.max(best, state.score)}`, cx, y + 216, 26, '#ffd15c', 'center', 900, inner);
+    label(g, t(lang, 'hud.kills'), cx, y + 274, 19, '#94a3b8', 'center', 700, inner);
+    label(g, `${state.stageKills} / ${state.totalEnemies}`, cx, y + 304, 26, '#ff9f43', 'center', 900, inner);
     return;
   }
 
-  // Tank preview badge
-  drawRoundedRect(g, x + 16, y + 46, w - 32, 74, 10, '#0b1120', '#1e293b', 1.2);
-  drawTankModel(
-    g,
-    cx,
-    y + 82,
-    -Math.PI / 2,
-    tank.chassis,
-    playerIndex === 0 ? '#2dd4bf' : '#fb7185',
-    playerIndex === 0 ? '#fde047' : '#fdba74',
-    0,
-    0,
-    1.15
-  );
+  label(g, playerTitle(tank, playerIndex, lang), cx, y + 30, 26, accent, 'center', 900, inner);
+  drawRoundedRect(g, x + 14, y + 52, w - 28, 66, 10, '#0b1120', '#1e293b', 1.2);
+  drawTankModel(g, cx, y + 85, -Math.PI / 2, tank.chassis, accent, playerIndex === 0 ? '#fde047' : '#fdba74', 0, 0, 1.2);
+  label(g, t(lang, `chassis.${tank.chassis}` as Key), cx, y + 138, 20, '#f8fafc', 'center', 800, inner);
 
-  g.font = '800 15px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#f8fafc';
-  g.fillText(t(lang, `chassis.${tank.chassis}` as Key), cx, y + 140);
+  // Armour
+  const alive = tank.alive ? tank.hp : 0;
+  drawPips(g, x + 14, y + 158, w - 28, 16, alive, tank.maxHp, hpColor(tank, accent, time));
+  label(g, `HP ${alive}/${tank.maxHp}`, cx, y + 192, 19, '#cbd5e1', 'center', 700, inner);
 
-  // Armor HP pips
-  g.font = '700 12px system-ui, sans-serif';
-  g.fillStyle = '#94a3b8';
-  g.fillText(`HP ${tank.hp} / ${tank.maxHp}`, cx, y + 166);
-  const pipW = Math.floor((w - 36) / tank.maxHp) - 4;
-  for (let i = 0; i < tank.maxHp; i++) {
-    const px = x + 18 + i * (pipW + 4);
-    drawRoundedRect(
-      g,
-      px,
-      y + 176,
-      pipW,
-      12,
-      3,
-      i < tank.hp ? accent : '#1e293b',
-      '#0f172a',
-      1
-    );
-  }
-
-  // Active Weapon slot
-  drawRoundedRect(g, x + 14, y + 206, w - 28, 56, 10, '#0b1120', '#1e293b', 1.2);
-  if (tank.weapon) {
-    const info = POWERUP_INFO[tank.weapon];
-    g.font = '800 13px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = info.color;
-    g.fillText(`${info.icon} ${info.badge}`, cx, y + 226);
-    const ratio = Math.min(1, tank.weaponTimer / 12);
-    drawRoundedRect(g, x + 24, y + 240, (w - 48) * ratio, 8, 4, info.color);
-  } else {
-    g.font = '700 12px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = '#64748b';
-    g.fillText('STANDARD CANNON', cx, y + 235);
-  }
-
-  // Mines count
-  g.font = '800 13px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#feca57';
-  g.fillText(`${t(lang, 'hud.mines')}: ${'💣'.repeat(tank.mines) || '0'}`, cx, y + 288);
-
-  // Lives or Round Wins
+  // Lives or round wins
   if (state.mode === 'coop') {
-    g.fillStyle = '#70f0c2';
-    g.fillText(`${t(lang, 'hud.lives')}: ${'🛡️'.repeat(tank.lives) || '0'}`, cx, y + 322);
+    label(g, `${t(lang, 'hud.lives')} × ${tank.lives}`, cx, y + 228, 20, tank.lives === 0 ? '#f87171' : '#70f0c2', 'center', 800, inner);
   } else {
     const wins = playerIndex === 0 ? state.p1Wins : state.p2Wins;
-    g.fillStyle = '#ffd15c';
-    g.fillText(
-      `${t(lang, 'hud.wins')}: ${'★'.repeat(wins)}${'☆'.repeat(Math.max(0, DUEL_WIN_TARGET - wins))}`,
-      cx,
-      y + 322
-    );
+    label(g, `${'★'.repeat(wins)}${'☆'.repeat(Math.max(0, DUEL_WIN_TARGET - wins))}`, cx, y + 228, 22, '#ffd15c', 'center', 800, inner);
   }
 
-  // Kills & Score
-  g.fillStyle = '#cbd5e1';
-  g.font = '700 13px system-ui, sans-serif';
-  g.fillText(`KILLS: ${tank.kills}`, cx, y + 358);
-  g.font = '900 18px system-ui, sans-serif';
-  g.fillStyle = '#ffffff';
-  g.fillText(`${tank.score}`, cx, y + 386);
+  label(g, `${t(lang, 'hud.mines')} × ${tank.mines}`, cx, y + 262, 20, '#feca57', 'center', 800, inner);
 
-  // Key hint footer
-  g.font = '600 11px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#94a3b8';
-  if (playerIndex === 0) {
-    g.fillText('WASD / Pad 1', cx, y + h - 42);
-    g.fillText('Space/J · K/Q', cx, y + h - 24);
+  label(g, t(lang, 'hud.dash'), cx, y + 298, 19, tank.dashCooldown <= 0 ? '#c4b5fd' : '#64748b', 'center', 800, inner);
+  drawDashMeter(g, tank, x + 18, y + 314, w - 36, 12);
+
+  // Active weapon
+  drawRoundedRect(g, x + 12, y + 344, w - 24, 64, 10, '#0b1120', '#1e293b', 1.2);
+  if (tank.weapon) {
+    const info = POWERUP_INFO[tank.weapon];
+    label(g, `${info.icon} ${info.badge}`, cx, y + 366, 20, info.color, 'center', 900, inner - 8);
+    const ratio = Math.max(0, Math.min(1, tank.weaponTimer / 12));
+    drawRoundedRect(g, x + 22, y + 388, (w - 44) * ratio, 9, 4, info.color);
   } else {
-    g.fillText('Arrows / Pad 2', cx, y + h - 42);
-    g.fillText('Enter · RShift/.', cx, y + h - 24);
+    label(g, t(lang, 'hud.cannon'), cx, y + 376, 19, '#64748b', 'center', 700, inner - 8);
+  }
+
+  label(g, t(lang, 'hud.score'), cx, y + h - 112, 19, '#94a3b8', 'center', 700, inner);
+  label(g, `${tank.score}`, cx, y + h - 82, 28, '#ffffff', 'center', 900, inner);
+  label(g, `${t(lang, 'hud.kills')} ${tank.kills}`, cx, y + h - 40, 19, '#cbd5e1', 'center', 700, inner);
+}
+
+function stageTitle(state: ArenaState, lang: Lang): string {
+  return state.mode === 'coop'
+    ? t(lang, `stage.coop.${state.stageIndex % 6}` as Key)
+    : t(lang, `stage.duel.${state.stageIndex % 5}` as Key);
+}
+
+function baseStatus(state: ArenaState, lang: Lang, time: number): { text: string; color: string } {
+  if (!state.baseAlive) return { text: t(lang, 'hud.baseDestroyed'), color: '#ef4444' };
+  if (state.baseFlash > 0) return { text: t(lang, 'hud.baseHit'), color: Math.sin(time * 24) > 0 ? '#ff4757' : '#ffd15c' };
+  if (state.baseFortifyTimer > 0) {
+    return { text: t(lang, 'hud.baseFortified', { s: Math.ceil(state.baseFortifyTimer) }), color: '#38bdf8' };
+  }
+  const hp = baseHp(state);
+  return { text: t(lang, 'hud.baseOk', { hp }), color: hp <= 2 ? '#f87171' : '#70f0c2' };
+}
+
+function drawWideHud(g: CanvasRenderingContext2D, state: ArenaState, lang: Lang, time: number, opts: SceneOptions): void {
+  drawRoundedRect(g, ARENA_X, 10, ARENA_W, 58, 12, '#111a2ee6', '#263554', 1.5);
+  const loopTag = state.loop > 0 ? `  ★${state.loop}` : '';
+  label(g, stageTitle(state, lang) + loopTag, ARENA_X + 18, 40, 23, '#f8fafc', 'left', 900, 360);
+
+  if (state.mode === 'coop') {
+    label(g, t(lang, 'hud.enemies', { n: enemiesLeft(state) }), WIDTH / 2 + 60, 40, 21, '#ff9f43', 'center', 800, 220);
+    const base = baseStatus(state, lang, time);
+    label(g, `🦅 ${base.text}`, ARENA_X + ARENA_W - 18, 40, 21, base.color, 'right', 800, 290);
+  } else {
+    label(g, `1P  ${state.p1Wins} : ${state.p2Wins}  ${state.teamSetup === '1p-ai' ? t(lang, 'hud.ai') : '2P'}`, WIDTH / 2 + 60, 40, 24, '#ffd15c', 'center', 900, 240);
+    label(g, t(lang, 'hud.round', { n: state.roundNumber }), ARENA_X + ARENA_W - 18, 40, 20, state.suddenDeath ? '#ff5252' : '#70f0c2', 'right', 800, 290);
+  }
+
+  drawPlayerSidebar(g, state, 0, 14, ARENA_Y, 152, ARENA_H, lang, time, opts.best);
+  drawPlayerSidebar(g, state, 1, ARENA_X + ARENA_W + 14, ARENA_Y, 152, ARENA_H, lang, time, opts.best);
+  if (opts.hint) label(g, opts.hint, WIDTH / 2, ARENA_Y + ARENA_H + 23, 19, '#a8b1c5', 'center', 600, WIDTH - 40);
+}
+
+function drawCompactPlayer(
+  g: CanvasRenderingContext2D,
+  state: ArenaState,
+  tank: Tank,
+  x: number,
+  y: number,
+  w: number,
+  lang: Lang,
+  time: number
+): void {
+  const playerIndex = tank.playerIndex ?? 0;
+  const accent = playerAccent(playerIndex);
+  drawRoundedRect(g, x, y, w, COMPACT_BOTTOM - 4, 14, '#111a2ee6', `${accent}88`, 2);
+  const row1 = y + 30;
+  const row2 = y + 73;
+  label(g, playerTitle(tank, playerIndex, lang), x + 14, row1, 34, accent, 'left', 900, 78);
+  const alive = tank.alive ? tank.hp : 0;
+  const tail = state.mode === 'coop' ? `♥×${tank.lives}` : `★${playerIndex === 0 ? state.p1Wins : state.p2Wins}`;
+  drawPips(g, x + 98, row1 - 13, w - 98 - 122, 26, alive, tank.maxHp, hpColor(tank, accent, time));
+  label(g, tail, x + w - 14, row1, 34, state.mode === 'coop' ? (tank.lives === 0 ? '#f87171' : '#70f0c2') : '#ffd15c', 'right', 900, 104);
+
+  label(g, `💣${tank.mines}`, x + 14, row2, 32, '#feca57', 'left', 800, 84);
+  drawDashMeter(g, tank, x + 104, row2 - 9, 96, 18);
+  if (tank.weapon) {
+    const info = POWERUP_INFO[tank.weapon];
+    const ratio = Math.max(0, Math.min(1, tank.weaponTimer / 12));
+    label(g, `${info.icon}${info.badge}`, x + 214, row2, 30, info.color, 'left', 900, w - 214 - 100);
+    drawRoundedRect(g, x + w - 92, row2 - 7, 78 * ratio, 14, 7, info.color);
+  } else {
+    label(g, `${tank.score}`, x + w - 14, row2, 32, '#ffffff', 'right', 900, w - 230);
   }
 }
 
-function drawTopHud(g: CanvasRenderingContext2D, state: ArenaState, lang: Lang): void {
-  drawRoundedRect(g, ARENA_X, 12, ARENA_W, 54, 12, '#111a2ee6', '#263554', 1.5);
-
-  g.font = '900 20px system-ui, "PingFang SC", sans-serif';
-  g.textAlign = 'left';
-  g.fillStyle = '#f8fafc';
-  const stageTitle =
-    state.mode === 'coop'
-      ? t(lang, `stage.coop.${state.stageIndex % 6}` as Key)
-      : t(lang, `stage.duel.${state.stageIndex % 5}` as Key);
-  g.fillText(stageTitle, ARENA_X + 20, 40);
-
-  g.textAlign = 'center';
+function drawCompactHud(g: CanvasRenderingContext2D, state: ArenaState, lang: Lang, time: number, opts: SceneOptions): void {
+  const W = opts.layout.width;
+  const row1 = 28;
+  const row2 = 76;
+  label(g, stageTitle(state, lang) + (state.loop > 0 ? ` ★${state.loop}` : ''), 12, row1, 34, '#f8fafc', 'left', 900, W - 250);
+  label(g, `${state.score}`, W - 12, row1, 36, '#ffd15c', 'right', 900, 220);
   if (state.mode === 'coop') {
-    const enemiesLeft =
-      state.enemiesRemainingToSpawn.length + state.tanks.filter((t) => t.alive && t.team === 3).length;
-    g.font = '800 16px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = '#ff9f43';
-    g.fillText(t(lang, 'hud.enemies', { n: enemiesLeft }), WIDTH / 2 + 40, 40);
-
-    g.textAlign = 'right';
-    const baseHp = state.grid[12]?.[9]?.hp ?? 0;
-    const baseText = !state.baseAlive
-      ? t(lang, 'hud.baseDestroyed')
-      : state.baseFortifyTimer > 0
-        ? t(lang, 'hud.baseFortified', { s: Math.ceil(state.baseFortifyTimer) })
-        : t(lang, 'hud.baseOk', { hp: baseHp });
-    g.fillStyle = !state.baseAlive ? '#ef4444' : state.baseFortifyTimer > 0 ? '#38bdf8' : '#70f0c2';
-    g.fillText(`🦅 ${baseText}`, ARENA_X + ARENA_W - 20, 40);
+    label(g, t(lang, 'hud.enemies', { n: enemiesLeft(state) }), 12, row2, 34, '#ff9f43', 'left', 800, 380);
+    const base = baseStatus(state, lang, time);
+    label(g, `🦅 ${base.text}`, W - 12, row2, 34, base.color, 'right', 800, W - 420);
   } else {
-    g.font = '900 20px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = '#ffd15c';
-    g.fillText(`P1  ${state.p1Wins}  :  ${state.p2Wins}  P2`, WIDTH / 2 + 40, 40);
+    label(g, `1P ${state.p1Wins} : ${state.p2Wins} ${state.teamSetup === '1p-ai' ? t(lang, 'hud.ai') : '2P'}`, 12, row2, 36, '#ffd15c', 'left', 900, 360);
+    label(g, t(lang, 'hud.round', { n: state.roundNumber }), W - 12, row2, 32, state.suddenDeath ? '#ff5252' : '#70f0c2', 'right', 800, W - 400);
+  }
 
-    g.textAlign = 'right';
-    g.font = '800 15px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = state.suddenDeath ? '#ff5252' : '#70f0c2';
-    g.fillText(t(lang, 'hud.round', { n: state.roundNumber }), ARENA_X + ARENA_W - 20, 40);
+  const y = opts.layout.arenaY + ARENA_H + 8;
+  const players = state.tanks.filter((tk) => tk.playerIndex !== undefined);
+  if (players.length === 1) {
+    drawCompactPlayer(g, state, players[0], 8, y, W - 16, lang, time);
+  } else {
+    const half = (W - 24) / 2;
+    players.forEach((tk, i) => drawCompactPlayer(g, state, tk, 8 + i * (half + 8), y, half, lang, time));
+  }
+}
+
+function drawArenaOverlays(g: CanvasRenderingContext2D, state: ArenaState, time: number, lang: Lang, ui: number): void {
+  // Eagle armour pips right on the base, so the thing you defend shows its own health.
+  if (state.mode === 'coop' && state.baseAlive) {
+    const hp = baseHp(state);
+    const bx = 9 * TILE + 8;
+    const by = 12 * TILE + TILE - 11;
+    for (let i = 0; i < 6; i++) {
+      g.fillStyle = i < hp ? (hp <= 2 ? '#f87171' : '#fbbf24') : '#334155';
+      g.fillRect(bx + i * 13, by, 10, 5);
+    }
+    const danger = state.baseFlash > 0 || hp <= 2;
+    if (danger) {
+      const pulse = state.baseFlash > 0 ? 0.5 + 0.5 * Math.sin(time * 26) : 0.35 + 0.35 * Math.sin(time * 6);
+      g.save();
+      g.strokeStyle = '#ff4757';
+      g.globalAlpha = pulse;
+      g.lineWidth = 4;
+      g.beginPath();
+      g.roundRect(8 * TILE - 4, 11 * TILE - 4, TILE * 4 + 8, TILE * 2 + 6, 10);
+      g.stroke();
+      g.restore();
+    }
+  }
+  // "Base under fire" frame around the board (a border, never a full-screen flash).
+  if (state.baseFlash > 0) {
+    g.save();
+    g.strokeStyle = '#ff4757';
+    g.globalAlpha = Math.min(1, state.baseFlash);
+    g.lineWidth = 6;
+    g.beginPath();
+    g.roundRect(3, 3, ARENA_W - 6, ARENA_H - 6, 8);
+    g.stroke();
+    g.restore();
+  }
+
+  // Boss health bar
+  const boss = state.tanks.find((tk) => tk.alive && tk.isBoss);
+  if (boss) {
+    const bw = 440;
+    const bx = (ARENA_W - bw) / 2;
+    const by = Math.round(14 * ui) + 8;
+    drawRoundedRect(g, bx - 4, by - 4, bw + 8, 22, 8, '#090d18dd', '#c084fc', 2);
+    drawRoundedRect(g, bx, by, Math.max(4, (bw * boss.hp) / boss.maxHp), 14, 5, boss.hp <= boss.maxHp / 2 ? '#f43f5e' : '#c084fc');
+    g.font = `900 ${Math.round(12 * ui)}px ${FONT}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.lineWidth = 4;
+    g.strokeStyle = '#070b14';
+    const name = t(lang, boss.archetype === 'boss-omega' ? 'boss.omega' : 'boss.behemoth');
+    g.strokeText(name, ARENA_W / 2, by - 9);
+    g.fillStyle = '#f5d0fe';
+    g.fillText(name, ARENA_W / 2, by - 9);
+  }
+
+  // "That one is you" marker for the first seconds of a round.
+  if (state.outcome === 'none' && state.roundTimer < 3.2) {
+    for (const tank of state.tanks) {
+      if (!tank.alive || tank.playerIndex === undefined || tank.isAi) continue;
+      const bob = Math.sin(time * 8) * 4;
+      const ty = tank.y - tank.radius - 20 * ui - 6 + bob;
+      const accent = playerAccent(tank.playerIndex);
+      g.save();
+      g.globalAlpha = Math.min(1, (3.2 - state.roundTimer) * 2);
+      g.fillStyle = accent;
+      g.beginPath();
+      g.moveTo(tank.x - 9 * ui, ty);
+      g.lineTo(tank.x + 9 * ui, ty);
+      g.lineTo(tank.x, ty + 11 * ui);
+      g.closePath();
+      g.fill();
+      g.restore();
+    }
   }
 }
 
@@ -683,43 +915,44 @@ export function drawArenaScene(
   g: CanvasRenderingContext2D,
   state: ArenaState,
   time: number,
-  lang: Lang
+  lang: Lang,
+  opts: SceneOptions
 ): void {
+  const layout = opts.layout;
   g.fillStyle = '#070b14';
-  g.fillRect(0, 0, WIDTH, HEIGHT);
+  g.fillRect(0, 0, layout.width, layout.height);
 
-  drawTopHud(g, state, lang);
-  drawPlayerSidebar(g, state, 0, 14, ARENA_Y, 152, ARENA_H, lang);
-  drawPlayerSidebar(g, state, 1, ARENA_X + ARENA_W + 14, ARENA_Y, 152, ARENA_H, lang);
+  if (layout.kind === 'wide') drawWideHud(g, state, lang, time, opts);
+  else drawCompactHud(g, state, lang, time, opts);
 
-  // Apply camera shake inside arena
-  const shakeX = state.screenShake > 0 ? Math.sin(time * 60) * state.screenShake : 0;
-  const shakeY = state.screenShake > 0 ? Math.cos(time * 52) * state.screenShake : 0;
+  // Camera shake stays inside the arena and is skipped entirely for reduced motion.
+  const shake = opts.reducedMotion ? 0 : Math.min(8, state.screenShake);
+  const shakeX = shake > 0 ? Math.sin(time * 60) * shake : 0;
+  const shakeY = shake > 0 ? Math.cos(time * 52) * shake : 0;
 
   g.save();
-  g.translate(ARENA_X + shakeX, ARENA_Y + shakeY);
+  g.translate(layout.arenaX + shakeX, layout.arenaY + shakeY);
   drawTileFloor(g, state, time);
-  drawArenaEntities(g, state, time, lang);
+  drawArenaEntities(g, state, time, lang, layout.ui);
   drawBushes(g, state, time);
+  drawArenaOverlays(g, state, time, lang, layout.ui);
   g.restore();
 
-  // Banner overlay
-  if (state.bannerKey && (state.bannerTimer > 0 || state.outcome !== 'none')) {
-    const bw = 640;
-    const bh = state.outcome !== 'none' ? 116 : 74;
-    const bx = (WIDTH - bw) / 2;
-    const by = ARENA_Y + (ARENA_H - bh) / 2;
-    drawRoundedRect(g, bx, by, bw, bh, 16, '#090d18eb', '#ffd15c', 2.5);
-    g.font = '900 28px system-ui, "PingFang SC", sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillStyle = '#ffffff';
-    g.fillText(t(lang, state.bannerKey as Key, { n: state.bannerParam }), WIDTH / 2, by + (state.outcome !== 'none' ? 42 : 37));
-    if (state.outcome !== 'none') {
-      g.font = '700 16px system-ui, "PingFang SC", sans-serif';
-      g.fillStyle = '#70f0c2';
-      g.fillText(t(lang, 'banner.pressContinue'), WIDTH / 2, by + 84);
-    }
+  // Transient announcements (stage start, boss warning, overdrive). Results use the DOM panel instead.
+  if (state.bannerKey && state.bannerTimer > 0 && state.outcome === 'none') {
+    const size = Math.round(24 * layout.ui);
+    const text = t(lang, state.bannerKey as Key, { n: state.bannerParam });
+    g.font = `900 ${size}px ${FONT}`;
+    const bw = Math.min(layout.width - 24, Math.max(360, g.measureText(text).width + 64));
+    const bh = size * 2.2;
+    const bx = (layout.width - bw) / 2;
+    const by = layout.arenaY + ARENA_H * 0.3 - bh / 2;
+    g.save();
+    g.globalAlpha = Math.min(1, state.bannerTimer * 3);
+    const warn = state.bannerKey === 'banner.bossIncoming';
+    drawRoundedRect(g, bx, by, bw, bh, 16, '#090d18eb', warn ? '#ff4d8d' : '#ffd15c', 3);
+    label(g, text, layout.width / 2, by + bh / 2, size, '#ffffff', 'center', 900, bw - 28);
+    g.restore();
   }
 }
 
@@ -729,288 +962,4 @@ export interface LobbyConfig {
   stageIndex: number;
   p1Chassis: ChassisId;
   p2Chassis: ChassisId;
-}
-
-export function drawLobbyOverlay(
-  g: CanvasRenderingContext2D,
-  cfg: LobbyConfig,
-  lang: Lang,
-  cursorId: string,
-  setConfig: (patch: Partial<LobbyConfig>) => void,
-  startGame: () => void
-): LobbyHitbox[] {
-  const hitboxes: LobbyHitbox[] = [];
-  g.fillStyle = '#070b14d9';
-  g.fillRect(0, 0, WIDTH, HEIGHT);
-
-  const panelW = 1040;
-  const panelH = 610;
-  const px = (WIDTH - panelW) / 2;
-  const py = 54;
-  drawRoundedRect(g, px, py, panelW, panelH, 20, '#0f172af5', '#38bdf888', 2.2);
-
-  const drawFocusRing = (id: string, x: number, y: number, w: number, h: number, r: number) => {
-    if (cursorId !== id) return;
-    g.save();
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = 3.5;
-    g.shadowColor = '#ffd15c';
-    g.shadowBlur = 12;
-    g.beginPath();
-    g.roundRect(x - 3, y - 3, w + 6, h + 6, r + 2);
-    g.stroke();
-    g.restore();
-  };
-
-  // Header
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.font = '900 34px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#f8fafc';
-  g.fillText(t(lang, 'title'), WIDTH / 2, py + 42);
-  g.font = '600 16px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#94a3b8';
-  g.fillText(t(lang, 'title.sub'), WIDTH / 2, py + 74);
-
-  // Row 0: Game Mode cards (Co-op vs Versus Duel)
-  const modes: GameMode[] = ['coop', 'duel'];
-  modes.forEach((m, idx) => {
-    const id = `mode-${m}`;
-    const cw = 460;
-    const ch = 78;
-    const cx = px + 46 + idx * (cw + 28);
-    const cy = py + 102;
-    const active = cfg.mode === m;
-    drawRoundedRect(
-      g,
-      cx,
-      cy,
-      cw,
-      ch,
-      14,
-      active ? '#162c46' : '#111827',
-      active ? '#2dd4bf' : '#334155',
-      active ? 2.6 : 1.4
-    );
-    drawFocusRing(id, cx, cy, cw, ch, 14);
-    g.textAlign = 'left';
-    g.font = '900 20px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = active ? '#2dd4bf' : '#e2e8f0';
-    g.fillText(`${m === 'coop' ? '🦅 ' : '⚔️ '}${t(lang, `mode.${m}` as Key)}`, cx + 20, cy + 28);
-    g.font = '600 13px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = '#94a3b8';
-    g.fillText(t(lang, `mode.${m}.desc` as Key), cx + 20, cy + 54);
-    hitboxes.push({
-      id,
-      row: 0,
-      col: idx,
-      x: cx,
-      y: cy,
-      w: cw,
-      h: ch,
-      action: () => setConfig({ mode: m, stageIndex: 0, teamSetup: m === 'duel' && cfg.teamSetup === '1p-solo' ? '1p-ai' : cfg.teamSetup })
-    });
-  });
-
-  // Row 1: Team Setup + Map Picker
-  const setups: TeamSetup[] = cfg.mode === 'coop' ? ['2p', '1p-ai', '1p-solo'] : ['2p', '1p-ai'];
-  setups.forEach((ts, idx) => {
-    const id = `team-${ts}`;
-    const bw = 200;
-    const bh = 42;
-    const bx = px + 46 + idx * (bw + 14);
-    const by = py + 196;
-    const active = cfg.teamSetup === ts;
-    drawRoundedRect(
-      g,
-      bx,
-      by,
-      bw,
-      bh,
-      10,
-      active ? '#1e3a5f' : '#111827',
-      active ? '#fde047' : '#334155',
-      active ? 2.2 : 1.2
-    );
-    drawFocusRing(id, bx, by, bw, bh, 10);
-    g.textAlign = 'center';
-    g.font = '800 14px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = active ? '#fde047' : '#cbd5e1';
-    g.fillText(t(lang, `team.${ts}` as Key), bx + bw / 2, by + bh / 2);
-    hitboxes.push({ id, row: 1, col: idx, x: bx, y: by, w: bw, h: bh, action: () => setConfig({ teamSetup: ts }) });
-  });
-
-  // Stage / Map selector button on right side of Row 1
-  const mapCount = cfg.mode === 'coop' ? 6 : 5;
-  const mapBx = px + panelW - 356;
-  const mapBy = py + 196;
-  const mapBw = 310;
-  const mapBh = 42;
-  drawRoundedRect(g, mapBx, mapBy, mapBw, mapBh, 10, '#111827', '#38bdf8', 1.6);
-  drawFocusRing('cycle-map', mapBx, mapBy, mapBw, mapBh, 10);
-  g.textAlign = 'center';
-  g.font = '800 14px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#38bdf8';
-  const stageName =
-    cfg.mode === 'coop'
-      ? t(lang, `stage.coop.${cfg.stageIndex % 6}` as Key)
-      : t(lang, `stage.duel.${cfg.stageIndex % 5}` as Key);
-  g.fillText(`🗺️ ${stageName} ▸`, mapBx + mapBw / 2, mapBy + mapBh / 2);
-  hitboxes.push({
-    id: 'cycle-map',
-    row: 1,
-    col: 3,
-    x: mapBx,
-    y: mapBy,
-    w: mapBw,
-    h: mapBh,
-    action: () => setConfig({ stageIndex: (cfg.stageIndex + 1) % mapCount })
-  });
-
-  // Rows 2 & 3: P1 & P2 Tank Chassis Selection
-  const drawChassisPicker = (playerIndex: 0 | 1, startX: number, selected: ChassisId) => {
-    const sectionY = py + 254;
-    g.textAlign = 'left';
-    g.font = '800 15px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = playerIndex === 0 ? '#2dd4bf' : '#fb7185';
-    g.fillText(t(lang, playerIndex === 0 ? 'lobby.p1' : 'lobby.p2'), startX, sectionY + 12);
-
-    CHASSIS_ORDER.forEach((cid, i) => {
-      const id = `p${playerIndex + 1}-chassis-${cid}`;
-      const col = i % 2;
-      const row = Math.floor(i / 2);
-      const cw = 222;
-      const ch = 92;
-      const cx = startX + col * (cw + 16);
-      const cy = sectionY + 28 + row * (ch + 12);
-      const active = selected === cid;
-      const accent = playerIndex === 0 ? '#2dd4bf' : '#fb7185';
-      drawRoundedRect(
-        g,
-        cx,
-        cy,
-        cw,
-        ch,
-        12,
-        active ? '#17253b' : '#0b1120',
-        active ? accent : '#263554',
-        active ? 2.4 : 1.2
-      );
-      drawFocusRing(id, cx, cy, cw, ch, 12);
-      drawTankModel(
-        g,
-        cx + 36,
-        cy + 46,
-        0,
-        cid,
-        playerIndex === 0 ? '#2dd4bf' : '#fb7185',
-        playerIndex === 0 ? '#fde047' : '#fdba74',
-        0,
-        0,
-        0.95
-      );
-      g.textAlign = 'left';
-      g.font = '800 16px system-ui, "PingFang SC", sans-serif';
-      g.fillStyle = '#f8fafc';
-      g.fillText(t(lang, `chassis.${cid}` as Key), cx + 70, cy + 32);
-      g.font = '600 11.5px system-ui, "PingFang SC", sans-serif';
-      g.fillStyle = '#94a3b8';
-      g.fillText(t(lang, `chassis.${cid}.tag` as Key), cx + 70, cy + 56);
-      const spec = CHASSIS_SPECS[cid];
-      g.fillStyle = accent;
-      g.fillText(`HP:${spec.maxHp}  SPD:${Math.round(spec.speed / 17)}`, cx + 70, cy + 76);
-
-      hitboxes.push({
-        id,
-        row: 2 + row,
-        col: playerIndex * 2 + col,
-        x: cx,
-        y: cy,
-        w: cw,
-        h: ch,
-        action: () => setConfig(playerIndex === 0 ? { p1Chassis: cid } : { p2Chassis: cid })
-      });
-    });
-  };
-
-  drawChassisPicker(0, px + 46, cfg.p1Chassis);
-  drawChassisPicker(1, px + 534, cfg.p2Chassis);
-
-  // Controls & Gamepad navigation hints
-  g.textAlign = 'center';
-  g.font = '600 13px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#cbd5e1';
-  g.fillText(`${t(lang, 'lobby.controls.p1')}   |   ${t(lang, 'lobby.controls.p2')}`, WIDTH / 2, py + 506);
-  g.fillStyle = '#fde047';
-  g.fillText(t(lang, 'lobby.gamepadHint'), WIDTH / 2, py + 528);
-
-  // Row 4: Start Battle CTA button
-  const startW = 460;
-  const startH = 50;
-  const startX = (WIDTH - startW) / 2;
-  const startY = py + 546;
-  drawRoundedRect(g, startX, startY, startW, startH, 14, '#70f0c2', '#ffffff', 2);
-  drawFocusRing('start-battle', startX, startY, startW, startH, 14);
-  g.font = '900 18px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#062019';
-  g.fillText(t(lang, 'lobby.start'), WIDTH / 2, startY + startH / 2);
-  hitboxes.push({ id: 'start-battle', row: 4, col: 0, x: startX, y: startY, w: startW, h: startH, action: startGame });
-
-  return hitboxes;
-}
-
-export function drawPauseOverlay(
-  g: CanvasRenderingContext2D,
-  lang: Lang,
-  pauseCursor: number,
-  onResume: () => void,
-  onRestart: () => void,
-  onLobby: () => void
-): LobbyHitbox[] {
-  const hitboxes: LobbyHitbox[] = [];
-  g.fillStyle = '#070b14cc';
-  g.fillRect(0, 0, WIDTH, HEIGHT);
-
-  const pw = 480;
-  const ph = 300;
-  const px = (WIDTH - pw) / 2;
-  const py = (HEIGHT - ph) / 2;
-  drawRoundedRect(g, px, py, pw, ph, 18, '#0f172af5', '#38bdf8', 2.4);
-
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  g.font = '900 28px system-ui, "PingFang SC", sans-serif';
-  g.fillStyle = '#f8fafc';
-  g.fillText(t(lang, 'pause.title'), WIDTH / 2, py + 48);
-
-  const items: Array<{ id: string; label: string; action: () => void }> = [
-    { id: 'pause-resume', label: t(lang, 'pause.resume'), action: onResume },
-    { id: 'pause-restart', label: t(lang, 'pause.restart'), action: onRestart },
-    { id: 'pause-lobby', label: t(lang, 'pause.lobby'), action: onLobby }
-  ];
-
-  items.forEach((item, idx) => {
-    const bw = 380;
-    const bh = 52;
-    const bx = (WIDTH - bw) / 2;
-    const by = py + 94 + idx * 64;
-    const active = pauseCursor === idx;
-    drawRoundedRect(
-      g,
-      bx,
-      by,
-      bw,
-      bh,
-      12,
-      active ? '#162c46' : '#111827',
-      active ? '#70f0c2' : '#334155',
-      active ? 2.6 : 1.4
-    );
-    g.font = '800 17px system-ui, "PingFang SC", sans-serif';
-    g.fillStyle = active ? '#70f0c2' : '#e2e8f0';
-    g.fillText(item.label, WIDTH / 2, by + bh / 2);
-    hitboxes.push({ id: item.id, row: idx, col: 0, x: bx, y: by, w: bw, h: bh, action: item.action });
-  });
-
-  return hitboxes;
 }

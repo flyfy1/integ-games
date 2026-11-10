@@ -28,7 +28,7 @@ body { background:var(--il-bg); }
 .game-account-menu strong { display:block; overflow-wrap:anywhere; margin-bottom:12px; }
 
 /* Controller entry points: the home strip, the play-bar pill and its panel. */
-.pad-strip { display:flex; flex-wrap:wrap; align-items:center; gap:14px 18px; margin:0 0 24px; padding:16px 20px; border:2px solid #ffb547; border-radius:18px; background:#ffb5471f; }
+.pad-strip { display:flex; flex-wrap:wrap; align-items:center; gap:14px 18px; margin:44px 0 0; padding:16px 20px; border:2px solid #ffb547; border-radius:18px; background:#ffb5471f; }
 .pad-strip-icon { font-size:40px; line-height:1; }
 .pad-strip strong { font-size:1.1rem; }
 .pad-strip p { margin:2px 0 0; }

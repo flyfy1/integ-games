@@ -1,10 +1,12 @@
 # Integ Games
 
-A static, touch-friendly browser arcade with 26 original games. It has no account system or backend; scores, settings, saves, and recently played games stay in local storage.
+A touch-friendly browser arcade at [games.integ.life](https://games.integ.life). The arcade lists **ten** original games; scores, settings, saves, and recently played games stay in local storage, and the optional `backend/` adds sign-in and a shared leaderboard without being needed to play.
 
 ## Games
 
-Merge 2048, Block Drop, Neon Snake, Pocket Mines, Daily Solitaire, Calm Sudoku, Word Trail, Memory Flip, Geo Quiz, Pad Pals, Tank Clash, Tank Brawl, Pelican Pedal, Perfect Stack, Sky Flap, Brick Pulse, Pixel Defense, Metro Dash, Trap Trail, Tiny Wheels, Fruit Orbit, Bubble Pop, Hexa Fit, Orbit Knife, Pocket Survivor, and Ashfall (a cinematic side-scrolling action game with a two-phase boss).
+Listed (in arcade order, `featuredSlugs` in `src/core/catalog.ts`): Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, and Pad Pals.
+
+Hidden since 2026-11-10: Neon Snake, Pocket Mines, Daily Solitaire, Calm Sudoku, Word Trail, Memory Flip, Perfect Stack, Sky Flap, Brick Pulse, Pixel Defense, Metro Dash, Trap Trail, Tiny Wheels, Bubble Pop, Hexa Fit, and Orbit Knife. They were early prototypes that did not reach the quality of the listed ten. Their modules, tests, share pages and direct links (`/play/<slug>/`) still work, but they do not appear in the home grid, search, category counts, "Continue playing" or recommendations. To list one again, add its slug to `featuredSlugs`.
 
 ## Development
 

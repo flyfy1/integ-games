@@ -14,23 +14,23 @@ type Particle = { x: number; y: number; vx: number; vy: number; life: number; ma
 export type MenuRow = { label: string; value: string; enabled: boolean };
 export type Overlay =
   | { kind: 'none' }
-  | { kind: 'menu'; title: string; subtitle: string; rows: MenuRow[]; cursor: number; start: string; legend: Array<[string, string, string]> }
-  | { kind: 'card'; top: string; title: string; hint: string; progress: number; rolling: boolean }
+  | { kind: 'menu'; title: string; subtitle: string; rows: MenuRow[]; cursor: number; start: string; record: string; legend: Array<[string, string, string]> }
+  | { kind: 'card'; top: string; title: string; hint: string; progress: number; rolling: boolean; lines?: string[]; alert?: string }
   | { kind: 'count'; value: string }
   | { kind: 'result'; title: string; color: string; lines: string[]; prompt?: string; party: boolean }
   | { kind: 'paused'; title: string; hint: string };
 export type Touch = { sticks: Array<{ x: number; y: number; dx: number; dy: number } | null>; buttons: Array<{ x: number; y: number; r: number; label: string; held: boolean }> };
 
-export const menuRowBox = (index: number) => ({ x: 340, y: 186 + index * 58, w: 600, h: 50 });
-export const START_BOX = { x: 470, y: 482, w: 340, h: 64 };
+export const menuRowBox = (index: number) => ({ x: 290, y: 132 + index * 64, w: 700, h: 56 });
+export const START_BOX = { x: 440, y: 458, w: 400, h: 72 };
 
 export const tankColor = (tank: Tank) => (tank.enemy ? ENEMY_COLORS[tank.enemy] : SEAT_COLORS[tank.seat] ?? '#fff');
 
-export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean) {
+export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, chinese = false) {
   const ground = document.createElement('canvas'), decals = document.createElement('canvas');
   ground.width = decals.width = WORLD_W; ground.height = decals.height = WORLD_H;
   const groundCtx = ground.getContext('2d')!, decalCtx = decals.getContext('2d')!;
-  let particles: Particle[] = [], shake = 0, flash = 0, world: World | null = null, zoom = 0, zoomX = 0, zoomY = 0, clock = 0;
+  let particles: Particle[] = [], shake = 0, flash = 0, world: World | null = null, zoom = 0, zoomX = 0, zoomY = 0, clock = 0, smoke = 0;
   const treadMarks = new Map<number, number>(), bubbles = new Map<number, { text: string; life: number }>();
 
   function setWorld(next: World) {
@@ -73,11 +73,11 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean) 
         case 'dash': burst(item.x, item.y, '#ffffffaa', 10, 120, 7); break;
         case 'crash': burst(item.x, item.y, '#ffd34d', 12, 280, 5); comic(item.x, item.y, 'CLONK!', '#ffd34d'); addShake(7); break;
         case 'revive': ring(item.x, item.y, 70, '#70f0c2'); comic(item.x, item.y, 'BACK!', '#70f0c2'); break;
-        case 'hit': burst(item.x, item.y, '#ffb347', 18, 300, 6); ring(item.x, item.y, 50, '#fff'); comic(item.x, item.y, COMIC[Math.floor(Math.random() * COMIC.length)], '#fff06e'); scorch(item.x, item.y, 28); addShake(10); break;
-        case 'explode': burst(item.x, item.y, '#ff8a3d', 34, 420, 9); burst(item.x, item.y, '#fff0a8', 16, 240, 6); ring(item.x, item.y, item.radius * 1.4, '#ffe08a'); scorch(item.x, item.y, item.radius); addShake(16); if (!reduced) flash = Math.max(flash, 0.3); break;
+        case 'hit': burst(item.x, item.y, '#ffb347', 18, 300, 6); ring(item.x, item.y, 50, '#fff'); comic(item.x, item.y, item.by === item.tank ? (chinese ? '乌龙！' : 'OWN GOAL!') : COMIC[Math.floor(Math.random() * COMIC.length)], item.by === item.tank ? '#ff9d6e' : '#fff06e'); scorch(item.x, item.y, 28); addShake(10); break;
+        case 'explode': burst(item.x, item.y, '#ff8a3d', 34, 420, 9); burst(item.x, item.y, '#fff0a8', 16, 240, 6); ring(item.x, item.y, item.radius * 1.4, '#ffe08a'); scorch(item.x, item.y, item.radius); addShake(16); if (!reduced) flash = Math.max(flash, 0.1); break;
         case 'pickup': ring(item.x, item.y, 50, '#fff06e'); comic(item.x, item.y, POWER_ICONS[item.kind], '#fff'); break;
         case 'fall': comic(item.x, item.y, 'AAAAH!', '#fff'); break;
-        case 'ko': burst(item.x, item.y, '#ff5a3d', 60, 520, 11); burst(item.x, item.y, '#2b2b2b', 30, 260, 12); ring(item.x, item.y, 170, '#fff'); comic(item.x, item.y, 'K.O.!', '#ff5a5a'); scorch(item.x, item.y, 80); addShake(26); if (!reduced) { flash = 0.6; zoom = 1; zoomX = item.x; zoomY = item.y; } break;
+        case 'ko': burst(item.x, item.y, '#ff5a3d', 60, 520, 11); burst(item.x, item.y, '#2b2b2b', 30, 260, 12); ring(item.x, item.y, 170, '#fff'); comic(item.x, item.y, 'K.O.!', '#ff5a5a'); scorch(item.x, item.y, 80); addShake(26); if (!reduced) { flash = 0.2; zoom = 1; zoomX = item.x; zoomY = item.y; } break;
         case 'honk': bubbles.set(item.tank, { text: Math.random() < 0.15 ? 'QUACK!' : 'HONK!', life: 0.6 }); break;
         case 'collapse': addShake(14); break;
       }
@@ -97,8 +97,13 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean) 
     particles = particles.filter((particle) => particle.life > 0);
     bubbles.forEach((bubble, id) => { bubble.life -= dt; if (bubble.life <= 0) bubbles.delete(id); });
     if (!world) return;
+    smoke -= dt;
+    const puff = smoke <= 0 && !reduced;
+    if (puff) smoke = 0.09;
     for (const tank of world.tanks) {
       if (!tank.alive || tank.falling > 0) continue;
+      // A tank on its last heart trails smoke, so both players can see who is one hit from out.
+      if (puff && tank.seat >= 0 && tank.hp === 1 && tank.maxHp > 1 && !tank.downed) particles.push({ x: tank.x + (Math.random() - 0.5) * 14, y: tank.y - 8, vx: (Math.random() - 0.5) * 30, vy: -70 - Math.random() * 40, life: 0.7, max: 0.7, size: 7 + Math.random() * 6, color: Math.random() < 0.3 ? '#ff8a3d' : '#3a3f4dcc', drag: 0.97, gravity: 0 });
       const last = treadMarks.get(tank.id) ?? tank.mileage;
       if (tank.mileage - last < 9) { treadMarks.set(tank.id, last); continue; }
       treadMarks.set(tank.id, tank.mileage);
@@ -211,7 +216,7 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean) 
       ctx.fillStyle = color; ctx.fillRect(tank.x - 24, tank.y + 28 * scale, 48 * tank.hp / tank.maxHp, 6);
     }
     if (tank.downed) {
-      outlined('HELP!', tank.x, tank.y - 42, 20, '#fff');
+      outlined(chinese ? '救命！' : 'HELP!', tank.x, tank.y - 42, 22, '#fff');
       ctx.strokeStyle = '#70f0c2'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(tank.x, tank.y, 34, -Math.PI / 2, -Math.PI / 2 + tank.revive / 1.4 * Math.PI * 2); ctx.stroke();
     }
     const bubble = bubbles.get(tank.id);
@@ -286,68 +291,79 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean) 
 
   function drawHud(current: World, match: Match | null, labels: { center: string; sub: string; names: string[] }) {
     current.tanks.filter((tank) => tank.seat >= 0).forEach((tank) => {
-      const left = tank.seat === 0, x = left ? 30 : WIDTH - 30, sign = left ? 1 : -1, align: CanvasTextAlign = left ? 'left' : 'right';
-      label(labels.names[tank.seat], x, 28, 20, SEAT_COLORS[tank.seat], align, 900);
-      ctx.font = `20px ${FONT}`; ctx.textAlign = align; ctx.fillStyle = '#000';
-      ctx.fillText(`${'❤️'.repeat(tank.hp)}${'🖤'.repeat(Math.max(0, tank.maxHp - tank.hp))}`, x, 58);
+      const left = tank.seat === 0, x = left ? 26 : WIDTH - 26, sign = left ? 1 : -1, align: CanvasTextAlign = left ? 'left' : 'right';
+      label(labels.names[tank.seat], x, 25, 27, SEAT_COLORS[tank.seat], align, 900);
+      ctx.font = `${tank.maxHp > 5 ? 20 : 25}px ${FONT}`; ctx.textAlign = align; ctx.fillStyle = '#000';
+      if (tank.hp === 1 && tank.maxHp > 1 && !reduced) ctx.globalAlpha = 0.6 + Math.sin(clock * 11) * 0.4;
+      ctx.fillText(`${'❤️'.repeat(Math.max(0, tank.hp))}${'🖤'.repeat(Math.max(0, tank.maxHp - tank.hp))}`, x, 62);
+      ctx.globalAlpha = 1;
       for (let i = 0; i < MAX_AMMO; i++) {
         ctx.fillStyle = i < tank.ammo ? '#ffe9a8' : '#ffffff25';
-        ctx.beginPath(); ctx.roundRect(x + sign * (150 + i * 19) - 7, 20, 14, 22, 5); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(x + sign * (196 + i * 22) - 8, 12, 16, 27, 6); ctx.fill();
       }
-      const ready = 1 - tank.dashCooldown / 2;
-      ctx.fillStyle = '#ffffff22'; ctx.fillRect(x + sign * 150 - (left ? 7 : 45), 50, 52, 7);
-      ctx.fillStyle = ready >= 1 ? '#70f0c2' : '#7a8fb0'; ctx.fillRect(left ? x + 143 : x - 195 + 52 * (1 - ready) + 0, 50, 52 * ready, 7);
-      if (tank.power) { label(`${POWER_ICONS[tank.power]}×${tank.charges}`, x + sign * 262, 36, 28, '#fff', 'center'); }
-      if (match?.mode === 'versus') for (let i = 0; i < match.target; i++) label(i < match.wins[tank.seat] ? '★' : '☆', x + sign * (330 + i * 23), 36, 22, i < match.wins[tank.seat] ? '#ffd34d' : '#ffffff40');
+      const ready = 1 - tank.dashCooldown / 2, bar = 60, barX = left ? x + 188 : x - 188 - bar;
+      ctx.fillStyle = '#ffffff22'; ctx.fillRect(barX, 52, bar, 9);
+      ctx.fillStyle = ready >= 1 ? '#70f0c2' : '#7a8fb0'; ctx.fillRect(left ? barX : barX + bar * (1 - ready), 52, bar * ready, 9);
+      if (tank.power) label(`${POWER_ICONS[tank.power]}×${tank.charges}`, x + sign * 304, 36, 30, '#fff', 'center');
+      if (match?.mode === 'versus') {
+        const pitch = Math.min(27, 112 / match.target);
+        for (let i = 0; i < match.target; i++) label(i < match.wins[tank.seat] ? '★' : '☆', x + sign * (372 + i * pitch), 36, 27, i < match.wins[tank.seat] ? '#ffd34d' : '#ffffff55');
+      }
     });
-    label(labels.center, WIDTH / 2, 30, 22, '#f7f9ff', 'center', 900);
-    label(labels.sub, WIDTH / 2, 60, 15, current.suddenDeath ? '#ff8a7a' : '#a8b1c5', 'center', 700);
+    label(labels.center, WIDTH / 2, 25, 27, '#f7f9ff', 'center', 900);
+    label(labels.sub, WIDTH / 2, 61, 23, current.suddenDeath ? '#ff9a8a' : '#c3cbdd', 'center', 700);
   }
 
   function drawOverlay(overlay: Overlay) {
     if (overlay.kind === 'menu') {
       ctx.fillStyle = '#090d18c4'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
-      outlined(overlay.title, WIDTH / 2, 86, 76, '#ffd34d');
-      label(overlay.subtitle, WIDTH / 2, 148, 21, '#d7ddec', 'center', 700);
+      outlined(overlay.title, WIDTH / 2, 54, 66, '#ffd34d');
+      label(overlay.subtitle, WIDTH / 2, 106, 23, '#d7ddec', 'center', 700);
       overlay.rows.forEach((row, index) => {
         const area = menuRowBox(index), active = index === overlay.cursor;
         ctx.globalAlpha = row.enabled ? 1 : 0.32;
-        ctx.fillStyle = active ? '#ffffff22' : '#ffffff0d'; box(area.x, area.y, area.w, area.h, 14); ctx.fill();
+        ctx.fillStyle = active ? '#ffffff26' : '#ffffff12'; box(area.x, area.y, area.w, area.h, 16); ctx.fill();
         if (active) { ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 3; ctx.stroke(); }
-        label(row.label, area.x + 24, area.y + area.h / 2, 21, '#a8b1c5', 'left', 700);
-        label(`◀  ${row.value}  ▶`, area.x + area.w - 24, area.y + area.h / 2, 23, '#fff', 'right', 800);
+        label(row.label, area.x + 26, area.y + area.h / 2, 27, '#b9c2d6', 'left', 700);
+        label(`◀  ${row.value}  ▶`, area.x + area.w - 26, area.y + area.h / 2, 28, '#fff', 'right', 800);
         ctx.globalAlpha = 1;
       });
       const active = overlay.cursor === overlay.rows.length, pulse = active && !reduced ? Math.sin(clock * 5) * 4 : 0;
-      ctx.fillStyle = '#ffd34d'; box(START_BOX.x - pulse, START_BOX.y - pulse / 2, START_BOX.w + pulse * 2, START_BOX.h + pulse, 20); ctx.fill();
+      ctx.fillStyle = '#ffd34d'; box(START_BOX.x - pulse, START_BOX.y - pulse / 2, START_BOX.w + pulse * 2, START_BOX.h + pulse, 22); ctx.fill();
       if (active) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.stroke(); }
-      label(overlay.start, WIDTH / 2, START_BOX.y + START_BOX.h / 2 + 1, 30, '#1b2340', 'center', 900);
+      label(overlay.start, WIDTH / 2, START_BOX.y + START_BOX.h / 2 + 1, 36, '#1b2340', 'center', 900);
+      label(overlay.record, WIDTH / 2, 562, 24, '#ffd98a', 'center', 800);
+      const few = overlay.legend.length < 3, size = few ? 26 : 21, pitch = few ? 44 : 36, top = few ? 618 : 606;
       overlay.legend.forEach(([who, keys, color], index) => {
-        label(who, 70, 585 + index * 40, 19, color, 'left', 900);
-        label(keys, 190, 585 + index * 40, 18, '#d7ddec', 'left', 600);
+        label(who, 60, top + index * pitch, size, color, 'left', 900);
+        label(keys, 60 + size * 5.6, top + index * pitch, size, '#e3e8f4', 'left', 600);
       });
     } else if (overlay.kind === 'card') {
       ctx.fillStyle = '#090d18a8'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
       const slide = reduced ? 0 : Math.max(0, 1 - overlay.progress * 5) ** 2 * -240;
       ctx.save(); ctx.translate(0, slide); ctx.rotate(-0.012);
-      ctx.fillStyle = '#fff8e1'; box(240, 220, 800, 270, 28); ctx.fill();
+      const extra = overlay.lines?.length ?? 0, lift = extra ? 22 + extra * 20 : 0;
+      ctx.fillStyle = '#fff8e1'; box(200, 216 - lift, 880, 280 + lift * 2, 28); ctx.fill();
       ctx.strokeStyle = '#ffb52e'; ctx.lineWidth = 8; ctx.stroke();
-      label(overlay.top, WIDTH / 2, 268, 24, '#8a6d2a', 'center', 800);
-      label(overlay.title, WIDTH / 2, 348, overlay.rolling ? 48 : 62, overlay.rolling ? '#b6a988' : '#d9382c', 'center', 900);
-      if (!overlay.rolling) label(overlay.hint, WIDTH / 2, 426, 25, '#3b3f55', 'center', 700);
+      label(overlay.top, WIDTH / 2, 262 - lift, 28, '#8a6d2a', 'center', 800);
+      if (overlay.alert) { ctx.fillStyle = '#d9382c'; box(WIDTH / 2 - 150, 176 - lift, 300, 46, 23); ctx.fill(); label(overlay.alert, WIDTH / 2, 200 - lift, 26, '#fff8e1', 'center', 900); }
+      label(overlay.title, WIDTH / 2, 344 - lift, overlay.rolling ? 52 : 66, overlay.rolling ? '#b6a988' : '#d9382c', 'center', 900);
+      if (!overlay.rolling) label(overlay.hint, WIDTH / 2, 426 - lift, 28, '#3b3f55', 'center', 700);
+      overlay.lines?.forEach((line, index) => label(line, WIDTH / 2, 482 - lift + index * 42, 27, '#1f5d86', 'center', 800));
       ctx.restore();
     } else if (overlay.kind === 'count') {
       outlined(overlay.value, WIDTH / 2, HEIGHT / 2, 160, '#fff06e');
     } else if (overlay.kind === 'result') {
       ctx.fillStyle = '#090d18a0'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
       if (overlay.party) confetti();
-      outlined(overlay.title, WIDTH / 2, 280, 76, overlay.color);
-      overlay.lines.forEach((line, index) => label(line, WIDTH / 2, 372 + index * 40, 27, '#f7f9ff', 'center', 700));
-      if (overlay.prompt) label(overlay.prompt, WIDTH / 2, 560, 23, '#ffd34d', 'center', 800);
+      const rise = Math.max(0, overlay.lines.length - 2) * 24;
+      outlined(overlay.title, WIDTH / 2, 262 - rise, 78, overlay.color);
+      overlay.lines.forEach((line, index) => label(line, WIDTH / 2, 356 - rise + index * 46, 30, index ? '#ffe9a8' : '#f7f9ff', 'center', 800));
+      if (overlay.prompt) { ctx.fillStyle = '#090d18cc'; box(WIDTH / 2 - 420, 566, 840, 56, 28); ctx.fill(); label(overlay.prompt, WIDTH / 2, 595, 28, '#ffd34d', 'center', 800); }
     } else if (overlay.kind === 'paused') {
       ctx.fillStyle = '#090d18c4'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
-      outlined(overlay.title, WIDTH / 2, 320, 72, '#fff');
-      label(overlay.hint, WIDTH / 2, 400, 24, '#d7ddec', 'center', 700);
+      outlined(overlay.title, WIDTH / 2, 310, 76, '#fff');
+      label(overlay.hint, WIDTH / 2, 400, 28, '#d7ddec', 'center', 700);
     }
   }
 
@@ -355,7 +371,7 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean) 
     touch.buttons.forEach((button) => {
       ctx.fillStyle = button.held ? '#ffffff55' : '#ffffff22'; ctx.beginPath(); ctx.arc(button.x, button.y, button.r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#ffffff66'; ctx.lineWidth = 3; ctx.stroke();
-      label(button.label, button.x, button.y, 22, '#fff', 'center', 900);
+      label(button.label, button.x, button.y, 26, '#fff', 'center', 900);
     });
     touch.sticks.forEach((stick) => {
       if (!stick) return;

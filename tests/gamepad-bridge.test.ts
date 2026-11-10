@@ -22,7 +22,7 @@ describe('gamepad bridge mapping', () => {
       actionsFor(slug).forEach(({ key, label }) => { expect(label[0], `${slug} ${key}`).not.toBe(key === ' ' ? ' ' : key.length === 1 ? key : ''); expect(label[1].length).toBeGreaterThan(0); });
       Object.keys(gamepadRepeat[slug] ?? {}).forEach((key) => expect(Object.values(gamepadProfiles[slug])).toContain(key));
     }
-    expect(actionsFor('block-drop').map((action) => action.label[0])).toEqual(['Rotate', 'Soft drop', 'Left', 'Right', 'Hard drop', 'Restart']);
+    expect(actionsFor('block-drop').map((action) => action.label[0])).toEqual(['Rotate', 'Soft drop', 'Left', 'Right', 'Hard drop', 'Hold', 'Restart']);
   });
   it('rebinds one control to one action', () => {
     const moved = bind({ south: ' ', east: 'r' }, 'south', 'r');

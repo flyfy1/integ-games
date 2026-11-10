@@ -1,6 +1,6 @@
 /** One small game per skill. Update never touches the canvas, so tests can play every level with its bot. */
 import { BUTTON_INDEX, type ButtonName, type Direction, type PadState } from '../_shared/gamepad-kit';
-import type { SpokenKey } from './i18n';
+import type { Key, SpokenKey } from './i18n';
 import type { Difficulty, Level } from './levels';
 import { drawChip, PLAY_HEIGHT, WIDTH, type GlyphSet, type Highlight } from './pad-view';
 
@@ -15,11 +15,13 @@ export type MiniEnv = {
 };
 export type Mini = {
   goal: number; misses: number; done: boolean; winner?: number;
+  /** True once two people are playing against each other, so the result names a winner. */
+  versus?: boolean;
   update(dt: number, frame: Frame): void;
   draw(g: CanvasRenderingContext2D, time: number): void;
   highlights(): Highlight[];
   /** Replaces the level hint while the level is in a phase worth naming. */
-  caption?(): SpokenKey | undefined;
+  caption?(): Key | undefined;
   progress(): number;
   bot(): BotMove;
 };
@@ -226,21 +228,29 @@ function roamMini(level: Level, env: MiniEnv): Mini {
 function flickMini(level: Level, env: MiniEnv): Mini {
   const d = env.difficulty, goal = level.goal[d], wait = level.wait[d], count = d === 2 ? 8 : 4;
   const ARROWS = ['➡️', '↘️', '⬇️', '↙️', '⬅️', '↖️', '⬆️', '↗️'];
-  let resolved = 0, age = 0, armed = true, slot = 0;
+  // Eight directions need two keys, or a stick that swings through a neighbour first, so Tiger waits a moment before judging.
+  const settleTime = d === 2 ? 0.09 : 0;
+  let resolved = 0, age = 0, armed = true, slot = 0, settle = -1, lastX = 0, lastY = 0;
   const next = () => { slot = Math.floor(env.random() * count) * (8 / count); age = 0; env.tick(); };
   next();
+  const judge = () => {
+    armed = false; settle = -1;
+    const want = slot * Math.PI / 4, got = Math.atan2(lastY, lastX), off = Math.abs(Math.atan2(Math.sin(got - want), Math.cos(got - want)));
+    if (off < (d === 2 ? 0.38 : 0.6)) { env.good(CENTER_X, 220, resolved); resolved++; if (resolved < goal) next(); }
+    else if (d > 0) { mini.misses++; env.bad(CENTER_X, 220); }
+  };
   const mini: Mini = {
     goal, misses: 0, done: false,
     update(dt, frame) {
       age += dt;
       const { x, y } = frame.any, length = Math.hypot(x, y);
-      if (length < 0.4) armed = true;
       if (armed && length > 0.7) {
-        armed = false;
-        const want = slot * Math.PI / 4, off = Math.abs(Math.atan2(Math.sin(Math.atan2(y, x) - want), Math.cos(Math.atan2(y, x) - want)));
-        if (off < (d === 2 ? 0.38 : 0.6)) { env.good(CENTER_X, 220, resolved); resolved++; if (resolved < goal) next(); }
-        else if (d > 0) { mini.misses++; env.bad(CENTER_X, 220); }
-      } else if (age > wait) { mini.misses++; resolved++; env.bad(CENTER_X, 220); if (resolved < goal) next(); }
+        if (settle < 0) settle = settleTime;
+        lastX = x; lastY = y; settle -= dt;
+        if (settle <= 0) judge();
+      } else if (armed && settle >= 0) judge(); // A quick tap can end before the wait does; it still counts.
+      else if (age > wait) { mini.misses++; resolved++; env.bad(CENTER_X, 220); if (resolved < goal) next(); }
+      if (length < 0.4 && settle < 0) armed = true;
       mini.done = resolved >= goal;
     },
     draw(g, time) {
@@ -369,7 +379,8 @@ function simonMini(level: Level, env: MiniEnv): Mini {
         return;
       }
       if (phase === 'watch') {
-        if (!spoke) { spoke = true; env.say('simon.watch'); }
+        // The level's own hint is still being read out during the first tune, and says the same thing.
+        if (!spoke && (round > 0 || mini.misses > 0)) { spoke = true; env.say('simon.watch'); }
         const now = Math.floor(clock / stepTime), before = Math.floor((clock - dt) / stepTime);
         if (now !== before && now >= 0 && now < sequence.length) flash(sequence[now], stepTime * lit);
         if (now >= sequence.length) { phase = 'turn'; idle = 0; env.say('simon.turn'); }
@@ -412,6 +423,7 @@ function simonMini(level: Level, env: MiniEnv): Mini {
 }
 
 /* Both hands: right thumb aims while a finger on top fires. */
+const KEY_TURN = 1.7;
 function aimMini(level: Level, env: MiniEnv): Mini {
   const d = env.difficulty, goal = level.goal[d], radius = [78, 60, 48][d], drift = [0, 70, 130][d];
   let cannonX = CENTER_X, angle = -Math.PI / 2, got = 0, cooldown = 0;
@@ -426,7 +438,11 @@ function aimMini(level: Level, env: MiniEnv): Mini {
       cooldown -= dt;
       // Pads without a right stick can still play the lower difficulties.
       const [ax, ay] = pad.rx || pad.ry ? [pad.rx, pad.ry] : d < 2 ? [pad.x, pad.y] : [0, 0];
-      if (Math.hypot(ax, ay) > 0.35) angle = clamp(Math.atan2(Math.min(ay, -0.02), ax), -Math.PI + 0.1, -0.1);
+      if (Math.hypot(ax, ay) > 0.35) {
+        const want = clamp(Math.atan2(Math.min(ay, -0.02), ax), -Math.PI + 0.1, -0.1);
+        // Keys only know eight directions, which would leave most balloons out of reach: there they turn the cannon instead.
+        angle = env.glyphs() === 'keys' ? angle + clamp(want - angle, -KEY_TURN * dt, KEY_TURN * dt) : want;
+      }
       if (d === 2) cannonX = clamp(cannonX + pad.x * 420 * dt, 80, WIDTH - 80);
       if (just(pad, 'r1') && cooldown <= 0) {
         shots.push({ x: cannonX, y: cannonY, vx: Math.cos(angle) * 900, vy: Math.sin(angle) * 900 }); cooldown = 0.28; env.tick(8);
@@ -618,36 +634,62 @@ function bossMini(level: Level, env: MiniEnv): Mini {
   return mini;
 }
 
-/* Party: first to press pulls the rope. With one player, the bunny plays at the chosen difficulty. */
+/* Party: first to press pulls the rope. With one player, the bunny plays at the chosen difficulty.
+   A second pad makes it a duel; so does anyone who presses an arrow key or Enter, so one keyboard is enough for two. */
+const FACE_OF: Record<Direction, ButtonName> = { up: 'north', down: 'south', left: 'west', right: 'east' };
+const DIAMOND: Array<[ButtonName, number, number]> = [['north', 0, -1], ['west', -1, 0], ['east', 1, 0], ['south', 0, 1]];
 function tugMini(level: Level, env: MiniEnv): Mini {
-  const set = level.buttons!, reaction = level.wait[env.difficulty], two = env.players > 1, pull = 0.25;
-  let rope = 0, age = 0, cooldown = 0.5, target: ButtonName = pick(env, set), wins = 0;
+  const set = level.buttons!, d = env.difficulty, reaction = level.wait[d], pull = 0.25;
+  let two = env.players > 1, rope = 0, age = 0, cooldown = 0.5, target: ButtonName = pick(env, set), wins = 0, yank = 0, yankSide = 0;
+  const stun = [0, 0];
+  /** In a duel a direction counts as the button in the same place, so W A S D can face the arrow keys. */
+  const pressedBy = (pad: PadState | undefined) => (pad ? set.filter((button) => just(pad, button) || (two && pad.dirPressed !== null && FACE_OF[pad.dirPressed] === button)) : []);
   const score = (who: number) => {
-    rope += who === 0 ? -pull : pull;
-    if (who === 0) { wins++; env.good(CENTER_X - 120, 250, wins); } else { mini.misses++; env.tick(1); }
+    rope += who === 0 ? -pull : pull; yank = 0.3; yankSide = who;
+    if (who === 0) { wins++; env.good(CENTER_X - 120, 250, wins); } else { mini.misses++; if (two) env.good(CENTER_X + 120, 250, mini.misses); else env.tick(1); }
     target = pick(env, set); age = 0; cooldown = 0.3;
     if (Math.abs(rope) >= 0.99) { mini.done = true; mini.winner = rope < 0 ? 0 : 1; }
   };
   const mini: Mini = {
-    goal: 8, misses: 0, done: false,
+    goal: 8, misses: 0, done: false, versus: two,
     update(dt, frame) {
+      yank = Math.max(0, yank - dt);
+      const second = frame.pads[1];
+      if (!two && second && (second.pressed || second.dirPressed)) { two = true; mini.versus = true; env.good(CENTER_X + 380, 300, 4); return; }
+      stun[0] = Math.max(0, stun[0] - dt); stun[1] = Math.max(0, stun[1] - dt);
       if (cooldown > 0) { cooldown -= dt; return; }
       age += dt;
-      const first = two ? frame.pads[0] : frame.any;
-      if (just(first, target)) score(0);
-      else if (two ? just(frame.pads[1], target) : age > reaction) score(1);
+      const sides = two ? [frame.pads[0], second] : [frame.any];
+      const pulls = sides.map((pad, who) => {
+        const pressed = stun[who] > 0 ? [] : pressedBy(pad);
+        // Above Chick a wrong button costs a moment, so mashing all four stops being the best plan.
+        if (d > 0 && pressed.length && !pressed.includes(target)) { stun[who] = 0.45; env.bad(CENTER_X + (who ? 380 : -380), 300); }
+        return pressed.includes(target);
+      });
+      if (pulls[0]) score(0);
+      else if (two ? pulls[1] : age > reaction) score(1);
     },
     draw(g, time) {
       sky(g, '#c9efb0', '#ffe3a8', '#8fd46a', 340);
-      const shift = rope * 260, sway = Math.sin(time * 6) * 3;
+      const shift = rope * 260, sway = Math.sin(time * 6) * 3, lean = yank ? (yankSide === 0 ? -1 : 1) * yank * 40 : 0;
       g.fillStyle = '#ff5d6c'; g.fillRect(CENTER_X - 4, 200, 8, 200);
       g.strokeStyle = '#8a5a2b'; g.lineWidth = 16; g.beginPath(); g.moveTo(CENTER_X - 340 + shift, 310); g.lineTo(CENTER_X + 340 + shift, 310); g.stroke();
       g.fillStyle = '#ffd23f'; g.fillRect(CENTER_X - 12 + shift, 294, 24, 32);
-      emoji(g, '🐻', CENTER_X - 380 + shift, 300 + sway, 130);
-      emoji(g, '🐰', CENTER_X + 380 + shift, 300 - sway, 130);
-      if (cooldown <= 0) drawChip(g, target, CENTER_X, 110, 72, env.glyphs());
+      g.globalAlpha = stun[0] > 0 ? 0.5 : 1; emoji(g, '🐻', CENTER_X - 380 + shift + lean, 300 + sway, 130);
+      g.globalAlpha = stun[1] > 0 ? 0.5 : 1; emoji(g, '🐰', CENTER_X + 380 + shift + lean, 300 - sway, 130);
+      g.globalAlpha = 1;
+      if (cooldown <= 0) {
+        // Four spots in the shape of the buttons: the place says which one, whatever is printed on the pad or the keys.
+        DIAMOND.forEach(([button, dx, dy]) => {
+          const on = button === target;
+          g.globalAlpha = on ? 1 : 0.3;
+          drawChip(g, button, CENTER_X + dx * 74, 112 + dy * 62, on ? 46 : 26, env.glyphs(), on);
+          g.globalAlpha = 1;
+        });
+      }
     },
     highlights: () => (cooldown <= 0 ? [target] : []),
+    caption: () => (env.glyphs() !== 'keys' ? undefined : two ? 'tug.two' : 'tug.join'),
     progress: () => wins,
     bot: () => ({ press: target })
   };

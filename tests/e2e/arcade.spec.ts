@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+const allSlugs = (JSON.parse(readFileSync(new URL('../../src/core/catalog-data.json', import.meta.url), 'utf8')) as string[][]).map((row) => row[0]);
 const continuous = ['block-drop', 'snake', 'stack', 'flap', 'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'knife', 'arena', 'ashfall'];
 test('all catalog routes render without a page error', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
-  const routes = await page.locator('article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(routes).toHaveLength(26);
-  for (const gameRoute of routes) {
-    await page.goto(gameRoute ?? '/');
+  const listed = await page.locator('[data-grid] article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  expect(listed).toHaveLength(10);
+  expect(allSlugs).toHaveLength(26);
+  // Hidden cabinets stay playable from their direct links, so every installed route is still exercised.
+  for (const gameRoute of allSlugs.map((slug) => `/play/${slug}/`)) {
+    await page.goto(gameRoute);
     await expect(page.locator('.game-stage')).toBeVisible();
     await expect(page.locator('.breadcrumb')).toBeVisible();
     await expect(page.locator('.game-kicker .trait-chip')).toHaveCount(2);
@@ -18,20 +22,20 @@ test('all catalog routes render without a page error', async ({ page }) => {
 
 test('category filters persist in the URL and search stays within the active category', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /Match & Build 4/ }).click();
+  await page.getByRole('button', { name: /Match & Build 2/ }).click();
   await expect(page).toHaveURL(/\?category=match-build$/);
   await expect(page.getByRole('heading', { name: 'Match & Build' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Match & Build 4/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(4);
+  await expect(page.getByRole('button', { name: /Match & Build 2/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(2);
   await page.getByRole('searchbox', { name: 'Search Match & Build' }).fill('no-match-here');
   await expect(page.getByText('No games matched')).toBeVisible();
   await expect(page.locator('[data-results]')).toHaveText('0 games in Match & Build');
   await page.reload();
-  await expect(page.getByRole('button', { name: /Match & Build 4/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /Match & Build 2/ })).toHaveAttribute('aria-pressed', 'true');
   await page.goto('/play/merge-2048');
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(8);
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(2);
 });
 
 test('game navigation updates canonical and social metadata', async ({ page }, testInfo) => {
@@ -296,9 +300,10 @@ test('Tank Clash switches between Co-op and Versus Duel and drives both P1 and P
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/play/tank-clash');
-  await expect(page.locator('[data-tank-clash] canvas')).toBeVisible();
-  await page.locator('[data-tc="mode"]').click();
-  await page.keyboard.press('Space');
+  await expect(page.locator('[data-tank-clash] canvas[role=application]')).toBeVisible();
+  await page.locator('[data-tank-clash] [data-id="mode-duel"]').click();
+  await page.locator('[data-tank-clash] [data-id="team-2p"]').click();
+  await page.locator('[data-tank-clash] [data-id="start-battle"]').click();
   const state = () => page.evaluate(() => {
     const tc = (window as unknown as { __tankClash: { getState: () => { mode: string; tanks: Array<{ x: number; y: number }>; bullets: unknown[] } } }).__tankClash;
     const s = tc.getState();
@@ -317,9 +322,10 @@ test('Tank Clash switches between Co-op and Versus Duel and drives both P1 and P
   expect(after.p2x).toBeLessThan(before.p2x);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: 'Play in full screen' }).click();
-  const canvas = page.locator('[data-tank-clash] canvas');
+  const canvas = page.locator('[data-tank-clash] canvas[role=application]');
   await expect.poll(async () => (await canvas.boundingBox())?.width).toBe(1440);
-  expect(await canvas.boundingBox()).toEqual({ x: 0, y: 0, width: 1440, height: 900 });
+  // Full screen keeps the 16:9 battlefield undistorted and centred instead of stretching it.
+  expect(await canvas.boundingBox()).toEqual({ x: 0, y: 45, width: 1440, height: 810 });
   await page.getByRole('button', { name: 'Exit full screen' }).click();
   await expect.poll(async () => (await canvas.boundingBox())?.width).toBeLessThan(1100);
   expect(errors).toEqual([]);

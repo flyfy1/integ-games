@@ -1,6 +1,12 @@
 import { THEMES, STARS, CLOUDS, W, H, WATER_Y, T, PW, PH, MAXST } from './theme';
+import { LEVELS } from './levels';
+import type { StageBest } from './sim';
 import type { Theme } from './theme';
 import type { Item, Enemy, Mover, Crumble, Spring, Checkpoint, Goal } from './types';
+
+/** Visible world width in world pixels. Set by each instance right before it draws a frame. */
+let VW = W;
+export function setView(vw: number) { VW = vw; }
 
 const FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif';
 
@@ -74,12 +80,12 @@ function drawHills(ctx: CanvasRenderingContext2D, camX: number, par: number, bas
   ctx.beginPath();
   ctx.moveTo(0, WATER_Y);
   const off = camX * par;
-  for (let x = -step; x <= W + step; x += 24) {
+  for (let x = -step; x <= VW + step; x += 24) {
     const wx = x + off;
     const h = Math.sin(wx / step + seed) * amp * 0.6 + Math.cos(wx / (step * 0.55) + seed * 3) * amp * 0.4;
     ctx.lineTo(x, baseY - Math.max(0, h));
   }
-  ctx.lineTo(W, WATER_Y);
+  ctx.lineTo(VW, WATER_Y);
   ctx.closePath();
   ctx.fill();
 }
@@ -115,17 +121,17 @@ function drawDunes(ctx: CanvasRenderingContext2D, camX: number, par: number, bas
   ctx.fillStyle = col;
   ctx.beginPath();
   ctx.moveTo(0, WATER_Y);
-  for (let x = 0; x <= W; x += 20) {
+  for (let x = 0; x <= VW; x += 20) {
     const wx = x + off;
     const y = baseY - (Math.sin(wx * 0.0045) * 0.5 + 0.5) * amp;
     ctx.lineTo(x, y);
   }
-  ctx.lineTo(W, WATER_Y);
+  ctx.lineTo(VW, WATER_Y);
   ctx.closePath();
   ctx.fill();
 
   const span = 260, first = Math.floor(off / span) * span;
-  for (let wx = first - span; wx < off + W + span; wx += span) {
+  for (let wx = first - span; wx < off + VW + span; wx += span) {
     const h = hash(Math.floor(wx / span), 17);
     if (h < 0.32) continue;
     const x = wx - off + (h - 0.5) * 90;
@@ -139,7 +145,7 @@ export function drawBackground(ctx: CanvasRenderingContext2D, curTheme: number, 
   const g = ctx.createLinearGradient(0, 0, 0, WATER_Y);
   th.sky.forEach((c, i) => g.addColorStop(i / (th.sky.length - 1), c));
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, WATER_Y);
+  ctx.fillRect(0, 0, VW, WATER_Y);
 
   if (th.night || curTheme === 1) {
     const maxY = th.night ? 310 : 140;
@@ -147,11 +153,11 @@ export function drawBackground(ctx: CanvasRenderingContext2D, curTheme: number, 
       if (s.y > maxY) continue;
       const a = 0.35 + 0.65 * Math.sin(gtime * s.sp + s.ph);
       ctx.fillStyle = `rgba(255,255,240,${a * (th.night ? 1 : 0.45)})`;
-      ctx.fillRect(s.x, s.y, s.s, s.s);
+      ctx.fillRect(s.x * VW / W, s.y, s.s, s.s);
     }
   }
 
-  const [sx, sy, sr] = th.sunPos;
+  const sx = th.sunPos[0] * VW / W, sy = th.sunPos[1], sr = th.sunPos[2];
   const sg = ctx.createRadialGradient(sx, sy, sr * 0.2, sx, sy, sr * 2.6);
   sg.addColorStop(0, th.sunGlow);
   sg.addColorStop(1, 'rgba(255,255,255,0)');
@@ -165,7 +171,7 @@ export function drawBackground(ctx: CanvasRenderingContext2D, curTheme: number, 
   }
 
   for (const cl of CLOUDS) {
-    const cx = ((cl.x - camX * cl.p - gtime * 12 * cl.p) % (W + 260) + W + 260) % (W + 260) - 130;
+    const cx = ((cl.x - camX * cl.p - gtime * 12 * cl.p) % (VW + 260) + VW + 260) % (VW + 260) - 130;
     drawCloud(ctx, cx, cl.y, cl.s, th.cloud, th.cloudShade);
   }
 
@@ -177,7 +183,7 @@ export function drawBackground(ctx: CanvasRenderingContext2D, curTheme: number, 
   sg2.addColorStop(0, th.sea[0]);
   sg2.addColorStop(1, th.sea[1]);
   ctx.fillStyle = sg2;
-  ctx.fillRect(0, seaY, W, WATER_Y - seaY);
+  ctx.fillRect(0, seaY, VW, WATER_Y - seaY);
   ctx.fillStyle = th.seaHi;
   for (let i = 0; i < 24; i++) {
     const wy = seaY + 6 + (i * 2.6);
@@ -187,7 +193,7 @@ export function drawBackground(ctx: CanvasRenderingContext2D, curTheme: number, 
   }
 
   for (let i = 0; i < 3; i++) {
-    const bx = ((i * 390 + 180 - camX * 0.28 - gtime * 8) % (W + 200) + W + 200) % (W + 200) - 100;
+    const bx = ((i * 390 + 180 - camX * 0.28 - gtime * 8) % (VW + 200) + VW + 200) % (VW + 200) - 100;
     const by = seaY + 8 + Math.sin(gtime * 2 + i) * 2;
     ctx.fillStyle = th.sil ? th.trunk : '#fff';
     ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + 12, by - 22); ctx.lineTo(bx + 14, by); ctx.fill();
@@ -227,7 +233,7 @@ export function drawTile(ctx: CanvasRenderingContext2D, grid: string[][], r: num
     ctx.fillStyle = '#5a3515'; ctx.fillRect(x + 5, y + 2, 3, 4); ctx.fillRect(x + T - 8, y + 2, 3, 4);
   } else if (ch === '^') {
     const cx = x + 20, cy = y + 28;
-    ctx.strokeStyle = '#3b1c54'; ctx.lineWidth = 2.6;
+    ctx.strokeStyle = th.night || th.sil ? '#b98be6' : '#3b1c54'; ctx.lineWidth = 2.6;
     for (let i = 0; i < 9; i++) {
       const a = Math.PI + (i / 8) * Math.PI;
       const len = 17 + Math.sin(gtime * 5 + i + c) * 2;
@@ -237,14 +243,15 @@ export function drawTile(ctx: CanvasRenderingContext2D, grid: string[][], r: num
       ctx.stroke();
     }
     ctx.fillStyle = '#5c2a7d'; circle(ctx, cx, cy, 11); ctx.fill();
+    if (th.night || th.sil) { ctx.strokeStyle = '#e2c8ff'; ctx.lineWidth = 1.5; circle(ctx, cx, cy, 11); ctx.stroke(); }
     ctx.fillStyle = '#fff'; circle(ctx, cx - 4, cy - 3, 2.5); ctx.fill(); circle(ctx, cx + 4, cy - 3, 2.5); ctx.fill();
     ctx.fillStyle = '#111'; circle(ctx, cx - 4, cy - 3, 1.3); ctx.fill(); circle(ctx, cx + 4, cy - 3, 1.3); ctx.fill();
   }
 }
 
 export function drawPelican(ctx: CanvasRenderingContext2D, P: any, gtime: number) {
-  if (P.inv > 0 && Math.floor(P.inv * 16) % 2 === 1) return;
   ctx.save();
+  if (P.inv > 0 && !P.dead && Math.floor(P.inv * 16) % 2 === 1) ctx.globalAlpha = 0.35; // mercy blink: faded, never invisible
   ctx.translate(P.x + PW / 2, P.y + PH);
   ctx.scale(P.dir * P.sx, P.sy);
   ctx.rotate(P.tilt * P.dir);
@@ -421,7 +428,7 @@ export function drawEntities(
 
   for (const it of items) {
     if (it.got) continue;
-    if (it.x < camX - 40 || it.x > camX + W + 40) continue;
+    if (it.x < camX - 40 || it.x > camX + VW + 40) continue;
     const bob = Math.sin(gtime * 4 + it.ph) * 4;
     ctx.save();
     ctx.translate(it.x, it.y + bob);
@@ -446,7 +453,7 @@ export function drawEntities(
   }
 
   for (const e of enemies) {
-    if (e.x < camX - 60 || e.x > camX + W + 60) continue;
+    if (e.x < camX - 60 || e.x > camX + VW + 60) continue;
     ctx.save();
     ctx.translate(e.x + e.w / 2, e.y + e.h / 2);
     if (e.dead) ctx.scale(1, -1);
@@ -472,6 +479,14 @@ export function drawEntities(
       ctx.beginPath(); ctx.moveTo(11, 0); ctx.lineTo(20, 2); ctx.lineTo(11, 5); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#111'; circle(ctx, 8, -1, 1.6); ctx.fill();
     } else if (e.type === 'jelly') {
+      if (e.state === 'wait' && e.t > 0.55) {
+        // Ripples warn that a jellyfish is about to leap from this spot.
+        const k = Math.min(1, (e.t - 0.55) / 0.8);
+        ctx.strokeStyle = `rgba(255,170,215,${0.35 + k * 0.6})`; ctx.lineWidth = 2.5;
+        for (let i = 0; i < 2; i++) { ctx.beginPath(); ctx.ellipse(0, WATER_Y - 5 - (e.y + e.h / 2), 8 + k * 16 + i * 9, 3 + k * 2 + i * 2, 0, 0, Math.PI * 2); ctx.stroke(); }
+        ctx.fillStyle = `rgba(255,255,255,${0.5 + k * 0.4})`;
+        for (let i = 0; i < 3; i++) { const by = WATER_Y - (e.y + e.h / 2) - 6 - ((gtime * 60 + i * 9) % 22) * k; circle(ctx, (i - 1) * 7, by, 2.2); ctx.fill(); }
+      }
       ctx.strokeStyle = '#ff99c8'; ctx.lineWidth = 2.2;
       for (let i = -2; i <= 2; i++) {
         ctx.beginPath(); ctx.moveTo(i * 4, 4);
@@ -489,16 +504,16 @@ export function drawWater(ctx: CanvasRenderingContext2D, th: Theme, camX: number
   ctx.save();
   ctx.fillStyle = th.water; ctx.globalAlpha = 0.84;
   ctx.beginPath(); ctx.moveTo(0, H);
-  for (let x = 0; x <= W; x += 16) {
+  for (let x = 0; x <= VW + 16; x += 16) {
     const wx = x + camX;
     const wy = WATER_Y + Math.sin(wx * 0.035 + gtime * 3.5) * 4 + Math.cos(wx * 0.018 - gtime * 2.2) * 3;
     ctx.lineTo(x, wy);
   }
-  ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+  ctx.lineTo(VW, H); ctx.closePath(); ctx.fill();
 
   ctx.strokeStyle = th.waterHi; ctx.lineWidth = 3; ctx.globalAlpha = 0.9;
   ctx.beginPath();
-  for (let x = 0; x <= W; x += 16) {
+  for (let x = 0; x <= VW + 16; x += 16) {
     const wx = x + camX;
     const wy = WATER_Y + Math.sin(wx * 0.035 + gtime * 3.5) * 4 + Math.cos(wx * 0.018 - gtime * 2.2) * 3;
     if (x === 0) ctx.moveTo(x, wy); else ctx.lineTo(x, wy);
@@ -507,107 +522,265 @@ export function drawWater(ctx: CanvasRenderingContext2D, th: Theme, camX: number
   ctx.restore();
 }
 
-export function drawHUD(
-  ctx: CanvasRenderingContext2D,
-  P: any,
-  fishGot: number,
-  fishTot: number,
-  starGot: number,
-  starTot: number,
-  score: number,
-  _curLv: number,
-  levelName: string,
-  goal: Goal | null,
-  _state: string,
-  bannerT: number,
-  bannerStr: string,
-  isZh: boolean
-) {
-  ctx.fillStyle = 'rgba(13,24,48,0.55)'; rrect(ctx, 14, 12, 270, 66, 12); ctx.fill();
-  for (let i = 0; i < P.maxHp; i++) {
-    drawText(ctx, '❤', 28 + i * 26, 31, 20, i < P.hp ? '#ff595e' : 'rgba(255,255,255,0.22)', 'left', '#141b2d');
+/* ---------- HUD and menus: drawn in UI space (CSS-pixel sized), independent of the world zoom ---------- */
+
+export type UiResult = { medals: number; newBest: boolean; timeBonus: number };
+export type Ui = {
+  uw: number; uh: number; padL: number; touch: boolean; isZh: boolean; gtime: number;
+  state: 'title' | 'playing' | 'paused' | 'levelclear' | 'victory';
+  P: { hp: number; maxHp: number; stamina: number; turbo: boolean; streak: number };
+  lv: number; progress: number; time: number; deaths: number; bannerT: number;
+  fishGot: number; fishTot: number; starGot: number; starTot: number; score: number; hiScore: number;
+  sel: number; unlocked: number; bests: (StageBest | null)[]; result: UiResult | null;
+};
+export type Hit = { x: number; y: number; w: number; h: number; act: string };
+
+export function fmtTime(t: number): string {
+  const m = Math.floor(t / 60), sec = t - m * 60;
+  return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
+}
+
+function heart(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, col: string) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(x, y + s * 0.42);
+  ctx.bezierCurveTo(x - s * 0.62, y - s * 0.05, x - s * 0.4, y - s * 0.5, x, y - s * 0.2);
+  ctx.bezierCurveTo(x + s * 0.4, y - s * 0.5, x + s * 0.62, y - s * 0.05, x, y + s * 0.42);
+  ctx.fill();
+}
+
+function fishIcon(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, col = '#ff9f1c') {
+  ctx.fillStyle = col;
+  ellipse(ctx, x, y, 9 * s, 5.5 * s, 0); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - 7 * s, y); ctx.lineTo(x - 14 * s, y - 5 * s); ctx.lineTo(x - 14 * s, y + 5 * s); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#1d3557'; circle(ctx, x + 4.5 * s, y - 1.2 * s, 1.3 * s); ctx.fill();
+}
+
+function starIcon(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, on: boolean, onCol = '#ffe66d') {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rr = i % 2 === 0 ? r : r * 0.46, a = (i * Math.PI) / 5 - Math.PI / 2;
+    if (i === 0) ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
   }
-  drawText(ctx, '⚡', 114, 31, 16, '#ffe66d', 'left');
-  ctx.fillStyle = 'rgba(255,255,255,0.2)'; rrect(ctx, 134, 23, 136, 14, 7); ctx.fill();
-  const stRatio = Math.min(1, Math.max(0, P.stamina / MAXST));
-  ctx.fillStyle = P.turbo ? '#ff9f1c' : '#4cc9f0';
-  if (stRatio > 0) { rrect(ctx, 136, 25, 132 * stRatio, 10, 5); ctx.fill(); }
+  ctx.closePath();
+  ctx.fillStyle = on ? onCol : 'rgba(255,255,255,0.16)'; ctx.fill();
+  ctx.strokeStyle = on ? '#f48c06' : 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
+}
 
-  drawText(ctx, `🐟 ${fishGot}/${fishTot}`, 28, 59, 16, '#ffbf69', 'left', '#141b2d');
-  drawText(ctx, `★ ${starGot}/${starTot}`, 132, 59, 16, '#ffe66d', 'left', '#141b2d');
-  drawText(ctx, isZh ? `得分 ${score}` : `SCORE ${score}`, 206, 59, 15, '#ffffff', 'left', '#141b2d');
+function clockIcon(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, col: string) {
+  ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.6, r * 0.22); ctx.lineCap = 'round';
+  circle(ctx, x, y, r); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y - r * 0.55); ctx.lineTo(x, y); ctx.lineTo(x + r * 0.42, y + r * 0.2); ctx.stroke();
+}
 
-  const pw = 250, px = (W - pw) / 2, py = 20;
-  ctx.fillStyle = 'rgba(13,24,48,0.5)'; rrect(ctx, px, py, pw, 12, 6); ctx.fill();
-  const prog = goal ? Math.min(1, Math.max(0, P.x / goal.x)) : 0;
-  ctx.fillStyle = '#7ae582'; rrect(ctx, px + 2, py + 2, (pw - 4) * prog, 8, 4); ctx.fill();
-  drawText(ctx, '🚴', px + (pw - 4) * prog, py + 5, 16, '#fff', 'center');
-  drawText(ctx, '🚨', px + pw + 8, py + 5, 15, '#fff', 'center');
-  drawText(ctx, levelName, W / 2, py + 28, 13, 'rgba(255,255,255,0.9)', 'center', '#141b2d');
+/** One of the three stage medals: 0 par time, 1 all stars, 2 fish haul. */
+function medal(ctx: CanvasRenderingContext2D, kind: number, x: number, y: number, r: number, on: boolean) {
+  ctx.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.08)'; circle(ctx, x, y, r); ctx.fill();
+  ctx.strokeStyle = on ? '#f48c06' : 'rgba(255,255,255,0.4)'; ctx.lineWidth = Math.max(1.5, r * 0.14); circle(ctx, x, y, r); ctx.stroke();
+  const ink = on ? '#3b2a05' : 'rgba(255,255,255,0.55)';
+  if (kind === 0) clockIcon(ctx, x, y, r * 0.52, ink);
+  else if (kind === 1) { ctx.save(); starIcon(ctx, x, y, r * 0.62, true, ink); ctx.restore(); }
+  else fishIcon(ctx, x + r * 0.12, y, r / 17, ink);
+}
 
-  if (bannerT > 0) {
-    const a = Math.min(1, bannerT * 1.5);
+function wrapLines(ctx: CanvasRenderingContext2D, str: string, size: number, maxW: number, weight: number | string = 600): string[] {
+  ctx.font = `${weight} ${size}px ${FONT}`;
+  const words = (/[\u4e00-\u9fff]/.test(str) ? str.match(/[^，。·！、：]+[，。·！、：]?\s*/g) : str.match(/\S+\s*/g)) ?? [str];
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if (cur && ctx.measureText(cur + w).width > maxW) { lines.push(cur.trim()); cur = w; } else cur += w;
+  }
+  if (cur.trim()) lines.push(cur.trim());
+  return lines;
+}
+
+function button(ctx: CanvasRenderingContext2D, hits: Hit[], act: string, label: string, cx: number, cy: number, w: number, h: number, primary: boolean, pulse = 1) {
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(pulse, pulse);
+  ctx.fillStyle = primary ? '#ff9f1c' : 'rgba(255,255,255,0.14)'; rrect(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fill();
+  if (!primary) { ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1.5; rrect(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.stroke(); }
+  let size = 17;
+  ctx.font = `800 ${size}px ${FONT}`;
+  while (size > 14 && ctx.measureText(label).width > w - 20) { size--; ctx.font = `800 ${size}px ${FONT}`; }
+  drawText(ctx, label, 0, 1, size, primary ? '#141b2d' : '#ffffff', 'center');
+  ctx.restore();
+  hits.push({ x: cx - w / 2, y: cy - h / 2, w, h, act });
+}
+
+export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
+  const { uw, isZh } = u;
+  const compact = uw < 600;
+  // Left: hearts and sprint energy
+  const lx = 8 + u.padL;
+  ctx.fillStyle = 'rgba(13,24,48,0.6)'; rrect(ctx, lx, 8, 92, 46, 10); ctx.fill();
+  for (let i = 0; i < u.P.maxHp; i++) heart(ctx, lx + 18 + i * 27, 22, 20, i < u.P.hp ? '#ff595e' : 'rgba(255,255,255,0.25)');
+  ctx.fillStyle = 'rgba(255,255,255,0.22)'; rrect(ctx, lx + 8, 38, 76, 9, 4.5); ctx.fill();
+  const st = Math.min(1, Math.max(0, u.P.stamina / MAXST));
+  ctx.fillStyle = u.P.turbo ? '#ff9f1c' : st < 0.2 ? '#ff6b6b' : '#4cc9f0';
+  if (st > 0.04) { rrect(ctx, lx + 8, 38, 76 * st, 9, 4.5); ctx.fill(); }
+
+  // Right: fish, stars, time, score
+  const rw = 158, rx = uw - rw - 8;
+  ctx.fillStyle = 'rgba(13,24,48,0.6)'; rrect(ctx, rx, 8, rw, 46, 10); ctx.fill();
+  fishIcon(ctx, rx + 24, 21, 0.9);
+  drawText(ctx, `${u.fishGot}/${u.fishTot}`, rx + 38, 22, 15, '#ffd9a0', 'left');
+  for (let i = 0; i < u.starTot; i++) starIcon(ctx, rx + rw - 14 - (u.starTot - 1 - i) * 19, 21, 8, i < u.starGot);
+  drawText(ctx, fmtTime(u.time), rx + 10, 42, 15, u.time > LEVELS[u.lv].par ? '#cfd8e6' : '#9ff0a8', 'left');
+  drawText(ctx, String(u.score), rx + rw - 8, 42, 15, '#ffffff', 'right');
+
+  // Middle: progress to the lighthouse
+  const bx0 = compact ? lx + 100 : Math.max(lx + 110, uw / 2 - 150), bx1 = compact ? rx - 14 : uw / 2 + 150, by = compact ? 14 : 16;
+  if (bx1 - bx0 > 50) {
+    ctx.fillStyle = 'rgba(13,24,48,0.6)'; rrect(ctx, bx0, by, bx1 - bx0, 10, 5); ctx.fill();
+    const px = bx0 + 2 + (bx1 - bx0 - 4) * Math.min(1, Math.max(0, u.progress));
+    ctx.fillStyle = '#7ae582'; rrect(ctx, bx0 + 2, by + 2, Math.max(6, px - bx0 - 2), 6, 3); ctx.fill();
+    ctx.fillStyle = '#ffffff'; circle(ctx, px, by + 5, 6); ctx.fill();
+    ctx.fillStyle = '#e63946'; circle(ctx, px, by + 5, 3.2); ctx.fill();
+    // lighthouse marker
+    ctx.fillStyle = '#f8f9fa'; ctx.fillRect(bx1 - 4, by - 5, 6, 15);
+    ctx.fillStyle = '#e63946'; ctx.fillRect(bx1 - 4, by, 6, 4);
+    ctx.fillStyle = '#ffe66d'; ctx.fillRect(bx1 - 5, by - 9, 8, 5);
+    const name = isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn;
+    ctx.font = `800 14px ${FONT}`;
+    if (ctx.measureText(name).width < bx1 - bx0 + 20) drawText(ctx, name, (bx0 + bx1) / 2, by + 26, 14, 'rgba(255,255,255,0.95)', 'center', '#141b2d');
+  }
+
+  if (u.P.streak >= 5 && u.state === 'playing') {
+    const mult = Math.min(4, 1 + Math.floor(u.P.streak / 5));
+    drawText(ctx, isZh ? `连吃 ×${mult}` : `STREAK ×${mult}`, lx + 4, 70, 15, '#ffe66d', 'left', '#141b2d');
+  }
+
+  if (u.bannerT > 0 && u.state === 'playing') {
+    const a = Math.min(1, u.bannerT * 1.6);
     ctx.save(); ctx.globalAlpha = a;
-    drawText(ctx, bannerStr, W / 2, 135, 34, '#fff', 'center', '#141b2d');
-    drawText(ctx, isZh ? '吃鱼蓄力 · 展翅滑翔 · 冲向灯塔！' : 'Catch fish · Glide with wings · Reach the lighthouse!', W / 2, 172, 16, '#ffe66d', 'center', '#141b2d');
+    const name = isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn;
+    drawText(ctx, name, uw / 2, 92, compact ? 24 : 32, '#fff', 'center', '#141b2d');
+    const hint = isZh ? `三颗金星 · 标准用时 ${fmtTime(LEVELS[u.lv].par)}` : `3 stars to find · par ${fmtTime(LEVELS[u.lv].par)}`;
+    drawText(ctx, hint, uw / 2, compact ? 120 : 126, compact ? 14 : 16, '#ffe66d', 'center', '#141b2d');
     ctx.restore();
   }
 }
 
-export function drawOverlay(
-  ctx: CanvasRenderingContext2D,
-  state: string,
-  levelName: string,
-  fishGot: number,
-  fishTot: number,
-  starGot: number,
-  starTot: number,
-  lvTime: number,
-  score: number,
-  hiScore: number,
-  gtime: number,
-  isZh: boolean
-) {
-  if (state === 'playing') return;
-  ctx.fillStyle = 'rgba(8,14,30,0.62)'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(20,34,66,0.92)'; ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2;
-  rrect(ctx, W / 2 - 270, 74, 540, 372, 20); ctx.fill(); ctx.stroke();
+function medalRow(ctx: CanvasRenderingContext2D, medals: number, cx: number, y: number, r: number, gap: number) {
+  for (let i = 0; i < 3; i++) medal(ctx, i, cx + (i - 1) * gap, y, r, (medals & (1 << i)) !== 0);
+}
 
-  if (state === 'title') {
-    drawText(ctx, '🦩 鹈鹕骑行记', W / 2, 132, 42, '#ffe66d', 'center', '#141b2d');
-    drawText(ctx, 'PELICAN PEDAL · COASTAL ADVENTURE', W / 2, 174, 16, '#9fe6ff', 'center', '#141b2d');
-    const tips = isZh ? [
-      '◀ ▶ / A D ：蹬车前进与转向',
-      'Space / W / ▲ ：跳跃、二段振翅跳、长按空中滑翔',
-      'Shift / J / X ：冲刺加速（消耗羽毛体力，吃小鱼可恢复）',
-      '踩扁螃蟹与海鸥，躲开紫色海胆与跃起水母，抵达灯塔！'
-    ] : [
-      '◀ ▶ / A D : Pedal forward and turn',
-      'Space / W / ▲ : Jump, double flap, hold to glide',
-      'Shift / J / X : Turbo sprint (costs stamina, eating fish restores)',
-      'Stomp crabs & gulls, dodge spikes & jellyfish, reach the goal!'
+export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
+  const hits: Hit[] = [];
+  if (u.state === 'playing') return hits;
+  const { uw, uh, isZh } = u;
+  const compact = uw < 600;
+  ctx.fillStyle = 'rgba(8,14,30,0.6)'; ctx.fillRect(0, 0, uw, uh);
+  const pw = Math.min(560, uw - 12), ph = Math.min(400, uh - 12), px = (uw - pw) / 2, py = (uh - ph) / 2, cx = uw / 2;
+  ctx.fillStyle = 'rgba(20,34,66,0.94)'; ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2;
+  rrect(ctx, px, py, pw, ph, 16); ctx.fill(); ctx.stroke();
+  const pulse = 1 + Math.sin(u.gtime * 5) * 0.03;
+  const levelName = isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn;
+
+  if (u.state === 'title') {
+    let y = py + (compact ? 26 : 38);
+    drawText(ctx, isZh ? '鹈鹕骑行记' : 'Pelican Pedal', cx, y, compact ? 26 : 38, '#ffe66d', 'center', '#141b2d');
+    y += compact ? 24 : 34;
+    drawText(ctx, isZh ? '吃小鱼 · 找金星 · 冲向灯塔' : 'Catch fish · find stars · reach the lighthouse', cx, y, compact ? 14 : 16, '#9fe6ff', 'center');
+    // Stage select
+    y += compact ? 16 : 22;
+    const n = LEVELS.length, gap = 6, cw = (pw - 24 - gap * (n - 1)) / n, ch = compact ? 78 : 92;
+    for (let i = 0; i < n; i++) {
+      const x = px + 12 + i * (cw + gap), locked = i > u.unlocked, sel = i === u.sel, best = u.bests[i];
+      ctx.fillStyle = sel ? 'rgba(255,159,28,0.28)' : 'rgba(255,255,255,0.07)'; rrect(ctx, x, y, cw, ch, 10); ctx.fill();
+      ctx.strokeStyle = sel ? '#ff9f1c' : 'rgba(255,255,255,0.2)'; ctx.lineWidth = sel ? 3 : 1.5; rrect(ctx, x, y, cw, ch, 10); ctx.stroke();
+      if (locked) {
+        ctx.fillStyle = 'rgba(255,255,255,0.45)'; rrect(ctx, x + cw / 2 - 10, y + ch / 2 - 4, 20, 16, 3); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x + cw / 2, y + ch / 2 - 5, 7, Math.PI, 0); ctx.stroke();
+      } else {
+        drawText(ctx, String(i + 1), x + cw / 2, y + (compact ? 17 : 20), compact ? 22 : 26, '#ffffff', 'center', '#141b2d');
+        medalRow(ctx, best?.medals ?? 0, x + cw / 2, y + (compact ? 42 : 50), compact ? 9 : 11, compact ? 22 : 27);
+        drawText(ctx, best ? fmtTime(best.time) : '—', x + cw / 2, y + ch - 13, 14, best ? '#9ff0a8' : 'rgba(255,255,255,0.6)', 'center');
+        hits.push({ x, y, w: cw, h: ch, act: `stage:${i}` });
+      }
+    }
+    y += ch + (compact ? 16 : 20);
+    const sname = isZh ? LEVELS[u.sel].name : LEVELS[u.sel].nameEn;
+    drawText(ctx, `${sname} · ${isZh ? '标准' : 'par'} ${fmtTime(LEVELS[u.sel].par)}`, cx, y, compact ? 14 : 16, '#ffffff', 'center');
+    y += compact ? 18 : 24;
+    const tip = u.touch
+      ? (isZh ? '◀ ▶ 骑行 · ⤒ 跳跃，空中再按二段跳，按住滑翔 · ⚡ 冲刺' : '◀ ▶ ride · ⤒ hop, tap again to flap, hold to glide · ⚡ sprint')
+      : (isZh ? '方向键/A D 骑行 · 空格跳跃，空中再按二段跳，按住滑翔 · Shift 冲刺 · ◀ ▶ 选关' : 'Arrows/A D ride · Space hops, press again to flap, hold to glide · Shift sprints · ◀ ▶ pick a stage');
+    const btnY = py + ph - (compact ? 28 : 36);
+    const lines = wrapLines(ctx, tip, 14, pw - 28);
+    const room = Math.floor((btnY - 26 - y) / 18) + 1;
+    lines.slice(0, Math.max(0, room)).forEach((t, i) => drawText(ctx, t, cx, y + i * 18, 14, 'rgba(255,255,255,0.85)', 'center', undefined, 600));
+    if (u.hiScore > 0 && !compact) drawText(ctx, isZh ? `最高分 ${u.hiScore}` : `High score ${u.hiScore}`, px + pw - 16, py + 20, 14, '#7ae582', 'right');
+    button(ctx, hits, 'start', u.touch ? (isZh ? '点击出发 ▶' : 'Tap to ride ▶') : (isZh ? '按 Enter / 空格出发 ▶' : 'Enter / Space to ride ▶'), cx, btnY, Math.min(280, pw - 40), 40, true, pulse);
+  } else if (u.state === 'paused') {
+    drawText(ctx, isZh ? '游戏暂停' : 'PAUSED', cx, py + ph * 0.3, 34, '#ffe66d', 'center', '#141b2d');
+    drawText(ctx, u.touch ? (isZh ? '点击继续骑行' : 'Tap to keep riding') : (isZh ? '按 P 继续骑行' : 'Press P to keep riding'), cx, py + ph * 0.52, 17, '#fff', 'center');
+    if (!u.touch) drawText(ctx, isZh ? '按 R 回到最近存档点' : 'Press R to retry from the checkpoint', cx, py + ph * 0.66, 15, '#9fe6ff', 'center');
+    hits.push({ x: px, y: py, w: pw, h: ph, act: 'resume' });
+  } else if (u.state === 'levelclear') {
+    const res = u.result ?? { medals: 0, newBest: false, timeBonus: 0 };
+    let y = py + (compact ? 26 : 34);
+    drawText(ctx, isZh ? `${levelName} 通过！` : `${levelName} clear!`, cx, y, compact ? 20 : 28, '#7ae582', 'center', '#141b2d');
+    // Three medals with what each one asks for
+    const mr = compact ? 22 : 28, mgap = Math.min(150, (pw - 30) / 3);
+    y += compact ? 46 : 60;
+    medalRow(ctx, res.medals, cx, y, mr, mgap);
+    const pct = u.fishTot ? Math.floor((u.fishGot / u.fishTot) * 100) : 100;
+    const labels = [
+      [fmtTime(u.time), `${isZh ? '标准' : 'par'} ${fmtTime(LEVELS[u.lv].par)}`],
+      [`${u.starGot}/${u.starTot}`, isZh ? '全部金星' : 'all stars'],
+      [`${pct}%`, isZh ? '小鱼 90%' : '90% of fish']
     ];
-    tips.forEach((t, i) => drawText(ctx, t, W / 2, 224 + i * 30, 15, '#ffffff', 'center', '#101828', 600));
-    if (hiScore > 0) drawText(ctx, isZh ? `🏆 最高纪录：${hiScore}` : `🏆 High Score: ${hiScore}`, W / 2, 356, 17, '#7ae582', 'center', '#101828');
-    const pulse = 1 + Math.sin(gtime * 5) * 0.04;
-    ctx.save(); ctx.translate(W / 2, 404); ctx.scale(pulse, pulse);
-    ctx.fillStyle = '#ff9f1c'; rrect(ctx, -120, -22, 240, 44, 22); ctx.fill();
-    drawText(ctx, isZh ? '按 Enter / 空格 / 点击开始' : 'Press Enter / Space to start', 0, 1, 18, '#141b2d', 'center');
-    ctx.restore();
-  } else if (state === 'paused') {
-    drawText(ctx, isZh ? '游戏暂停' : 'PAUSED', W / 2, 170, 36, '#ffe66d', 'center', '#141b2d');
-    drawText(ctx, isZh ? '按 P / Esc 或点击继续骑行' : 'Press P / Esc to resume', W / 2, 245, 18, '#fff', 'center');
-    drawText(ctx, isZh ? '按 R 键可回到最近存档点' : 'Press R to retry from checkpoint', W / 2, 285, 16, '#9fe6ff', 'center');
-  } else if (state === 'levelclear') {
-    drawText(ctx, isZh ? `🎉 ${levelName} 通过！` : `🎉 ${levelName} Clear!`, W / 2, 145, 32, '#7ae582', 'center', '#141b2d');
-    drawText(ctx, `🐟 ${isZh ? '小鱼收集' : 'Fish'}: ${fishGot} / ${fishTot}`, W / 2, 215, 20, '#ffbf69', 'center');
-    drawText(ctx, `★ ${isZh ? '隐藏金星' : 'Stars'}: ${starGot} / ${starTot}`, W / 2, 252, 20, '#ffe66d', 'center');
-    drawText(ctx, isZh ? `⏱ 用时：${lvTime.toFixed(1)} 秒   当前总分：${score}` : `⏱ Time: ${lvTime.toFixed(1)}s   Score: ${score}`, W / 2, 290, 18, '#ffffff', 'center');
-    drawText(ctx, isZh ? '按 Enter / 空格 / 点击进入下一关 ▶' : 'Press Enter / Space for Next Stage ▶', W / 2, 375, 20, '#9fe6ff', 'center', '#141b2d');
-  } else if (state === 'victory') {
-    drawText(ctx, isZh ? '🏆 恭喜通关 · 海岸传奇骑手！' : '🏆 VICTORY · COASTAL LEGEND!', W / 2, 145, 32, '#ffe66d', 'center', '#141b2d');
-    drawText(ctx, isZh ? `最终总分：${score}   历史最高：${hiScore}` : `Final Score: ${score}   High Score: ${hiScore}`, W / 2, 225, 22, '#7ae582', 'center');
-    drawText(ctx, isZh ? '鹈鹕船长带着满满一喉囊的鲜鱼凯旋啦！' : 'Captain Pelican returns with a pouch full of fresh fish!', W / 2, 275, 17, '#ffffff', 'center');
-    drawText(ctx, isZh ? '按 Enter / 空格 / 点击再来一局' : 'Press Enter / Space to Play Again', W / 2, 370, 20, '#ff9f1c', 'center', '#141b2d');
+    labels.forEach((l, i) => {
+      const on = (res.medals & (1 << i)) !== 0;
+      drawText(ctx, l[0], cx + (i - 1) * mgap, y + mr + 14, 16, on ? '#ffe66d' : '#ffffff', 'center');
+      drawText(ctx, l[1], cx + (i - 1) * mgap, y + mr + 33, 14, 'rgba(255,255,255,0.75)', 'center', undefined, 600);
+    });
+    y += mr + (compact ? 58 : 66);
+    const bits = [
+      res.newBest ? (isZh ? '新纪录！' : 'New best!') : '',
+      res.timeBonus > 0 ? (isZh ? `时间奖励 +${res.timeBonus}` : `Time bonus +${res.timeBonus}`) : '',
+      u.deaths === 0 ? (isZh ? '零失误' : 'No falls') : (isZh ? `失误 ${u.deaths} 次` : `Falls ${u.deaths}`),
+      isZh ? `总分 ${u.score}` : `Score ${u.score}`
+    ].filter(Boolean).join('  ·  ');
+    wrapLines(ctx, bits, 15, pw - 24, 800).slice(0, 2).forEach((t, i) => drawText(ctx, t, cx, y + i * 20, 15, res.newBest ? '#9ff0a8' : '#ffffff', 'center'));
+    // What to chase next time
+    const best = u.bests[u.lv];
+    const need = Math.ceil(u.fishTot * 0.9) - u.fishGot;
+    const hint = res.medals === 7 ? (isZh ? '完美骑行，三枚奖章全拿！' : 'Perfect ride: all three medals!')
+      : !(res.medals & 2) ? (isZh ? `还有 ${u.starTot - u.starGot} 颗金星藏在高处或险处` : `${u.starTot - u.starGot} more ${u.starTot - u.starGot === 1 ? 'star is' : 'stars are'} hiding up high or over a gap`)
+      : !(res.medals & 4) ? (isZh ? `再多吃 ${need} 条小鱼就能拿到鱼奖章` : `${need} more fish earns the fish medal`)
+      : (isZh ? '多用冲刺和滑翔，挑战标准用时' : 'Sprint and glide more to beat the par time');
+    const hy = y + (compact ? 30 : 42);
+    if (hy < py + ph - (compact ? 60 : 74)) {
+      drawText(ctx, hint, cx, hy, 14, '#9fe6ff', 'center', undefined, 600);
+      if (best && !compact) drawText(ctx, `${isZh ? '最佳用时' : 'Best time'} ${fmtTime(best.time)}`, cx, hy + 22, 14, 'rgba(255,255,255,0.7)', 'center', undefined, 600);
+    }
+    const btnY = py + ph - (compact ? 28 : 36), bw = Math.min(180, (pw - 36) / 2);
+    button(ctx, hits, 'retry', u.touch ? (isZh ? '再骑一次' : 'Ride again') : (isZh ? 'R 再骑一次' : 'R · ride again'), cx - bw / 2 - 6, btnY, bw, 40, false);
+    const last = u.lv + 1 >= LEVELS.length;
+    button(ctx, hits, 'next', last ? (isZh ? '完成 ▶' : 'Finish ▶') : (u.touch ? (isZh ? '下一关 ▶' : 'Next stage ▶') : (isZh ? 'Enter 下一关 ▶' : 'Enter · next ▶')), cx + bw / 2 + 6, btnY, bw, 40, true, pulse);
+  } else if (u.state === 'victory') {
+    let y = py + (compact ? 30 : 40);
+    drawText(ctx, isZh ? '通关！海岸传奇骑手' : 'Coastal legend!', cx, y, compact ? 24 : 32, '#ffe66d', 'center', '#141b2d');
+    y += compact ? 30 : 40;
+    wrapLines(ctx, isZh ? '鹈鹕船长带着满满一喉囊的鲜鱼骑到了灯塔！' : 'Captain Pelican reached the last lighthouse with a pouch full of fresh fish!', 15, pw - 32).slice(0, 2)
+      .forEach((t, i) => drawText(ctx, t, cx, y + i * 20, 15, '#ffffff', 'center', undefined, 600));
+    y += compact ? 52 : 60;
+    let got = 0;
+    const n = LEVELS.length, gap = Math.min(120, (pw - 24) / n);
+    for (let i = 0; i < n; i++) {
+      const m = u.bests[i]?.medals ?? 0;
+      for (let b = 0; b < 3; b++) if (m & (1 << b)) got++;
+      const x = cx + (i - (n - 1) / 2) * gap;
+      drawText(ctx, String(i + 1), x, y - 22, 15, 'rgba(255,255,255,0.8)', 'center');
+      medalRow(ctx, m, x, y, compact ? 9 : 12, compact ? 21 : 28);
+    }
+    y += compact ? 34 : 44;
+    drawText(ctx, isZh ? `奖章 ${got}/${n * 3}  ·  总分 ${u.score}  ·  最高 ${u.hiScore}` : `Medals ${got}/${n * 3}  ·  Score ${u.score}  ·  Best ${u.hiScore}`, cx, y, compact ? 14 : 17, '#7ae582', 'center');
+    y += 24;
+    if (got < n * 3) drawText(ctx, isZh ? '回到选关，把奖章集齐吧！' : 'Go back and collect every medal!', cx, y, 14, '#9fe6ff', 'center', undefined, 600);
+    button(ctx, hits, 'menu', u.touch ? (isZh ? '回到选关 ▶' : 'Stage select ▶') : (isZh ? 'Enter 回到选关 ▶' : 'Enter · stage select ▶'), cx, py + ph - (compact ? 28 : 36), Math.min(280, pw - 40), 40, true, pulse);
   }
+  return hits;
 }

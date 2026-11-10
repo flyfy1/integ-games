@@ -9,7 +9,13 @@ export const poolFor = (mode: Mode): readonly CountryEntry[] => (mode === 'shape
 /** The text of the correct option. */
 export const answerOf = (entry: CountryEntry, mode: Mode): string => (mode === 'capital' ? entry.capital : entry.country);
 
-export type Question = { entry: CountryEntry; options: string[]; answerIndex: number };
+/** What a round asks: one kind of question throughout, or 'mix' where every question brings its own kind. */
+export type Play = Mode | 'mix';
+export const PLAYS: readonly Play[] = ['capital', 'flag', 'shape', 'mix'];
+export const isPlay = (p: unknown): p is Play => p === 'mix' || isMode(p);
+
+/** `kind` is only set in a mixed round; everywhere else the round's mode is the kind of every question. */
+export type Question = { entry: CountryEntry; options: string[]; answerIndex: number; kind?: Mode };
 
 export const ROUND_LENGTH = 10;
 /** Difficulty ramp across a round: 3 easy, 4 medium, 3 hard. */
@@ -86,14 +92,62 @@ export function buildQuestion(entry: CountryEntry, rand: Random, pool: readonly 
 }
 
 /** A round of unique countries following ROUND_PLAN, falling back to neighbouring difficulties if a tier runs dry. Distractors come from `distractors`. */
-export function buildRound(rand: Random, pool: readonly CountryEntry[] = COUNTRIES, mode: Mode = 'capital', distractors: readonly CountryEntry[] = COUNTRIES): Question[] {
+export function buildRound(rand: Random, pool: readonly CountryEntry[] = COUNTRIES, mode: Mode = 'capital', distractors: readonly CountryEntry[] = COUNTRIES, weigh?: Weigh): Question[] {
   const taken = new Set<string>();
   return ROUND_PLAN.map((want) => {
-    const order = [want, ...([1, 2, 3] as Difficulty[]).filter((d) => d !== want).sort((a, b) => Math.abs(a - want) - Math.abs(b - want))];
-    for (const d of order) {
-      const candidates = pool.filter((c) => c.difficulty === d && !taken.has(c.country));
-      if (candidates.length) { const entry = candidates[pick(rand, candidates.length)]; taken.add(entry.country); return buildQuestion(entry, rand, distractors, mode); }
-    }
-    throw new Error('Geo Quiz pool is too small for a round');
+    const entry = draw(rand, pool, want, taken, weigh && ((c) => weigh(c, mode)));
+    return buildQuestion(entry, rand, distractors, mode);
   });
 }
+
+/** A weight per country and question kind; heavier countries are asked more often. */
+export type Weigh = (entry: CountryEntry, mode: Mode) => number;
+
+/** One not-yet-taken country of the wanted difficulty (neighbouring difficulties if that tier ran dry), marked as taken. Uniform unless `weight` is given. */
+function draw(rand: Random, pool: readonly CountryEntry[], want: Difficulty, taken: Set<string>, weight?: (entry: CountryEntry) => number): CountryEntry {
+  const order = [want, ...([1, 2, 3] as Difficulty[]).filter((d) => d !== want).sort((a, b) => Math.abs(a - want) - Math.abs(b - want))];
+  for (const d of order) {
+    const candidates = pool.filter((c) => c.difficulty === d && !taken.has(c.country));
+    if (!candidates.length) continue;
+    let entry = candidates[0];
+    if (!weight) entry = candidates[pick(rand, candidates.length)];
+    else {
+      const weights = candidates.map((c) => Math.max(0, weight(c))), total = weights.reduce((a, b) => a + b, 0);
+      let roll = rand() * total, at = total > 0 ? candidates.length - 1 : pick(rand, candidates.length);
+      if (total > 0) for (let i = 0; i < candidates.length; i++) { roll -= weights[i]; if (roll < 0) { at = i; break; } }
+      entry = candidates[at];
+    }
+    taken.add(entry.country); return entry;
+  }
+  throw new Error('Geo Quiz pool is too small for a round');
+}
+
+/** A round that mixes the three kinds (each at least three times) along the same easy-to-hard ramp, with ten different countries. */
+export function buildMixRound(rand: Random, weigh?: Weigh): Question[] {
+  const kinds = shuffle([...MODES, ...MODES, ...MODES, MODES[pick(rand, MODES.length)]], rand);
+  const taken = new Set<string>();
+  return ROUND_PLAN.map((want, i) => {
+    const kind = kinds[i], entry = draw(rand, poolFor(kind), want, taken, weigh && ((c) => weigh(c, kind)));
+    return { ...buildQuestion(entry, rand, COUNTRIES, kind), kind };
+  });
+}
+
+/**
+ * The player's atlas: per kind, the ISO codes answered correctly at least once. The same shape is used for the
+ * "review" list (missed and not yet put right), which makes those countries come back sooner.
+ */
+export type Atlas = Record<Mode, string[]>;
+export const emptyAtlas = (): Atlas => ({ capital: [], flag: [], shape: [] });
+/** A stored atlas with anything unknown, duplicated or malformed dropped. */
+export function cleanAtlas(raw: unknown): Atlas {
+  const out = emptyAtlas(), src = (raw && typeof raw === 'object' ? raw : {}) as Partial<Record<Mode, unknown>>;
+  for (const mode of MODES) {
+    const valid = new Set(poolFor(mode).map((c) => c.iso)), list = src[mode];
+    if (Array.isArray(list)) out[mode] = [...new Set(list.filter((x): x is string => typeof x === 'string' && valid.has(x)))];
+  }
+  return out;
+}
+export const atlasTotal = (mode: Mode): number => poolFor(mode).length;
+/** Missed-and-unresolved countries come back about six times as often as ones already in the atlas, new ones three times. */
+export const WEIGHTS = { review: 6, fresh: 3, known: 1 } as const;
+export const weigher = (known: Atlas, review: Atlas): Weigh => (entry, mode) => (review[mode].includes(entry.iso) ? WEIGHTS.review : known[mode].includes(entry.iso) ? WEIGHTS.known : WEIGHTS.fresh);

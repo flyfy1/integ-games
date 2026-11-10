@@ -71,3 +71,17 @@ export function recordResult(progress: Progress, level: Level, difficulty: Diffi
 /** Harder difficulties are worth more, so a leaderboard score keeps growing as a child moves up. */
 export const totalScore = (progress: Progress) => ALL_LEVELS.reduce((sum, level) => sum + DIFFICULTIES.reduce<number>((inner, d) => inner + bestStars(progress, level.id, d) * (d + 1) * 10, 0), 0);
 export const maxScore = ALL_LEVELS.length * 3 * (1 + 2 + 3) * 10;
+
+/** Every star ever earned, over all levels and difficulties. This is the number shown on the map. */
+export const starCount = (progress: Progress) => ALL_LEVELS.reduce((sum, level) => sum + DIFFICULTIES.reduce<number>((inner, d) => inner + bestStars(progress, level.id, d), 0), 0);
+
+/** Stars buy stickers: three stars, the price of one clean level, for each. The book is full well before every star is found. */
+export const STICKERS = ['🦊', '🐼', '🦄', '🐙', '🦖', '🐳', '🦋', '🐞', '🚀', '🌈', '🍦', '🎸', '🐧', '🦁', '🐢', '🍓', '⚽', '🚂', '🐝', '🎨', '🦉', '🍩', '🪁', '👑'] as const;
+export const STARS_PER_STICKER = 3;
+export const stickerCount = (progress: Progress) => Math.min(STICKERS.length, Math.floor(starCount(progress) / STARS_PER_STICKER));
+/** Stars still missing for the next sticker, or 0 when the book is full. */
+export const starsToNextSticker = (progress: Progress) => (stickerCount(progress) >= STICKERS.length ? 0 : STARS_PER_STICKER - (starCount(progress) % STARS_PER_STICKER));
+
+/** A difficulty is mastered when every level of the journey has at least one star on it. The party level is optional. */
+export const isMastered = (progress: Progress, difficulty: Difficulty) => LEVELS.every((level) => bestStars(progress, level.id, difficulty) > 0);
+export const masteredCount = (progress: Progress) => DIFFICULTIES.filter((d) => isMastered(progress, d)).length;
