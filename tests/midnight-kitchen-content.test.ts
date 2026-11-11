@@ -286,10 +286,12 @@ describe('midnight kitchen difficulty (autoplay bot)', () => {
     }
   }, BOT_TIMEOUT);
 
-  it('difficulty rises smoothly: no regular night is much easier than the one two regular nights before it', () => {
+  it('difficulty rises smoothly: no regular night is much easier than the one two regular nights before it', async () => {
     const regular = LEVEL_LIST.filter(level => !level.boss && level.chapter > 0 && !level.cards);
     for (const name of ['casual', 'naive'] as const) {
-      const rates = regular.map(level => measureLevel(level, 12, { ...BOT_PROFILES[name], loadout: loadoutFor(level.id) }).winRate);
+      // Yield between levels: one long synchronous sweep starves the vitest worker's RPC on slow CI machines.
+      const rates: number[] = [];
+      for (const level of regular) { rates.push(measureLevel(level, 12, { ...BOT_PROFILES[name], loadout: loadoutFor(level.id) }).winRate); await new Promise(resolve => setTimeout(resolve, 0)); }
       for (let i = 2; i < rates.length; i++) expect(rates[i] - rates[i - 2], `${name}: ${regular[i].id} vs ${regular[i - 2].id}`).toBeLessThanOrEqual(0.35);
     }
   }, BOT_TIMEOUT);
