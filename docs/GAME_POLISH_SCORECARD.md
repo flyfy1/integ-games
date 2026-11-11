@@ -49,3 +49,7 @@ All 26 cabinets were played in a real browser and screenshotted. Seven already h
 Shared: touch controls stay visible on wide touch devices (`pointer:fine` gate), the home page puts the game grid before the controller strip and leaderboard, and covers for nine of the ten listed games were recaptured from the new builds.
 
 Not verified anywhere in this pass: audio by ear, physical phones, physical controllers, or human playtests.
+
+## Midnight Kitchen (2026-11-11)
+
+New eleventh listed game: an original lane-defense campaign (5 chapters, 25 nights, 5 bosses, 14 defenders with three tiers, 15 recipes, Endless, a bilingual story, synthesized music and SFX). Evidence: `tests/midnight-kitchen-{sim,content,shell,audio}.test.ts` (282 tests) lock bot win-rate floors per level, boss-night length, Endless survival, save/lifecycle behaviour; bots and scripted hands cleared every chapter through the real UI on desktop and iPhone 13 emulation in English and Chinese. Limits: balance is bot-tuned (a careless bot rarely clears bosses after chapter 2), audio was never heard by ear, no physical phone or controller, no human playtest, and phone frame time rose slightly with the larger sprites.

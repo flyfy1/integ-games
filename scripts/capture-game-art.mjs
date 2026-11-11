@@ -17,14 +17,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
 
 const framing = {
   'merge-2048': { fit: 'contain', position: 'center center' },
-  'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
+  'midnight-kitchen': { iconPosition: '2% center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
@@ -38,6 +38,42 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
+  // Stages a mid-night countertop through the game's debug handle: a built-up kitchen facing a mixed wave.
+  'midnight-kitchen': async (page) => {
+    const root = '[data-midnight-kitchen]';
+    await page.waitForFunction((selector) => !!document.querySelector(selector)?.__mk, root);
+    await page.evaluate(async (selector) => {
+      const mk = document.querySelector(selector).__mk;
+      const data = await import('/src/games/midnight-kitchen/data/index.ts');
+      const story = await import('/src/games/midnight-kitchen/story.ts');
+      for (const level of data.LEVEL_LIST) mk.save.levels[level.id] = { win: true, flawless: true, bonus: false, bestTime: 100 };
+      mk.save.owned = Object.keys(data.DEFENDERS);
+      mk.save.scenes = Object.keys(story.SCENES);
+      mk.save.coach.off = true;
+      mk.go('loadout', { level: 'c1-4' });
+    }, root);
+    await page.waitForTimeout(400);
+    await page.locator(`${root} [data-action=start]`).click();
+    await page.waitForFunction((selector) => !!document.querySelector(selector)?.__mk.session, root);
+    await page.addStyleTag({ content: '.mk-toasts,.mk-bark,.mk-recipe-toast,.mk-banner,.mk-info,.mk-coach-layer,.mk-coach{display:none!important}' });
+    await page.evaluate(async (selector) => {
+      const sim = document.querySelector(selector).__mk.session.sim;
+      const S = await import('/src/games/midnight-kitchen/sim.ts');
+      const defenders = [['burner', 0, 0, 2], ['burner', 0, 1, 0], ['burner', 0, 2, 1], ['burner', 0, 3, 0], ['burner', 0, 4, 1], ['pepper', 1, 0, 2], ['pepper', 1, 1, 1], ['egg', 1, 2, 0], ['pepper', 1, 3, 0], ['ice', 1, 4, 1],
+        ['egg', 2, 0, 1], ['kettle', 2, 1, 0], ['honey', 2, 2, 0], ['whisk', 2, 3, 2], ['garlic', 2, 4, 0], ['toaster', 3, 0, 0], ['onion', 3, 1, 1], ['dough', 4, 0, 2], ['dough', 4, 1, 0], ['dough', 4, 2, 1], ['dough', 4, 3, 0]];
+      const pests = [['ant', 0, 5.2], ['shieldant', 0, 6.4], ['ant', 1, 5.3], ['roach', 1, 7.4], ['fruitfly', 2, 6.2], ['slug', 2, 8.1], ['mouse', 3, 7.6], ['weevil', 4, 6.8], ['ant', 4, 8.4], ['moth', 1, 8.6]];
+      sim.heat = 99999;
+      for (const [id, col, lane, tier] of defenders) {
+        if (!sim.cards.find((card) => card.def === id)) sim.cards.push({ def: id, cooldown: 0, total: 1 });
+        for (const card of sim.cards) card.cooldown = 0;
+        if (S.place(sim, id, col, lane).ok) for (let step = 0; step < tier; step += 1) S.upgrade(sim, col, lane);
+      }
+      sim.heat = 175;
+      sim.enemies.length = 0;
+      for (const [id, lane, x] of pests) S.spawnEnemy(sim, id, lane, x);
+    }, root);
+    await page.waitForTimeout(1600);
+  },
   'pelican-bike': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(2600); await page.keyboard.down('ArrowRight'); await page.waitForTimeout(2300); await page.keyboard.press('Space'); await page.waitForTimeout(260); await page.keyboard.up('ArrowRight'); },
   'capital-quiz': async (page) => { await page.locator('.cq-mode[data-mode]').nth(1).click(); await page.waitForTimeout(900); },
   'tank-brawl-opus': async (page) => { await page.waitForFunction(() => !!globalThis.__tankBrawl); await page.keyboard.press('Space'); await page.waitForTimeout(3600); await page.keyboard.down('KeyD'); await page.keyboard.down('ArrowLeft'); await page.keyboard.down('KeyF'); await page.keyboard.down('KeyK'); await page.waitForTimeout(900); await page.keyboard.up('KeyD'); await page.keyboard.up('ArrowLeft'); await page.keyboard.up('KeyF'); await page.keyboard.up('KeyK'); },
@@ -149,8 +185,8 @@ try {
     await writeComposite(composer, source, coverPath, 640, 360, frame);
     // Fruit Orbit's falling subject occupies a narrow part of a tall board; its
     // cover keeps both fruits legible, so it is the most recognisable icon crop.
-    const iconSource = slug === 'fruit-merge' ? await readFile(coverPath) : source;
-    await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' ? 'center center' : frame.iconPosition ?? frame.position, mime: slug === 'fruit-merge' ? 'image/jpeg' : 'image/png' });
+    const iconSource = (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
+    await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? 'image/jpeg' : 'image/png' });
     console.log(`Captured ${slug}`);
   }
   await verify();

@@ -22,7 +22,8 @@ export const gamepadProfiles: Record<string, BridgeProfile> = {
   runner: { ...ACTION }, platformer: { ...ACTION }, drive: { left: 'ArrowLeft', right: 'ArrowRight', south: 'ArrowRight', west: 'ArrowLeft' }, 'fruit-merge': { left: 'ArrowLeft', right: 'ArrowRight', south: ' ', select: 'r' }, bubble: { ...ACTION }, 'hex-puzzle': { ...CHOICES }, knife: { south: ' ' }, arena: { ...CHOICES },
   'capital-quiz': { north: '1', east: '2', south: '3', west: '4', r1: 'Enter', l1: 'Enter' },
   ashfall: { ...ARROWS, south: ' ', west: 'j', north: 'k', east: 'l', r1: 'r', l1: 'Enter', select: 'p' },
-  'pelican-bike': { ...ARROWS, south: ' ', east: 'Shift', west: 'Shift', north: ' ', select: 'r' }
+  'pelican-bike': { ...ARROWS, south: ' ', east: 'Shift', west: 'Shift', north: ' ', select: 'r' },
+  'midnight-kitchen': { ...ARROWS, south: ' ', east: 'Escape', west: 'u', north: 'x', l1: 'q', r1: 'e', select: 'f' }
 };
 
 /** Games that act once per key event need a held pad to repeat the way a keyboard does. Held-key games must not repeat. */
@@ -46,7 +47,8 @@ const GAME_LABELS: Record<string, Record<string, Label>> = {
   drive: { ArrowRight: ['Drive', '前进'], ArrowLeft: ['Brake', '刹车'] }, 'fruit-merge': { ' ': ['Drop', '落下'] }, bubble: { ' ': ['Shoot', '发射'] }, 'hex-puzzle': { ...numbered('123', ['Piece', '方块']), ' ': ['Place', '放置'] },
   knife: { ' ': ['Throw', '投掷'] }, arena: { ...numbered('123', ['Upgrade', '升级']), ' ': ['Burst / Restart', '爆发 / 重新开始'] }, 'capital-quiz': { ...numbered('1234', ['Answer', '答案']), Enter: ['Next', '下一题'] },
   ashfall: { ...JUMP, j: ['Slash', '斩击'], k: ['Shotgun', '霰弹枪'], l: ['Roll', '翻滚'], r: ['Reload', '换弹'], p: ['Pause', '暂停'] },
-  'pelican-bike': { ...JUMP, Shift: ['Sprint', '冲刺加速'] }
+  'pelican-bike': { ...JUMP, Shift: ['Sprint', '冲刺加速'] },
+  'midnight-kitchen': { ' ': ['Place / confirm', '放置 / 确认'], Escape: ['Back', '返回'], u: ['Upgrade', '升级'], x: ['Spatula', '锅铲'], q: ['Previous card', '上一张牌'], e: ['Next card', '下一张牌'], f: ['Speed', '加速'] }
 };
 export type GameAction = { key: string; label: Label };
 /** Everything a game can be told to do, whether or not a player has left it bound. */

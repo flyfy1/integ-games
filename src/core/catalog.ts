@@ -14,10 +14,10 @@ export const catalog: readonly CatalogGame[] = catalogRows.map(([slug, title, ca
 }));
 
 /**
- * The ten cabinets the arcade lists, in display order. Every other catalog entry stays installed and playable
+ * The eleven cabinets the arcade lists, in display order. Every other catalog entry stays installed and playable
  * from its direct link, but is hidden from the home grid, search, category counts and recommendations.
  */
-export const featuredSlugs = ['ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals'] as const;
+export const featuredSlugs = ['midnight-kitchen', 'ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals'] as const;
 const featuredSet = new Set<string>(featuredSlugs);
 
 export function isListed(slug: string): boolean { return featuredSet.has(slug); }

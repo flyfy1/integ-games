@@ -14,7 +14,7 @@ const timedRule: VersusRule = { finish: 'timed', seconds: 60, rank: 'score' };
 
 describe('versus rules', () => {
   it('covers every game except Pad Pals and the tank games, which have their own, and Ashfall, which reports no score', () => {
-    expect(catalog.map((game) => game.slug).filter((slug) => !isVersusGame(slug)).sort()).toEqual(['ashfall', 'pad-pals', 'tank-brawl-opus', 'tank-clash']);
+    expect(catalog.map((game) => game.slug).filter((slug) => !isVersusGame(slug)).sort()).toEqual(['ashfall', 'midnight-kitchen', 'pad-pals', 'tank-brawl-opus', 'tank-clash']);
     expect(Object.keys(versusRules).every((slug) => gamepadProfiles[slug])).toBe(true);
   });
   it('picks the higher score, and the finisher over the score', () => {

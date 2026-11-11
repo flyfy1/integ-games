@@ -7,8 +7,8 @@ test('all catalog routes render without a page error', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   const listed = await page.locator('[data-grid] article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(listed).toHaveLength(10);
-  expect(allSlugs).toHaveLength(26);
+  expect(listed).toHaveLength(11);
+  expect(allSlugs).toHaveLength(27);
   // Hidden cabinets stay playable from their direct links, so every installed route is still exercised.
   for (const gameRoute of allSlugs.map((slug) => `/play/${slug}/`)) {
     await page.goto(gameRoute);
@@ -35,7 +35,7 @@ test('category filters persist in the URL and search stays within the active cat
   await page.goto('/play/merge-2048');
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(2);
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(3);
 });
 
 test('game navigation updates canonical and social metadata', async ({ page }, testInfo) => {
@@ -87,7 +87,7 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
   const primaryKey: Record<string, string> = {
     'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
     'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
-    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space'
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space', 'midnight-kitchen': 'Enter'
   };
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
