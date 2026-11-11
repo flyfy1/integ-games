@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { catalog } from '../src/core/catalog';
 import midnightKitchen from '../src/games/midnight-kitchen';
 import { BOT_PROFILES, botLoadout, measureLevel, runBot } from '../src/games/midnight-kitchen/bot';
@@ -20,6 +20,9 @@ const bilingual = (text: Loc, where: string) => {
 const loadoutFor = (id: string) => botLoadout(LEVELS[id], ownedAt(id));
 /** Bot measurements play whole nights; give them room beyond vitest's 5 s default. */
 const BOT_TIMEOUT = 120_000;
+// This file is a minute of synchronous bot play. Vitest only awaits microtasks between synchronous tests, so the worker
+// never reaches its poll phase and slow CI fails with an RPC "onTaskUpdate" timeout. Hand the event loop a turn after each test.
+afterEach(() => new Promise<void>(resolve => { setImmediate(resolve); }));
 const IDS = {
   defenders: ['burner', 'pepper', 'dough', 'ice', 'egg', 'chili', 'onion', 'whisk', 'kettle', 'honey', 'garlic', 'toaster', 'salt', 'ricecooker'],
   enemies: ['ant', 'shieldant', 'fruitfly', 'roach', 'slug', 'spore', 'weevil', 'mouse', 'moth', 'brute'],
@@ -289,9 +292,9 @@ describe('midnight kitchen difficulty (autoplay bot)', () => {
   it('difficulty rises smoothly: no regular night is much easier than the one two regular nights before it', async () => {
     const regular = LEVEL_LIST.filter(level => !level.boss && level.chapter > 0 && !level.cards);
     for (const name of ['casual', 'naive'] as const) {
-      // Yield between levels: one long synchronous sweep starves the vitest worker's RPC on slow CI machines.
+      // Yield between levels with setImmediate (not a timer): the worker must reach its poll phase to receive vitest RPC replies, or slow CI fails with an onTaskUpdate timeout.
       const rates: number[] = [];
-      for (const level of regular) { rates.push(measureLevel(level, 12, { ...BOT_PROFILES[name], loadout: loadoutFor(level.id) }).winRate); await new Promise(resolve => setTimeout(resolve, 0)); }
+      for (const level of regular) { rates.push(measureLevel(level, 12, { ...BOT_PROFILES[name], loadout: loadoutFor(level.id) }).winRate); await new Promise(resolve => setImmediate(resolve)); }
       for (let i = 2; i < rates.length; i++) expect(rates[i] - rates[i - 2], `${name}: ${regular[i].id} vs ${regular[i - 2].id}`).toBeLessThanOrEqual(0.35);
     }
   }, BOT_TIMEOUT);
