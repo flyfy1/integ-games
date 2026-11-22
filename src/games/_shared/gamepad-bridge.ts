@@ -32,7 +32,7 @@ const cursorKeys = { ArrowUp: CURSOR, ArrowDown: CURSOR, ArrowLeft: CURSOR, Arro
 export const gamepadRepeat: Record<string, Record<string, Repeat>> = {
   'block-drop': { ArrowLeft: { delay: 0.14, every: 0.04 }, ArrowRight: { delay: 0.14, every: 0.04 }, ArrowDown: { delay: 0.05, every: 0.04 } },
   mines: cursorKeys, memory: cursorKeys, sudoku: cursorKeys, 'word-grid': cursorKeys, 'hex-puzzle': cursorKeys,
-  bubble: { ArrowUp: { delay: 0.12, every: 0.04 }, ArrowDown: { delay: 0.12, every: 0.04 }, ArrowLeft: { delay: 0.12, every: 0.04 }, ArrowRight: { delay: 0.12, every: 0.04 } }
+  bubble: { ArrowUp: { delay: 0.12, every: 0.03 }, ArrowDown: { delay: 0.12, every: 0.03 }, ArrowLeft: { delay: 0.12, every: 0.03 }, ArrowRight: { delay: 0.12, every: 0.03 } }
 };
 
 const COMMON_LABELS: Record<string, Label> = { ArrowUp: ['Up', '上'], ArrowDown: ['Down', '下'], ArrowLeft: ['Left', '左'], ArrowRight: ['Right', '右'], ' ': ['Action', '动作'], Enter: ['Confirm', '确认'], r: ['Restart', '重新开始'] };

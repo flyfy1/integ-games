@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectedSameColor, findUnsupported, NEIGHBOR_DISTANCE, type Bubble } from '../src/games/bubble';
+import { connectedSameColor, findUnsupported, LAUNCHER, NEIGHBOR_DISTANCE, traceShot, type Bubble } from '../src/games/bubble';
 
 const bubble = (x: number, y: number, color: number): Bubble => ({ x, y, color });
 
@@ -24,5 +24,22 @@ describe('Bubble Pop graph rules', () => {
     const diagonal = bubble(52, 82, 2);
     expect(Math.hypot(top.x - diagonal.x, top.y - diagonal.y)).toBeLessThanOrEqual(NEIGHBOR_DISTANCE);
     expect(findUnsupported([top, diagonal])).toEqual([]);
+  });
+});
+
+describe('bubble aim guide', () => {
+  it('runs straight up to the bubble it will stick to', () => {
+    const path = traceShot([bubble(180, 55, 0)], 0);
+    expect(path).toHaveLength(2);
+    expect(path[0]).toEqual(LAUNCHER);
+    expect(path[1].x).toBeCloseTo(180);
+    expect(path[1].y).toBeGreaterThan(55 + 30);
+  });
+
+  it('shows the wall bounce for a steep shot', () => {
+    const path = traceShot([], -1.2);
+    expect(path.length).toBeGreaterThan(2);
+    expect(path[1].x).toBeLessThan(18);
+    expect(path[path.length - 1].x).toBeGreaterThan(path[1].x);
   });
 });

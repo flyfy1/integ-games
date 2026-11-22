@@ -33,24 +33,43 @@ export function findUnsupported(field: readonly Bubble[]): Bubble[] {
   return field.filter(bubble => !supported.has(bubble));
 }
 
+export const LAUNCHER = { x: 180, y: 510 };
+/** Furthest the launcher turns from straight up, so a shot can never run flat along the floor. */
+export const MAX_AIM = 1.35;
+const AIM_STEP = 0.045;
+
+/** Where a shot at `angle` (radians from straight up) goes: the launcher, each wall bounce, then where it sticks. */
+export function traceShot(field: readonly Bubble[], angle: number): Array<{ x: number; y: number }> {
+  const points = [{ ...LAUNCHER }];
+  let x = LAUNCHER.x, y = LAUNCHER.y, dx = Math.sin(angle) * 3, dy = -Math.cos(angle) * 3;
+  for (let step = 0; step < 400; step++) {
+    x += dx; y += dy;
+    if (x < 18 || x > 342) { dx *= -1; points.push({ x, y }); }
+    if (y < 52 || field.some(item => Math.hypot(item.x - x, item.y - y) < 35)) break;
+  }
+  points.push({ x, y });
+  return points;
+}
+
 export const bubble: GameModule = {
-  meta: { slug: 'bubble', title: 'Bubble Pop', category: 'puzzle', description: 'Aim charged bubbles into matching clusters.', instructions: 'Drag from the launcher and release to shoot; arrows and Space also work.', accent: '#70f0c2', mechanic: 'Match colored bubbles' },
+  meta: { slug: 'bubble', title: 'Bubble Pop', category: 'puzzle', description: 'Aim charged bubbles into matching clusters.', instructions: 'Drag from the launcher and release to shoot. With keys or a controller, left and right turn the launcher and Space or A shoots; the guide shows where the bubble lands.', accent: '#70f0c2', mechanic: 'Match colored bubbles' },
   mount(host: HTMLElement, services: GameServices): GameController {
-    const k = makeKit(host, services, 'bubble'); let raf = 0, paused = false, score = 0, level = 1, over = false, next = 0, aim = { x: 180, y: 140 };
+    const k = makeKit(host, services, 'bubble'); let raf = 0, paused = false, score = 0, level = 1, over = false, next = 0, angle = 0;
     let flying: { x: number; y: number; dx: number; dy: number; color: number } | null = null, field: Bubble[] = [], falling: FallingBubble[] = [];
     const fillBoard = () => { for (let row = 0; row < Math.min(7, 4 + level); row++) for (let col = 0; col < 8; col++) field.push({ x: 27 + col * 43 + (row % 2) * 20, y: 55 + row * 37, color: Math.floor(services.random() * 4) }); };
     const reset = () => { paused = false; k.setPaused(false); score = 0; level = 1; over = false; next = 0; flying = null; field = []; falling = []; k.fx.clear(); fillBoard(); };
-    const shoot = () => { if (paused || over || flying) return; const dx = aim.x - 180, dy = aim.y - 510, length = Math.hypot(dx, dy) || 1; flying = { x: 180, y: 510, dx: dx / length * (7 + level * .25), dy: dy / length * (7 + level * .25), color: next }; k.fx.burst(180, 510, palette[next], 4); next = Math.floor(services.random() * 4); services.sound.play('shoot'); };
-    const setAim = (event: PointerEvent) => { const point = k.point(event); aim = { x: clamp(point.x, 15, 345), y: clamp(point.y, 45, 480) }; };
+    const shoot = () => { if (paused || over || flying) return; const speed = 7 + level * .25; flying = { x: 180, y: 510, dx: Math.sin(angle) * speed, dy: -Math.cos(angle) * speed, color: next }; k.fx.burst(180, 510, palette[next], 4); next = Math.floor(services.random() * 4); services.sound.play('shoot'); };
+    const setAim = (event: PointerEvent) => { const point = k.point(event); angle = clamp(Math.atan2(point.x - LAUNCHER.x, LAUNCHER.y - Math.min(point.y, LAUNCHER.y - 10)), -MAX_AIM, MAX_AIM); };
+    const turn = (by: number) => { angle = clamp(angle + by, -MAX_AIM, MAX_AIM); };
     k.on('pointermove', event => setAim(event as PointerEvent)); k.on('pointerup', () => over ? reset() : shoot()); k.on('pointerdown', event => { if (!over) setAim(event as PointerEvent); });
-    k.on('keydown', event => { const key = (event as KeyboardEvent).key; if (over && (key === ' ' || key === 'Enter' || key === 'r')) { reset(); return; } if (key === 'ArrowLeft' || key === 'a') aim.x = clamp(aim.x - 18, 15, 345); if (key === 'ArrowRight' || key === 'd') aim.x = clamp(aim.x + 18, 15, 345); if (key === 'ArrowUp' || key === 'w') aim.y = clamp(aim.y - 18, 45, 440); if (key === 'ArrowDown' || key === 's') aim.y = clamp(aim.y + 18, 45, 440); if (key === ' ' || key === 'Enter') shoot(); });
+    k.on('keydown', event => { const key = (event as KeyboardEvent).key; if (over && (key === ' ' || key === 'Enter' || key === 'r')) { reset(); return; } if (key === 'ArrowLeft' || key === 'a') turn(-AIM_STEP); if (key === 'ArrowRight' || key === 'd') turn(AIM_STEP); if (key === 'ArrowUp' || key === 'w') turn(-Math.sign(angle) * Math.min(Math.abs(angle), AIM_STEP / 3)); if (key === 'ArrowDown' || key === 's') turn(Math.sign(angle) * AIM_STEP / 3); if (key === ' ' || key === 'Enter') shoot(); });
     const detach = (bubbles: Bubble[]) => { if (!bubbles.length) return; falling.push(...bubbles.map((item, index) => ({ ...item, vx: (index % 3 - 1) * .45, vy: .8 + (index % 2) * .35 }))); k.fx.burst(bubbles[0].x, bubbles[0].y, '#ffcb6b', Math.min(8, bubbles.length)); services.sound.play('collect'); };
     const attach = (shot: NonNullable<typeof flying>) => { flying = null; const near = field.reduce((best, item) => Math.hypot(shot.x - item.x, shot.y - item.y) < Math.hypot(shot.x - best.x, shot.y - best.y) ? item : best, field[0]); if (near) { const distance = Math.hypot(shot.x - near.x, shot.y - near.y) || 1; shot.x = near.x + (shot.x - near.x) / distance * 36; shot.y = near.y + (shot.y - near.y) / distance * 36; } else shot.y = 55;
       const placed: Bubble = { x: clamp(shot.x, 20, 340), y: Math.max(52, shot.y), color: shot.color }; field.push(placed); k.fx.burst(placed.x, placed.y, palette[placed.color]); services.sound.play('hit'); const group = connectedSameColor(field, placed);
       if (group.length >= 3) { field = field.filter(item => !group.includes(item)); const unsupported = findUnsupported(field); field = field.filter(item => !unsupported.includes(item)); detach(unsupported); score += group.length * 10 + unsupported.length * 5; k.score(score); k.fx.burst(placed.x, placed.y, palette[placed.color], Math.min(12, group.length + 3)); services.sound.play('clear'); if (!field.length) { level++; services.reportComplete(level); k.fx.flash('#70f0c2'); services.sound.play('upgrade'); fillBoard(); } }
     };
     const drawBubble = (item: Bubble, alpha = 1) => { const c = k.ctx; c.globalAlpha = alpha; c.fillStyle = palette[item.color]; c.beginPath(); c.arc(item.x, item.y, 18, 0, 7); c.fill(); c.globalAlpha = 1; };
-    const draw = () => { const c = k.ctx; k.clear(); c.fillStyle = '#12192a'; c.fillRect(0, 0, 360, 560); text(c, `POP ${score}  ·  LEVEL ${level}`, 180, 27, 14, '#a8b1c5'); c.strokeStyle = '#273149'; c.setLineDash([6, 6]); c.beginPath(); c.moveTo(180, 510); c.lineTo(aim.x, aim.y); c.stroke(); c.setLineDash([]); field.forEach(item => drawBubble(item)); falling.forEach(item => drawBubble(item, .82)); if (flying) drawBubble(flying); drawBubble({ x: 180, y: 510, color: next }); k.fx.draw(); if (paused) text(c, 'PAUSED', 180, 280, 27); if (over) { text(c, 'BUBBLES DESCENDED', 180, 270, 22, '#ff6b7a'); text(c, 'Tap or Space to retry', 180, 300, 15); } };
+    const draw = () => { const c = k.ctx; k.clear(); c.fillStyle = '#12192a'; c.fillRect(0, 0, 360, 560); text(c, `POP ${score}  ·  LEVEL ${level}`, 180, 27, 14, '#a8b1c5'); if (!flying && !over) { const path = traceShot(field, angle), end = path[path.length - 1]; c.strokeStyle = palette[next]; c.globalAlpha = .6; c.lineWidth = 3; c.setLineDash([8, 8]); c.beginPath(); path.forEach((point, index) => index ? c.lineTo(point.x, point.y) : c.moveTo(point.x, point.y)); c.stroke(); c.setLineDash([]); c.globalAlpha = .9; c.lineWidth = 2; c.beginPath(); c.arc(end.x, end.y, 18, 0, 7); c.stroke(); c.globalAlpha = 1; c.lineWidth = 1; } field.forEach(item => drawBubble(item)); falling.forEach(item => drawBubble(item, .82)); if (flying) drawBubble(flying); drawBubble({ x: 180, y: 510, color: next }); k.fx.draw(); if (paused) text(c, 'PAUSED', 180, 280, 27); if (over) { text(c, 'BUBBLES DESCENDED', 180, 270, 22, '#ff6b7a'); text(c, 'Tap or Space to retry', 180, 300, 15); } };
     const loop = () => { if (!paused && !over) { if (flying) { flying.x += flying.dx; flying.y += flying.dy; if (flying.x < 18 || flying.x > 342) flying.dx *= -1; if (flying.y < 52 || field.some(item => Math.hypot(item.x - flying!.x, item.y - flying!.y) < 35)) attach(flying); } falling.forEach(item => { item.x += item.vx; item.y += item.vy; item.vy += .24; }); falling = falling.filter(item => item.y < 590); if (field.some(item => item.y > 485)) { over = true; k.fx.flash('#ff6b7a'); services.sound.play('fail'); } k.fx.step(); } draw(); raf = requestAnimationFrame(loop); };
     reset(); loop(); return { pause: () => { paused = true; k.setPaused(true); }, resume: () => { paused = false; k.setPaused(false); }, restart: reset, destroy: () => { cancelAnimationFrame(raf); k.dispose(); } };
   }
