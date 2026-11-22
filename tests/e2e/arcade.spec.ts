@@ -341,19 +341,21 @@ test('Tank Brawl drives both seats by keyboard and a touch finger through the sa
   await page.keyboard.press('Space');
   await expect.poll(async () => (await state()).screen, { timeout: 8000 }).toBe('fight');
   const before = await state();
-  await page.keyboard.down('KeyD'); await page.keyboard.down('ArrowLeft'); await page.keyboard.down('KeyF');
-  await page.waitForTimeout(300);
-  await page.keyboard.up('KeyD'); await page.keyboard.up('ArrowLeft'); await page.keyboard.up('KeyF');
+  // Wait on the game, not the clock: a slow runner gets few simulation steps per real second.
+  await page.keyboard.down('KeyD'); await page.keyboard.down('ArrowLeft');
+  await expect.poll(async () => { const now = await state(); return now.tanks[0].x > before.tanks[0].x + 4 && now.tanks[1].x < before.tanks[1].x - 4; }, { timeout: 5000 }).toBe(true);
+  await page.keyboard.up('KeyD'); await page.keyboard.up('ArrowLeft');
   const after = await state();
-  expect(after.tanks[0].x).toBeGreaterThan(before.tanks[0].x);
-  expect(after.tanks[1].x).toBeLessThan(before.tanks[1].x);
   const canvas = page.locator('[data-tank-brawl] canvas');
   const box = (await canvas.boundingBox())!;
   const finger = (type: string, x: number, y: number) => canvas.dispatchEvent(type, { pointerId: 7, pointerType: 'touch', isPrimary: true, bubbles: true, clientX: box.x + x * box.width / 1280, clientY: box.y + y * box.height / 720 });
   await finger('pointerdown', 900, 400);
   await finger('pointermove', 820, 400);
-  await page.waitForTimeout(250);
+  await expect.poll(async () => (await state()).tanks[1].x, { timeout: 5000 }).toBeLessThan(after.tanks[1].x - 4);
   await finger('pointerup', 820, 400);
-  expect((await state()).tanks[1].x).toBeLessThan(after.tanks[1].x);
+  // Fire last and on its own: recoil kicks the tank backward and a hit knocks the other one, which would race the moves above.
+  await page.keyboard.down('KeyF');
+  await expect.poll(async () => (await state()).shells, { timeout: 5000 }).toBeGreaterThan(0);
+  await page.keyboard.up('KeyF');
   expect(errors).toEqual([]);
 });
