@@ -13,7 +13,7 @@ import { COLS, ROWS } from '../src/games/ant-raid/types';
 const SEEDS = [1, 2, 3];
 const MARGIN = 0.12;
 /** Raised as each chapter lands; never lowered. */
-const SHIPPED_CHAPTERS = 3;
+const SHIPPED_CHAPTERS = 4;
 
 describe('ant-raid levels are well formed', () => {
   it('ships whole chapters, bilingual and on a 16 x 9 yard', () => {
@@ -29,7 +29,8 @@ describe('ant-raid levels are well formed', () => {
       for (const food of level.foods) { expect(food.x).toBeLessThan(COLS); expect(food.y).toBeLessThan(ROWS); }
       for (const caste of level.cards ?? []) expect(CASTES[caste]).toBeDefined();
       for (const scene of [level.intro, level.outro]) if (scene) expect(SCENES[scene], `${level.id} scene ${scene}`).toBeDefined();
-      expect(level.par).toBeLessThan(level.sundown);
+      // A defence level is won by holding out until sundown, so par is sundown itself there.
+      if (level.goal.kind === 'defend') expect(level.par).toBe(level.sundown); else expect(level.par).toBeLessThan(level.sundown);
       if (level.goal.kind === 'item') expect(level.foods.some(f => f.id === (level.goal as { food: string }).food && f.lift)).toBe(true);
     }
   });
@@ -42,7 +43,9 @@ describe('ant-raid reference scripts win every level with a margin', () => {
     for (const seed of SEEDS) {
       const result = runScript(level, script, { seed });
       expect(result.won, `${level.id} seed ${seed}: crumbs ${result.crumbs}, t ${result.time.toFixed(0)}`).toBe(true);
-      expect(result.margin, `${level.id} seed ${seed} margin`).toBeGreaterThanOrEqual(MARGIN);
+      // Holding out until sundown has no time margin: there the margin is the share of hearts left.
+      const margin = level.goal.kind === 'defend' ? result.sim.nestHp / level.goal.hp : result.margin;
+      expect(margin, `${level.id} seed ${seed} margin`).toBeGreaterThanOrEqual(MARGIN);
       if (level.boss) expect(result.scatters).toBeLessThanOrEqual(3);
     }
   });

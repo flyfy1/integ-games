@@ -74,7 +74,7 @@ export type GoalDef =
   | { kind: 'crumbs'; n: number }
   | { kind: 'item'; food: string; n?: number }
   | { kind: 'defend'; n: number; hp: number }
-  | { kind: 'race'; n: number };
+  | { kind: 'race'; n: number; hp?: number };
 
 export type BonusDef =
   | { kind: 'maxLost'; n: number }

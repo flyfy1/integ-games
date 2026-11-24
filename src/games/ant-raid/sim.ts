@@ -58,7 +58,7 @@ export function createSim(level: LevelDef, options: SimOptions): Sim {
     scent: level.scent + meta.scent * 3, scentMax: level.scent + meta.scent * 3,
     sugar: level.startSugar + meta.sugar * 15, crumbs: 0,
     ants: [], nextAntId: 1, foods: [], hazards: [], rivals: [], rivalCrumbs: 0, rivalRoutes: [],
-    nestHp: level.goal.kind === 'defend' ? level.goal.hp : 0,
+    nestHp: level.goal.kind === 'defend' ? level.goal.hp : level.goal.kind === 'race' ? level.goal.hp ?? 0 : 0,
     cards: hand.map((caste): Card => ({ caste, cooldown: 0, stock: 0 })),
     queue: [], hatchT: 0, hatchTime: BASE_HATCH * (1 - 0.15 * meta.hatch),
     alarm: 0, shoe: { left: 0, t: 0, cells: [], warn: 0, x: 0, y: 0, first: true },
@@ -634,7 +634,7 @@ function checkEnd(sim: Sim): void {
   const goal = sim.level.goal;
   let won = false, lost = false;
   if (goal.kind === 'crumbs' || goal.kind === 'race') won = sim.crumbs >= goal.n;
-  if (goal.kind === 'race') { if (sim.stats.cutWin) won = true; if (sim.rivalCrumbs >= goal.n) lost = true; }
+  if (goal.kind === 'race') { if (sim.stats.cutWin) won = true; if (sim.rivalCrumbs >= goal.n || (goal.hp && sim.nestHp <= 0)) lost = true; }
   if (goal.kind === 'item') { const food = sim.foods.find(f => f.id === goal.food); won = !!food?.home && sim.crumbs >= (goal.n ?? 0); }
   if (goal.kind === 'defend') {
     if (sim.nestHp <= 0) lost = true;

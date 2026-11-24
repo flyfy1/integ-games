@@ -115,5 +115,44 @@ export const SOLUTIONS: Record<string, Script> = {
     { t: 14, priority: 'biscuit', level: 2 },
     { t: 14, keep: 'porter', ants: 3 },
     { t: 14, keep: 'worker', ants: 16 }
+  ] },
+  '4-1': { ops: [
+    { t: 0, paint: path(row(4, 2, 6), col(6, 3, 3), row(3, 7, 12), col(12, 2, 2), row(2, 13, 13)), keep: true },
+    { t: 0, play: 'scout', at: [10, 3] },
+    { t: 0.5, keep: 'worker', ants: 15 },
+    { t: 3, play: 'scout', at: [13, 2] },
+    { t: 20, paint: path(row(4, 2, 6), col(6, 5, 5), row(5, 7, 9), col(9, 6, 7), row(7, 10, 12)), keep: true }
+  ] },
+  '4-2': { ops: [
+    { t: 0, paint: path(col(1, 5, 8), row(8, 2, 6), col(6, 7, 0), row(0, 7, 11), col(11, 1, 4), row(4, 12, 14)) },
+    { t: 0, play: 'honeypot', at: [11, 2] },
+    { t: 1, keep: 'worker', ants: 20 }
+  ] },
+  '4-3': { ops: [
+    { t: 0, paint: path(row(4, 2, 5), col(5, 3, 2), row(2, 6, 9)) },
+    { t: 0, play: 'soldier', at: [9, 2] },
+    { t: 1, keep: 'worker', ants: 18 },
+    { t: 8, paint: path(row(4, 2, 5), col(5, 5, 6), row(6, 6, 9)) },
+    { t: 8, play: 'soldier', at: [9, 6] }
+  ] },
+  '4-4': { loadout: ['worker', 'soldier', 'porter'], ops: [
+    { t: 0, paint: path(row(4, 2, 4), col(4, 3, 1), row(1, 5, 8)) },
+    { t: 0, keep: 'worker', ants: 14 },
+    { t: 20, play: 'soldier', at: [2, 4] },
+    { t: 24, play: 'soldier', at: [4, 4] },
+    { t: 60, play: 'soldier', at: [3, 4] },
+    { t: 64, play: 'soldier', at: [4, 3] }
+  ] },
+  '4-5': { loadout: ['worker', 'soldier', 'porter'], ops: [
+    { t: 0, paint: path(row(4, 2, 8)) },
+    { t: 0, play: 'soldier', at: [8, 4] },
+    { t: 0, paint: path(row(4, 2, 4), col(4, 3, 1), row(1, 5, 9)) },
+    { t: 0, paint: path(row(4, 2, 4), col(4, 5, 7), row(7, 5, 9)) },
+    { t: 3.1, play: 'soldier', at: [9, 1] },
+    { t: 6.2, play: 'soldier', at: [9, 7] },
+    { t: 7, keep: 'worker', ants: 12 },
+    { t: 15, play: 'soldier', at: [2, 4] },
+    { t: 18.2, play: 'soldier', at: [3, 4] },
+    { t: 40, play: 'soldier', at: [4, 4] }
   ] }
 };

@@ -325,7 +325,7 @@ const rival: Handler = {
   blocks: true,
   init(sim, h) {
     h.cd = num(h, 'first', 4);
-    h.count = 0;
+    h.count = 0; h.t = 0;
     const routes = String(h.params?.routes ?? '').split('|').filter(Boolean);
     for (const route of routes) {
       const cells = polyline(route);
@@ -345,7 +345,11 @@ const rival: Handler = {
       if (route.cut && !was) emit(sim, { type: 'rival', what: 'cut', x: cx(route.cells[Math.floor(route.cells.length / 2)]), y: cy(route.cells[Math.floor(route.cells.length / 2)]) });
       if (!route.cut) allCut = false;
     });
-    if (allCut && h.params?.cutWins) { sim.stats.cutWin = true; }
+    // Cutting every trail wins only if the cut is held (\`hold\` seconds) while her raiders keep coming.
+    if (h.params?.cutWins) {
+      h.t = allCut ? h.t + dt : 0;
+      if (allCut && h.t >= num(h, 'hold', 0)) sim.stats.cutWin = true;
+    }
     // Foragers.
     const every = num(h, 'every', 2.5) * slow(sim);
     h.cd -= dt;
