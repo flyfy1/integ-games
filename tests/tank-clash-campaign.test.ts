@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { GameServices } from '../src/core/game-types';
+import tankClash, { loadCampaign, stageUnlocked, type CampaignSave } from '../src/games/tank-clash/index';
 import {
   baseHp,
   buildWaveList,
@@ -210,5 +212,185 @@ describe('Tank Clash campaign content', () => {
     expect(boss.bossSummons).toBeGreaterThan(0);
     expect(boss.bossSummons).toBeLessThanOrEqual(6);
     expect(s.totalEnemies).toBe(total + (boss.bossSummons ?? 0));
+  });
+});
+
+type Hook = {
+  getState: () => ArenaState;
+  getScreen: () => string;
+  getCampaign: () => CampaignSave;
+  getRunPerks: () => Record<string, number>;
+  startBattle: () => void;
+  setConfig: (patch: Record<string, unknown>) => void;
+  action: (id: string) => void;
+  step: (frames?: number) => void;
+};
+const hook = () => (globalThis as unknown as { __tankClash: Hook }).__tankClash;
+
+function makeServices(stored: Record<string, unknown> = {}) {
+  const store = new Map<string, unknown>(Object.entries(stored));
+  return {
+    store,
+    services: {
+      storage: {
+        get: <T>(k: string, fb: T) => (store.has(k) ? (store.get(k) as T) : fb),
+        set: (k: string, v: unknown) => void store.set(k, JSON.parse(JSON.stringify(v))),
+        remove: (k: string) => void store.delete(k)
+      },
+      sound: { muted: true, setMuted: vi.fn(), stop: vi.fn(), play: vi.fn() },
+      random: rng(0x1234),
+      reportScore: vi.fn(),
+      reportComplete: vi.fn(),
+      isReducedMotion: true
+    } satisfies GameServices
+  };
+}
+
+function clearCurrentStage(fast = true) {
+  const s = hook().getState();
+  s.enemiesRemainingToSpawn = [];
+  s.spawnWarnings = [];
+  if (!fast) s.roundTimer = 9999;
+  for (const tk of s.tanks) if (tk.team === 3) tk.alive = false;
+  hook().step(2);
+  hook().step(80);
+}
+
+describe('Tank Clash campaign shell: stars, upgrades, unlocks and Continue', () => {
+  it('awards stars, offers three upgrades and carries the picked one into the next stage', () => {
+    const host = document.createElement('div');
+    const { services, store } = makeServices({ teamSetup: '1p-solo' });
+    const controller = tankClash.mount(host, services);
+    hook().startBattle();
+    clearCurrentStage();
+    expect(hook().getScreen()).toBe('results');
+    expect(host.querySelectorAll('.tc-star.is-got')).toHaveLength(3);
+    const perkButtons = [...host.querySelectorAll<HTMLElement>('[data-id^="perk-"]')];
+    expect(perkButtons).toHaveLength(3);
+    expect(perkButtons[0].classList.contains('is-on')).toBe(true);
+    const chosen = perkButtons[2].dataset.id!.slice(5);
+    hook().action(`perk-${chosen}`);
+    expect(host.querySelector(`[data-id="perk-${chosen}"]`)?.classList.contains('is-on')).toBe(true);
+    hook().action('res-next');
+    expect(hook().getState().stageIndex).toBe(1);
+    expect(hook().getRunPerks()).toEqual({ [chosen]: 1 });
+    expect(hook().getState().perks).toEqual({ [chosen]: 1 });
+    expect((store.get('campaign') as CampaignSave).stars[0]).toBe(3);
+    // Over par and with the Eagle hit: only the clear star, and the best is kept.
+    const s = hook().getState();
+    s.baseUntouched = false;
+    clearCurrentStage(false);
+    expect(host.querySelectorAll('.tc-star.is-got')).toHaveLength(1);
+    expect(hook().getCampaign().stars.slice(0, 2)).toEqual([3, 1]);
+    controller.destroy();
+  });
+
+  it('upgrades change the tank: armour, mines, lives and a steel-walled Eagle', () => {
+    const plain = createArenaState({ mode: 'coop', teamSetup: '1p-ai' });
+    const built = createArenaState({ mode: 'coop', teamSetup: '1p-ai', perks: { armour: 2, mines: 1, life: 1, bulwark: 1 } });
+    expect(built.tanks[0].maxHp).toBe(plain.tanks[0].maxHp + 2);
+    expect(built.tanks[0].mines).toBe(plain.tanks[0].mines + 2);
+    expect(built.tanks[1].lives).toBe(plain.tanks[1].lives + 1);
+    expect(built.grid[11][9].kind).toBe('steel');
+    expect(built.baseFortifyTimer).toBeGreaterThan(0);
+    // Duels ignore run upgrades.
+    expect(createArenaState({ mode: 'duel', teamSetup: '2p', perks: { armour: 3 } }).perks).toEqual({});
+  });
+
+  it('keeps stages 1-6 open and opens 7-12 one clear at a time', () => {
+    const fresh = loadCampaign(null);
+    for (let i = 0; i < 6; i++) expect(stageUnlocked(fresh, i)).toBe(true);
+    expect(stageUnlocked(fresh, 6)).toBe(false);
+    fresh.stars[5] = 1;
+    expect(stageUnlocked(fresh, 6)).toBe(true);
+    expect(stageUnlocked(fresh, 7)).toBe(false);
+    // Junk in storage never breaks the lobby.
+    const junk = loadCampaign({ stars: ['x', 9, -2], crowns: 'no', resume: { stageIndex: 99 } });
+    expect(junk.stars.slice(0, 3)).toEqual([0, 3, 0]);
+    expect(junk.resume).toBeNull();
+
+    const host = document.createElement('div');
+    const { services } = makeServices();
+    const controller = tankClash.mount(host, services);
+    hook().setConfig({ stageIndex: 5 });
+    hook().action('stage-next');
+    expect(hook().getState().stageIndex).toBe(0); // stage 7 is still locked
+    expect(host.querySelector('.tc-overlay')?.textContent).toContain('Stage 7 opens when you clear stage 6');
+    controller.destroy();
+  });
+
+  it('a boss stage defeat offers a retry from the boss, and Continue resumes there with the run', () => {
+    const host = document.createElement('div');
+    const { services, store } = makeServices({ teamSetup: '1p-solo' });
+    let controller = tankClash.mount(host, services);
+    hook().setConfig({ stageIndex: 2, difficulty: 'hard' });
+    hook().startBattle();
+    const s = hook().getState();
+    s.enemiesRemainingToSpawn = ['boss-behemoth', 'scout'];
+    s.spawnTimer = 0;
+    s.score = 1234;
+    hook().step(60 * 3);
+    expect(hook().getState().checkpointWave).toEqual(['boss-behemoth', 'scout']);
+    const saved = (store.get('campaign') as CampaignSave).resume;
+    expect(saved?.checkpoint?.wave).toEqual(['boss-behemoth', 'scout']);
+    expect(saved?.difficulty).toBe('hard');
+    // Lose: the Eagle falls.
+    for (const [c, r] of [[9, 12], [10, 12]]) hook().getState().grid[r][c].hp = 1;
+    const mid = cellCenter(9.5, 11);
+    detonateExplosion(hook().getState(), mid.x, mid.y, TILE * 1.8, 2, 3, undefined, false, rng(1));
+    hook().step(90);
+    expect(hook().getScreen()).toBe('results');
+    expect(host.querySelector('[data-id="res-checkpoint"]')).not.toBeNull();
+    expect(host.querySelector('[data-id="res-next"]')).not.toBeNull();
+    hook().action('res-checkpoint');
+    const retry = hook().getState();
+    expect(retry.outcome).toBe('none');
+    expect(retry.enemiesRemainingToSpawn).toEqual(['boss-behemoth', 'scout']);
+    expect(retry.score).toBe(1234);
+    controller.destroy();
+
+    // A new visit: Continue puts you straight back at the boss on Hard.
+    controller = tankClash.mount(host, services);
+    const cont = host.querySelector<HTMLElement>('[data-id="continue"]');
+    expect(cont?.textContent).toContain('stage 3 boss');
+    hook().action('continue');
+    expect(hook().getScreen()).toBe('none');
+    expect(hook().getState().stageIndex).toBe(2);
+    expect(hook().getState().difficulty).toBe('hard');
+    expect(hook().getState().enemiesRemainingToSpawn[0]).toBe('boss-behemoth');
+    controller.destroy();
+  });
+});
+
+describe('Tank Clash versus rematch', () => {
+  it('a rematch swaps the starting sides, and rounds inside a match keep them', () => {
+    const host = document.createElement('div');
+    const { services } = makeServices({ mode: 'duel', teamSetup: '2p' });
+    const controller = tankClash.mount(host, services);
+    hook().startBattle();
+    const [p1, p2] = hook().getState().tanks;
+    expect(p1.x).toBeLessThan(p2.x);
+    const s = hook().getState();
+    s.p1Wins = 4;
+    s.tanks[1].alive = false;
+    hook().step(2);
+    expect(hook().getState().outcome).toBe('duel-victory');
+    hook().step(120);
+    expect(host.querySelector('[data-id="res-next"]')?.textContent).toContain('swap sides');
+    hook().action('res-next');
+    const swapped = hook().getState();
+    expect(swapped.swapSides).toBe(true);
+    expect(swapped.p1Wins).toBe(0);
+    expect(swapped.tanks[0].x).toBeGreaterThan(swapped.tanks[1].x);
+    expect(swapped.tanks[0].dir).toBe('left');
+    // Next round of the same match: still swapped.
+    swapped.tanks[1].alive = false;
+    hook().step(2);
+    expect(hook().getState().outcome).toBe('round-over');
+    hook().step(120);
+    hook().action('res-next');
+    expect(hook().getState().swapSides).toBe(true);
+    expect(hook().getState().tanks[0].x).toBeGreaterThan(hook().getState().tanks[1].x);
+    controller.destroy();
   });
 });

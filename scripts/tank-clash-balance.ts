@@ -6,9 +6,10 @@
  *
  * Player 1 is driven by the wingman brain at full human speed and reload (a "proxy human");
  * the AI ally, when present, keeps its handicaps. PERKS=n hands the run n random field upgrades
- * (default: one per stage already cleared, capped at 6, roughly what a continuous run has). Prints win rate, base armour left and time.
+ * (default: one per stage already cleared, capped at 6, roughly what a continuous run has). Prints win rate, base armour left, clear time and how many wins earned
+ * the 'Eagle untouched' / 'under par' stars.
  */
-import { baseHp, COOP_STAGE_COUNT, createArenaState, PERK_IDS, PERK_MAX, playtestControls, stepArena, type PerkSet } from '../src/games/tank-clash/engine';
+import { baseHp, COOP_STAGE_COUNT, createArenaState, PERK_IDS, PERK_MAX, playtestControls, stageStars, stepArena, type PerkSet } from '../src/games/tank-clash/engine';
 import type { Difficulty, PlayerControlInput, TeamSetup } from '../src/games/tank-clash/types';
 
 const idle: PlayerControlInput = { moveX: 0, moveY: 0, fire: false, fireJustPressed: false, specialJustPressed: false };
@@ -52,15 +53,20 @@ for (const difficulty of diffs) {
       let wins = 0;
       let base = 0;
       let time = 0;
+      let star2 = 0;
+      let star3 = 0;
       for (let k = 0; k < N; k++) {
         const s = playStage(st, team, difficulty, 1000 + k * 7 + st * 131, PERKS >= 0 ? PERKS : Math.min(st, 6));
         if (s.outcome === 'stage-clear' || s.outcome === 'coop-victory') {
           wins++;
           base += baseHp(s);
           time += s.roundTimer;
+          const stars = stageStars(s);
+          if (stars[1]) star2++;
+          if (stars[2]) star3++;
         }
       }
-      cells.push(`S${st + 1} ${String(Math.round((100 * wins) / N)).padStart(3)}%${wins ? ` b${(base / wins).toFixed(1)} ${Math.round(time / wins)}s` : ''}`);
+      cells.push(`S${st + 1} ${String(Math.round((100 * wins) / N)).padStart(3)}%${wins ? ` b${(base / wins).toFixed(1)} ${Math.round(time / wins)}s ★${star2}/${star3}` : ''}`);
     }
     console.log(`${difficulty.padEnd(6)} ${team.padEnd(7)} ${cells.join(' | ')}`);
   }

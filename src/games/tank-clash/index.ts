@@ -14,6 +14,11 @@ import {
   createArenaState,
   DIFFICULTIES,
   DUEL_ARENA_COUNT,
+  parTime,
+  PERK_IDS,
+  PERK_MAX,
+  stageStars,
+  type PerkSet,
   stepArena,
   type ArenaState,
   type SoundCue
@@ -21,8 +26,8 @@ import {
 import { defaultLang, isLang, t, type Key, type Lang } from './i18n';
 import { CHASSIS_ORDER } from './maps';
 import { COMPACT_LAYOUT, drawArenaScene, WIDE_LAYOUT, type HudLayout, type LobbyConfig } from './render';
-import type { ChassisId, Difficulty, GameMode, PlayerControlInput, TeamSetup } from './types';
-import { createUi, teamOrder, type ResultsView } from './ui';
+import type { ChassisId, Difficulty, EnemyArchetype, GameMode, PerkId, PlayerControlInput, TeamSetup } from './types';
+import { clock, createUi, teamOrder, type PerkOption, type ResultsView } from './ui';
 
 const ACCENT = '#36d6ff';
 const COOP_STAGES = COOP_STAGE_COUNT;
@@ -72,6 +77,70 @@ export const TANK_CLASH_KEYBOARD: readonly KeyboardMap[] = [
   }
 ];
 
+/** Stages 1-6 were always freely selectable; later stages open by clearing the one before. */
+const FREE_STAGES = 6;
+
+export const PERK_ICONS: Record<PerkId, string> = {
+  reload: '⚡',
+  armour: '🛡️',
+  mines: '💣',
+  bulwark: '🧱',
+  dash: '💨',
+  shells: '🎯',
+  life: '❤️'
+};
+
+interface ResumeSave {
+  stageIndex: number;
+  score: number;
+  perks: PerkSet;
+  loop: number;
+  difficulty: Difficulty;
+  teamSetup: TeamSetup;
+  /** Set once a boss stage reaches its first boss: Continue starts right there. */
+  checkpoint?: { wave: EnemyArchetype[]; score: number };
+}
+
+export interface CampaignSave {
+  v: 1;
+  /** Best stars (0-3) per co-op stage. */
+  stars: number[];
+  /** Stages cleared on Hard. */
+  crowns: boolean[];
+  resume: ResumeSave | null;
+}
+
+export function loadCampaign(raw: unknown): CampaignSave {
+  const fresh: CampaignSave = { v: 1, stars: Array(COOP_STAGE_COUNT).fill(0), crowns: Array(COOP_STAGE_COUNT).fill(false), resume: null };
+  if (!raw || typeof raw !== 'object') return fresh;
+  const r = raw as Partial<CampaignSave>;
+  for (let i = 0; i < COOP_STAGE_COUNT; i++) {
+    const st = Number(r.stars?.[i] ?? 0);
+    fresh.stars[i] = Number.isFinite(st) ? Math.max(0, Math.min(3, Math.floor(st))) : 0;
+    fresh.crowns[i] = Boolean(r.crowns?.[i]);
+  }
+  const res = r.resume;
+  if (res && typeof res === 'object' && Number.isInteger(res.stageIndex) && res.stageIndex >= 0 && res.stageIndex < COOP_STAGE_COUNT) {
+    fresh.resume = {
+      stageIndex: res.stageIndex,
+      score: Math.max(0, Number(res.score) || 0),
+      perks: res.perks && typeof res.perks === 'object' ? res.perks : {},
+      loop: Math.max(0, Number(res.loop) || 0),
+      difficulty: DIFFICULTIES.includes(res.difficulty) ? res.difficulty : 'normal',
+      teamSetup: teamOrder('coop').includes(res.teamSetup) ? res.teamSetup : '1p-ai',
+      checkpoint:
+        res.checkpoint && Array.isArray(res.checkpoint.wave) && res.checkpoint.wave.length > 0
+          ? { wave: res.checkpoint.wave, score: Math.max(0, Number(res.checkpoint.score) || 0) }
+          : undefined
+    };
+  }
+  return fresh;
+}
+
+export function stageUnlocked(campaign: CampaignSave, stageIndex: number): boolean {
+  return stageIndex < FREE_STAGES || (campaign.stars[stageIndex - 1] ?? 0) > 0;
+}
+
 function cycleChassis(current: ChassisId, delta: number): ChassisId {
   const idx = CHASSIS_ORDER.indexOf(current);
   return CHASSIS_ORDER[(idx + delta + CHASSIS_ORDER.length) % CHASSIS_ORDER.length];
@@ -113,6 +182,13 @@ function mount(host: HTMLElement, services: GameServices) {
   let resultsOpen = false;
   let autoAdvance = 0;
   let state: ArenaState = createArenaState(lobbyConfig);
+  let campaign = loadCampaign(services.storage.get<unknown>('campaign', null));
+  let runPerks: PerkSet = {};
+  let perkOffer: PerkId[] = [];
+  let perkPick: PerkId | null = null;
+  let newStars: boolean[] = [];
+  let outcomeRecorded = false;
+  let checkpointSaved = false;
 
   const root = document.createElement('div');
   root.dataset.tankClash = '';
@@ -321,9 +397,88 @@ function mount(host: HTMLElement, services: GameServices) {
       best: bestScore,
       touch,
       canConnectPad: !padStatus.connected && padStatus.hidAvailable,
-      padStatus: padStatusText()
+      padStatus: padStatusText(),
+      campaign: lobbyConfig.mode === 'coop' ? campaignView() : undefined
     });
     renderBar();
+  }
+
+  function saveCampaign() {
+    services.storage.set('campaign', campaign);
+  }
+
+  function campaignView() {
+    const i = lobbyConfig.stageIndex % COOP_STAGES;
+    const locked = Array.from({ length: COOP_STAGES }, (_, k) => k).find((k) => !stageUnlocked(campaign, k));
+    const r = campaign.resume;
+    return {
+      stars: campaign.stars[i] ?? 0,
+      crown: Boolean(campaign.crowns[i]),
+      total: campaign.stars.reduce((a, b) => a + b, 0),
+      max: COOP_STAGES * 3,
+      par: parTime(state),
+      lockedHint: locked !== undefined ? tr('lobby.locked', { n: locked + 1, m: locked }) : undefined,
+      resume: r
+        ? tr(r.checkpoint ? 'lobby.continueBoss' : 'lobby.continue', {
+            n: r.stageIndex + 1,
+            diff: tr(`diff.${r.difficulty}` as Key),
+            perks: perkSummary(r.perks) || '—'
+          })
+        : undefined
+    };
+  }
+
+  function perkSummary(perks: PerkSet): string {
+    return PERK_IDS.filter((id) => (perks[id] ?? 0) > 0)
+      .map((id) => `${PERK_ICONS[id]}${(perks[id] ?? 0) > 1 ? `×${perks[id]}` : ''}`)
+      .join(' ');
+  }
+
+  function saveResume(checkpoint?: ResumeSave['checkpoint']) {
+    if (state.mode !== 'coop') return;
+    campaign.resume = {
+      stageIndex: state.stageIndex,
+      score: stageStartScore,
+      perks: { ...runPerks },
+      loop,
+      difficulty: state.difficulty,
+      teamSetup: state.teamSetup,
+      checkpoint
+    };
+    saveCampaign();
+  }
+
+  /** Book-keeping the moment a stage ends: stars, Hard crowns, the next resume point, a perk offer. */
+  function recordOutcome() {
+    outcomeRecorded = true;
+    if (state.mode !== 'coop') return;
+    if (state.outcome === 'stage-clear' || state.outcome === 'coop-victory') {
+      const i = state.stageIndex % COOP_STAGES;
+      const got = stageStars(state);
+      const count = got.filter(Boolean).length;
+      const prev = campaign.stars[i] ?? 0;
+      newStars = got.map((g, k) => g && k >= prev);
+      campaign.stars[i] = Math.max(prev, count);
+      if (state.difficulty === 'hard') campaign.crowns[i] = true;
+      if (state.outcome === 'coop-victory') {
+        campaign.resume = null;
+        perkOffer = [];
+      } else {
+        campaign.resume = {
+          stageIndex: i + 1,
+          score: state.score,
+          perks: { ...runPerks },
+          loop,
+          difficulty: state.difficulty,
+          teamSetup: state.teamSetup
+        };
+        const open = PERK_IDS.filter((id) => (runPerks[id] ?? 0) < PERK_MAX[id]);
+        perkOffer = [];
+        while (perkOffer.length < 3 && open.length > 0) perkOffer.push(open.splice(Math.floor(services.random() * open.length) % open.length, 1)[0]);
+      }
+      perkPick = perkOffer[0] ?? null;
+      saveCampaign();
+    }
   }
 
   function updateLobbyConfig(patch: Partial<LobbyConfig>) {
@@ -335,9 +490,15 @@ function mount(host: HTMLElement, services: GameServices) {
     render();
   }
 
-  function beginStage(opts: Parameters<typeof createArenaState>[0]) {
+  function beginStage(opts: Parameters<typeof createArenaState>[0], startScore?: number) {
     state = createArenaState(opts);
-    stageStartScore = state.score;
+    stageStartScore = startScore ?? state.score;
+    outcomeRecorded = false;
+    checkpointSaved = Boolean(opts.wave);
+    newStars = [];
+    perkOffer = [];
+    perkPick = null;
+    if (state.mode === 'coop') saveResume(opts.wave ? { wave: [...opts.wave], score: state.score } : undefined);
     outcomeAge = 0;
     resultsOpen = false;
     gamePaused = false;
@@ -352,7 +513,9 @@ function mount(host: HTMLElement, services: GameServices) {
     battleClock = 0;
     p2Seen = false;
     bestAtStart = bestScore;
-    beginStage({ ...lobbyConfig, loop });
+    runPerks = {};
+    if (lobbyConfig.mode === 'coop' && !stageUnlocked(campaign, lobbyConfig.stageIndex)) lobbyConfig.stageIndex = 0;
+    beginStage({ ...lobbyConfig, loop, perks: runPerks });
     renderBar();
     canvas.focus({ preventScroll: true });
     render();
@@ -363,6 +526,8 @@ function mount(host: HTMLElement, services: GameServices) {
       ...lobbyConfig,
       stageIndex: state.stageIndex,
       loop,
+      perks: runPerks,
+      swapSides: state.swapSides,
       carryScore: state.mode === 'coop' ? stageStartScore : 0,
       roundNumber: 1,
       p1Wins: 0,
@@ -370,20 +535,49 @@ function mount(host: HTMLElement, services: GameServices) {
     });
   }
 
+  /** Lobby "Continue": back to the saved stage (or its boss checkpoint) with the run's upgrades. */
+  function continueRun() {
+    const r = campaign.resume;
+    if (!r) return;
+    synth.unlock();
+    inLobby = false;
+    battleClock = 0;
+    p2Seen = false;
+    bestAtStart = bestScore;
+    loop = r.loop;
+    runPerks = { ...r.perks };
+    lobbyConfig = { ...lobbyConfig, mode: 'coop', teamSetup: r.teamSetup, difficulty: r.difficulty, stageIndex: r.stageIndex };
+    savePreferences();
+    beginStage(
+      {
+        ...lobbyConfig,
+        loop,
+        perks: runPerks,
+        carryScore: r.checkpoint ? r.checkpoint.score : r.score,
+        wave: r.checkpoint ? [...r.checkpoint.wave] : undefined
+      },
+      r.score
+    );
+    renderBar();
+    canvas.focus({ preventScroll: true });
+    render();
+  }
+
   function advanceAfterOutcome() {
     if (state.outcome === 'none') return;
     if (state.outcome === 'stage-clear') {
       const nextStage = (state.stageIndex + 1) % COOP_STAGES;
       lobbyConfig.stageIndex = nextStage;
+      if (perkPick) runPerks = { ...runPerks, [perkPick]: (runPerks[perkPick] ?? 0) + 1 };
       services.reportComplete(nextStage / COOP_STAGES);
-      beginStage({ ...lobbyConfig, stageIndex: nextStage, loop, carryScore: state.score });
+      beginStage({ ...lobbyConfig, stageIndex: nextStage, loop, carryScore: state.score, perks: runPerks });
     } else if (state.outcome === 'coop-victory') {
-      // New Game+: back to stage 1 with tougher, faster enemies and the score kept.
+      // New Game+: back to stage 1 with tougher, faster enemies; the score and upgrades are kept.
       loop += 1;
       lobbyConfig.stageIndex = 0;
-      beginStage({ ...lobbyConfig, stageIndex: 0, loop, carryScore: state.score });
+      beginStage({ ...lobbyConfig, stageIndex: 0, loop, carryScore: state.score, perks: runPerks });
     } else if (state.outcome === 'coop-defeat') {
-      beginStage({ ...lobbyConfig, stageIndex: state.stageIndex, loop, carryScore: stageStartScore });
+      beginStage({ ...lobbyConfig, stageIndex: state.stageIndex, loop, carryScore: stageStartScore, perks: runPerks });
     } else if (state.outcome === 'round-over') {
       const nextMap = (state.stageIndex + 1) % DUEL_ARENAS;
       lobbyConfig.stageIndex = nextMap;
@@ -393,17 +587,45 @@ function mount(host: HTMLElement, services: GameServices) {
         roundNumber: state.roundNumber + 1,
         p1Wins: state.p1Wins,
         p2Wins: state.p2Wins,
+        swapSides: state.swapSides,
         carryScore: state.score
       });
     } else if (state.outcome === 'duel-victory') {
-      beginStage({ ...lobbyConfig, roundNumber: 1, p1Wins: 0, p2Wins: 0, carryScore: 0 });
+      // The rematch swaps ends so nobody keeps the friendlier side of an arena.
+      beginStage({ ...lobbyConfig, roundNumber: 1, p1Wins: 0, p2Wins: 0, carryScore: 0, swapSides: !state.swapSides });
     }
     renderBar();
   }
 
-  function clock(seconds: number): string {
-    const s = Math.max(0, Math.round(seconds));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  function retryFromCheckpoint() {
+    if (state.outcome !== 'coop-defeat' || !state.checkpointWave) return;
+    beginStage(
+      {
+        ...lobbyConfig,
+        stageIndex: state.stageIndex,
+        loop,
+        perks: runPerks,
+        carryScore: state.checkpointScore,
+        wave: [...state.checkpointWave]
+      },
+      stageStartScore
+    );
+  }
+
+  function perkOptions(): PerkOption[] {
+    return perkOffer.map((id) => ({
+      id,
+      icon: PERK_ICONS[id],
+      name: tr(`perk.${id}` as Key),
+      desc: tr(`perk.${id}.desc` as Key),
+      level: runPerks[id] ?? 0
+    }));
+  }
+
+  function starRow(s: ArenaState): ResultsView['stars'] {
+    const got = stageStars(s);
+    const labels = [tr('res.star.clear'), tr('res.star.base'), tr('res.star.par', { t: clock(parTime(s)) })];
+    return got.map((g, k) => ({ got: g, label: labels[k], isNew: Boolean(newStars[k]) }));
   }
 
   function openResults() {
@@ -424,13 +646,15 @@ function mount(host: HTMLElement, services: GameServices) {
         title: tr(victory ? 'banner.victory' : 'banner.stageClear', { n: s.stageIndex + 1 }),
         subtitle: victory ? tr('res.victory.sub') : undefined,
         badge: newBest ? tr('res.newBest') : undefined,
+        stars: starRow(s),
         rows: [
           [tr('res.kills'), `${s.stageKills} / ${s.totalEnemies}`],
           [tr('res.base'), `${baseHp(s)} / ${s.baseMaxHp}`],
-          [tr('res.time'), clock(s.roundTimer)],
+          [tr('res.time'), `${clock(s.roundTimer)} / ${clock(parTime(s))}`],
           [tr('res.bonus'), `+${s.clearBonus}`],
           ...scoreRows
         ],
+        perks: !victory && perkOffer.length > 0 ? { title: tr('res.perks'), options: perkOptions(), selected: perkPick ?? '' } : undefined,
         primary: { id: 'res-next', label: victory ? tr('res.loop', { n: loop + 1 }) : tr('res.next') },
         secondary: lobbyBtn,
         footnote: touch ? undefined : tr('res.keys')
@@ -444,7 +668,8 @@ function mount(host: HTMLElement, services: GameServices) {
         badge: newBest ? tr('res.newBest') : undefined,
         rows: [[tr('res.kills'), `${s.stageKills} / ${s.totalEnemies}`], ...scoreRows],
         tip: tr(`res.tip.${reason}` as Key),
-        primary: { id: 'res-next', label: tr('res.retry') },
+        primary: s.checkpointWave ? { id: 'res-checkpoint', label: tr('res.checkpoint') } : { id: 'res-next', label: tr('res.retry') },
+        extra: s.checkpointWave ? { id: 'res-next', label: tr('res.retryStage') } : undefined,
         secondary: lobbyBtn,
         footnote: touch ? undefined : tr('res.keys')
       };
@@ -500,7 +725,7 @@ function mount(host: HTMLElement, services: GameServices) {
     services.storage.set('lang', lang);
     renderBar();
     if (inLobby) showLobby();
-    else if (gamePaused) ui.showPause(lang);
+    else if (gamePaused) ui.showPause(lang, pauseNote());
     else if (resultsOpen) openResults();
     render();
   }
@@ -509,7 +734,13 @@ function mount(host: HTMLElement, services: GameServices) {
     if (inLobby || state.outcome !== 'none') return;
     gamePaused = true;
     mobileControls.clear();
-    ui.showPause(lang);
+    ui.showPause(lang, pauseNote());
+  }
+
+  function pauseNote(): string | undefined {
+    if (state.mode !== 'coop') return undefined;
+    const list = perkSummary(runPerks);
+    return `${tr(`diff.${state.difficulty}` as Key)} · ${tr('pause.perks', { list: list || '—' })}`;
   }
 
   function closePause() {
@@ -528,7 +759,12 @@ function mount(host: HTMLElement, services: GameServices) {
 
   function cycleStage(delta: number) {
     const count = lobbyConfig.mode === 'coop' ? COOP_STAGES : DUEL_ARENAS;
-    updateLobbyConfig({ stageIndex: (lobbyConfig.stageIndex + delta + count) % count });
+    let next = lobbyConfig.stageIndex;
+    for (let k = 0; k < count; k++) {
+      next = (next + delta + count) % count;
+      if (lobbyConfig.mode !== 'coop' || stageUnlocked(campaign, next)) break;
+    }
+    updateLobbyConfig({ stageIndex: next });
   }
 
   function onUiAction(id: string) {
@@ -548,6 +784,12 @@ function mount(host: HTMLElement, services: GameServices) {
     else if (id === 'pause-restart') restartStage();
     else if (id === 'pause-lobby' || id === 'res-lobby') showLobby();
     else if (id === 'res-next') advanceAfterOutcome();
+    else if (id === 'res-checkpoint') retryFromCheckpoint();
+    else if (id === 'continue') continueRun();
+    else if (id.startsWith('perk-') && resultsOpen) {
+      perkPick = id.slice(5) as PerkId;
+      openResults();
+    }
     canvas.focus({ preventScroll: true });
     render();
   }
@@ -674,6 +916,7 @@ function mount(host: HTMLElement, services: GameServices) {
     }
 
     if (state.outcome !== 'none') {
+      if (!outcomeRecorded) recordOutcome();
       stepArena(state, dt, [effectiveP1, p2Control], services.random);
       outcomeAge += dt;
       if (!resultsOpen) {
@@ -697,6 +940,11 @@ function mount(host: HTMLElement, services: GameServices) {
     }
 
     stepArena(state, dt, [effectiveP1, p2Control], services.random);
+    if (state.mode === 'coop' && state.checkpointWave && !checkpointSaved) {
+      checkpointSaved = true;
+      saveResume({ wave: [...state.checkpointWave], score: state.checkpointScore });
+    }
+    if (state.outcome !== 'none' && !outcomeRecorded) recordOutcome();
 
     for (const cue of state.cues) {
       playCue(cue);
@@ -724,6 +972,8 @@ function mount(host: HTMLElement, services: GameServices) {
   // Debug / playtest hook
   (globalThis as unknown as { __tankClash?: unknown }).__tankClash = {
     getState: () => state,
+    getCampaign: () => campaign,
+    getRunPerks: () => runPerks,
     getScreen: () => ui.screen,
     getLayout: () => layout.kind,
     startBattle,

@@ -1,4 +1,4 @@
-import { baseHp, computeSightPath, DASH_COOLDOWN, DUEL_WIN_TARGET, enemiesLeft, FOG_SIGHT, type ArenaState } from './engine';
+import { baseHp, computeSightPath, DASH_COOLDOWN, DUEL_WIN_TARGET, enemiesLeft, FOG_SIGHT, parTime, type ArenaState } from './engine';
 import { t, type Key, type Lang } from './i18n';
 import {
   ARENA_H,
@@ -813,6 +813,21 @@ function drawPlayerSidebar(
   label(g, `${t(lang, 'hud.kills')} ${tank.kills}`, cx, y + h - 40, 19, '#cbd5e1', 'center', 700, inner);
 }
 
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Enemies left plus the stage clock against par (the third star). */
+function coopStatus(state: ArenaState, lang: Lang): { text: string; color: string } {
+  const par = parTime(state);
+  const over = state.roundTimer > par;
+  return {
+    text: `${t(lang, 'hud.enemies', { n: enemiesLeft(state) })}  ⏱${clock(over ? state.roundTimer : par - state.roundTimer)}`,
+    color: over ? '#94a3b8' : '#ff9f43'
+  };
+}
+
 function stageTitle(state: ArenaState, lang: Lang): string {
   return state.mode === 'coop'
     ? t(lang, `stage.coop.${state.stageIndex % COOP_STAGE_COUNT}` as Key)
@@ -835,7 +850,8 @@ function drawWideHud(g: CanvasRenderingContext2D, state: ArenaState, lang: Lang,
   label(g, stageTitle(state, lang) + loopTag, ARENA_X + 18, 40, 23, '#f8fafc', 'left', 900, 360);
 
   if (state.mode === 'coop') {
-    label(g, t(lang, 'hud.enemies', { n: enemiesLeft(state) }), WIDTH / 2 + 60, 40, 21, '#ff9f43', 'center', 800, 220);
+    const status = coopStatus(state, lang);
+    label(g, status.text, WIDTH / 2 + 50, 40, 21, status.color, 'center', 800, 250);
     const base = baseStatus(state, lang, time);
     label(g, `🦅 ${base.text}`, ARENA_X + ARENA_W - 18, 40, 21, base.color, 'right', 800, 290);
   } else {
@@ -888,7 +904,8 @@ function drawCompactHud(g: CanvasRenderingContext2D, state: ArenaState, lang: La
   label(g, stageTitle(state, lang) + (state.loop > 0 ? ` ★${state.loop}` : ''), 12, row1, 34, '#f8fafc', 'left', 900, W - 250);
   label(g, `${state.score}`, W - 12, row1, 36, '#ffd15c', 'right', 900, 220);
   if (state.mode === 'coop') {
-    label(g, t(lang, 'hud.enemies', { n: enemiesLeft(state) }), 12, row2, 34, '#ff9f43', 'left', 800, 380);
+    const status = coopStatus(state, lang);
+    label(g, status.text, 12, row2, 34, status.color, 'left', 800, 400);
     const base = baseStatus(state, lang, time);
     label(g, `🦅 ${base.text}`, W - 12, row2, 34, base.color, 'right', 800, W - 420);
   } else {

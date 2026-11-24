@@ -98,6 +98,23 @@ export function scaleWave(wave: readonly EnemyArchetype[], scale: number): Enemy
   return out;
 }
 
+/**
+ * Par time for the third star: the wave cannot arrive faster than its spawn rhythm, so par is that
+ * rhythm plus about a second per tank to finish it, and 15 s per boss.
+ */
+export function parTime(state: Pick<ArenaState, 'stageIndex' | 'teamSetup' | 'tuning' | 'totalEnemies'>): number {
+  const defenders = state.teamSetup === '1p-solo' ? 1 : 2;
+  const rhythm = Math.max(1.0, 1.9 - Math.min(6, state.stageIndex % COOP_STAGE_COUNT) * 0.15 - (defenders > 1 ? 0.2 : 0)) + state.tuning.spawnGap;
+  const bosses = buildWaveList(state.stageIndex).filter(isBossArchetype).length;
+  return Math.round((state.totalEnemies - bosses) * (rhythm + 1.1) + bosses * 15 + 10);
+}
+
+/** The three stage stars: cleared, Eagle never hit, and under par. */
+export function stageStars(state: ArenaState): [boolean, boolean, boolean] {
+  const cleared = state.outcome === 'stage-clear' || state.outcome === 'coop-victory';
+  return [cleared, cleared && state.baseUntouched, cleared && state.roundTimer <= parTime(state)];
+}
+
 export function isBossArchetype(kind: EnemyArchetype): boolean {
   return kind.startsWith('boss-');
 }
