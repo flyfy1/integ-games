@@ -39,6 +39,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
-    include: ['tests/**/*.test.ts']
+    include: ['tests/**/*.test.ts'],
+    // Deterministic bot sweeps over whole campaigns are slow on shared CI runners; they are not timing tests.
+    testTimeout: 30_000
   }
 });
