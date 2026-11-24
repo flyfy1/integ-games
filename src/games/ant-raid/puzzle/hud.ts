@@ -1,7 +1,7 @@
 import { h } from '../ui/dom';
 import type { I18n } from './i18n';
 import type { Session, SessionEvent } from './session';
-import { diggersLeft, scentLeft, type FailReason } from './sim';
+import { diggersLeft, scentLeft, type FailReason, type PaintFail } from './sim';
 import type { PuzzleLevel } from './types';
 
 /**
@@ -64,6 +64,8 @@ export function createPuzzleHud(i18n: I18n, session: Session, actions: HudAction
   const element = h('div', { class: 'ar-hud' }, top, banner, bottom);
 
   let shown = '';
+  // The last refused paint, shown for a moment so a refused drag always says why.
+  let denied: { key: `deny.${PaintFail}`; at: number } | null = null;
   const hud: PuzzleHud = {
     element,
     setHint(on) { hint.hidden = !on; if (on) hint.textContent = t('hud.hintAsk'); },
@@ -96,11 +98,16 @@ export function createPuzzleHud(i18n: I18n, session: Session, actions: HudAction
       digger.setAttribute('aria-pressed', String(session.tool === 'digger'));
       if (session.fail && planning) { banner.hidden = false; reason.textContent = failText(i18n, level, session.fail.reason); retryNote.textContent = t('fail.retry'); }
       else if (session.tool === 'digger' && planning) { banner.hidden = false; reason.textContent = t('hud.diggerHint'); retryNote.textContent = ''; }
+      // Out of Scent before the trail is useful: a dead end unless it says what to do, so it stays up until it is fixed.
+      else if (planning && !session.canGo && session.plan.cost > 0 && scentLeft(session.plan) <= 0) { banner.hidden = false; reason.textContent = t('deny.scentStuck'); retryNote.textContent = t('deny.scentFix'); }
+      else if (planning && denied && Date.now() - denied.at < 1800) { banner.hidden = false; reason.textContent = t(denied.key); retryNote.textContent = ''; }
       else banner.hidden = true;
       banner.classList.toggle('info', !session.fail);
       if (!session.fail) hint.hidden = true;
     },
     onEvent(event) {
+      if (event.type === 'deny') denied = { key: `deny.${event.reason}`, at: Date.now() };
+      if (event.type === 'paint' || event.type === 'erase' || event.type === 'go') denied = null;
       if (event.type === 'deny' && event.reason === 'scent') { scent.classList.remove('shake'); void scent.offsetWidth; scent.classList.add('shake'); }
     },
     insets() {

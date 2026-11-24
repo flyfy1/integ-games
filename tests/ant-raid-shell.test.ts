@@ -217,6 +217,48 @@ describe('ant-raid shell (puzzle mode)', () => {
     expect(root.querySelector('.ar-banner')!.textContent).toMatch(/spider|lost/i);
     controller.destroy();
   });
+  it('running out of Scent before the trail is useful says so and says what to do, until it is fixed', () => {
+    const { ar, root, controller } = mount();
+    ar.save.levels['1-1'] = { win: true, elegant: false, fails: 0, best: 6 };
+    ar.play('1-2');
+    if (ar.screen === 'rule') (root.querySelector('[data-action=ok]') as HTMLButtonElement).click();
+    const s = ar.session;
+    s.dragStart(1, 4); for (let y = 3; y >= 1; y--) s.dragTo(1, y); for (let x = 2; x <= 7; x++) s.dragTo(x, 1); for (let y = 2; y <= 4; y++) s.dragTo(7, y); s.dragEnd();
+    pump(3);
+    const banner = root.querySelector('.ar-banner') as HTMLElement;
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toMatch(/Out of Scent/);
+    expect(banner.textContent).toMatch(/Undo/);
+    s.undo(); pump(0.1);
+    expect(banner.hidden).toBe(true);
+    controller.destroy();
+  });
+  it('offers a hint after the third failed run, and the hint shows ghost dots', () => {
+    const { ar, root, controller } = mount();
+    for (const id of ['1-1', '1-2', '1-3']) ar.save.levels[id] = { win: true, elegant: false, fails: 0, best: 6 };
+    ar.play('1-4');
+    if (ar.screen === 'rule') (root.querySelector('[data-action=ok]') as HTMLButtonElement).click();
+    const s = ar.session, hint = root.querySelector('[data-ui=hint]') as HTMLButtonElement;
+    for (let i = 1; i <= 3; i++) {
+      s.clear();
+      for (const path of s.level.traps[0].plan.paths) { s.dragStart(...path[0]); for (const c of path.slice(1)) s.dragTo(...c); s.dragEnd(); }
+      s.go();
+      for (let k = 0; k < 400 && !(s.mode === 'plan' && s.fail); k++) pump(0.05);
+      pump(0.1);
+      expect(hint.hidden, `after fail ${i}`).toBe(i < 3);
+    }
+    hint.click(); pump(0.1);
+    expect(s.ghost.length).toBeGreaterThan(0);
+    controller.destroy();
+  });
+  it('A13: every rule a level introduces has a card in both languages', async () => {
+    const { RULES } = await import('../src/games/ant-raid/puzzle/rules');
+    const { PUZZLES } = await import('../src/games/ant-raid/puzzle/levels');
+    for (const level of PUZZLES) for (const id of level.rules) {
+      expect(RULES[id], `${level.id} ${id}`).toBeTruthy();
+      expect(RULES[id].title.en && RULES[id].title.zh && RULES[id].text.en && RULES[id].text.zh).toBeTruthy();
+    }
+  });
   it('every rule card has a picture and at most twelve words', async () => {
     const { RULES, wordCount } = await import('../src/games/ant-raid/puzzle/rules');
     for (const card of Object.values(RULES)) {

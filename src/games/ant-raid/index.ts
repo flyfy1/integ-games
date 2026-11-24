@@ -428,7 +428,8 @@ export const antRaid: GameModule = {
       // Loop: drag from the nest along the ghost dots to the cookie, rest, again.
       handT = (handT + dt) % 2.4;
       const path = [current.solution.paths[0][0], ...session.ghost];
-      const p = Math.min(1, handT / 1.8) * (path.length - 1), i = Math.floor(p), f = p - i;
+      // Reduced motion: the hand hops cell to cell instead of gliding.
+      const p = Math.min(1, handT / 1.8) * (path.length - 1), i = Math.floor(p), f = reducedNow() ? 0 : p - i;
       const a = path[i], b = path[Math.min(path.length - 1, i + 1)];
       const pos = toScreen(L, a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f);
       hand.hidden = false;

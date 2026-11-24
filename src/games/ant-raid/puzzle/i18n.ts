@@ -60,6 +60,10 @@ const STRINGS = {
   'fail.retry': ['Your trail is kept. Change it and press GO.', '路线保留着。改一改再出发。'],
   'deny.scent': ['Out of Scent', '气味用完了'],
   'deny.terrain': ['Ants cannot go there', '蚂蚁过不去'],
+  'deny.adjacent': ['Start at the anthill or on your trail', '从蚁穴或已有的路线开始画'],
+  'deny.trail': ['That cell is already trail', '这一格已经是路线了'],
+  'deny.scentStuck': ['Out of Scent: this way is too long.', '气味用完了：这条路太长。'],
+  'deny.scentFix': ['Drag back to erase, or Undo, and try a shorter way.', '往回拖可以擦掉，或点撤销，换一条更短的路。'],
 
   'results.cleared': ['Cleared!', '过关！'],
   'results.par': ['Elegant route: {n} Scent or less', '精巧路线：气味不超过 {n}'],

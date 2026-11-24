@@ -160,7 +160,7 @@ export function createSession(level: PuzzleLevel, options: { reduced?: boolean }
       if (!drag) return;
       if (drag.tap) {
         const cell = drag.start, snap = snapshot();
-        if (plan.digs.some(d => d.at === cell)) { removeDig(plan, cell); commit(snap); }
+        if (plan.digs.some(d => d.at === cell)) { removeDig(plan, cell); commit(snap); session.tool = 'trail'; }
         else if (session.tool === 'digger') {
           if (placeDig(plan, cell)) { commit(snap); events.push({ type: 'dig', cell }); if (diggersLeft(plan) <= 0) session.tool = 'trail'; }
           else deny('terrain', cell);
@@ -191,8 +191,8 @@ export function createSession(level: PuzzleLevel, options: { reduced?: boolean }
     },
     confirm() {
       if (!session.cursor) { session.moveCursor(0, 0); return; }
-      const cell = idx(session.cursor.x, session.cursor.y);
-      if (session.tool === 'digger' || plan.digs.some(d => d.at === cell)) { session.dragStart(session.cursor.x, session.cursor.y); session.dragEnd(); }
+      // Keyboard: Space on a Digger token starts drawing from it; to lift a token, pick the Digger tool (E) and press Space on it.
+      if (session.tool === 'digger') { session.dragStart(session.cursor.x, session.cursor.y); session.dragEnd(); }
     },
     undo() {
       if (mode !== 'plan') return;
