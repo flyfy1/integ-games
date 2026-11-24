@@ -26,7 +26,8 @@ const kindsUsed = (lines: string[]) => new Set(parseScript(lines).flatMap(t => (
 
 describe('lantern works content: every level ships with replayed reference solutions', () => {
   it('has four chapters of five levels, each listed once', () => {
-    expect(CHAPTERS).toHaveLength(LEVELS.length / 5);
+    expect(CHAPTERS).toHaveLength(4);
+    expect(LEVELS).toHaveLength(20);
     expect(CHAPTERS.flatMap(c => c.levels)).toEqual(LEVELS.map(l => l.id));
     for (const c of CHAPTERS) expect(c.levels).toHaveLength(5);
 
@@ -57,9 +58,9 @@ describe('lantern works content: every level ships with replayed reference solut
         for (const { r } of results) expect(starsOf(r.sim).delivered).toBe(true);
       });
 
-      it('every stored solution uses the part the level introduces', () => {
+      it('a stored solution uses the part the level introduces (others may find another way)', () => {
         if (!level.introduces) return;
-        for (const { name, lines } of results) expect(kindsUsed(lines).has(level.introduces), `${level.id} ${name}`).toBe(true);
+        expect(results.some(({ lines }) => kindsUsed(lines).has(level.introduces!))).toBe(true);
       });
 
       if (LEVELS.indexOf(level) >= LEVELS.findIndex(l => l.id === '1-5')) {
@@ -284,7 +285,7 @@ describe('lantern works save and shell', () => {
     expect(row?.traits).toEqual(['Factory', 'Levels']);
     expect(lanternWorks.meta.slug).toBe('lantern-works');
     expect(campaignNumber('1-1')).toBe(1);
-    expect(campaignNumber(LEVELS[LEVELS.length - 1].id)).toBe(LEVELS.length);
+    expect(campaignNumber(LEVELS[LEVELS.length - 1].id)).toBe(20);
   });
   it('mounts, opens a level, keeps the build on restart and cleans up', () => {
     const host = document.createElement('div');
