@@ -52,6 +52,8 @@ export const PARTY_LEVELS: readonly Level[] = [PARTY_LEVEL, CARRY_LEVEL, RACE_LE
 export const ALL_LEVELS: readonly Level[] = [...LEVELS, ...COMBO_LEVELS, ...PARTY_LEVELS];
 export const WORLD_COUNT = 5;
 export const isParty = (level: Level) => PARTY_LEVELS.includes(level);
+/** A Surprise Remix round: the same level with half its usual goal, never less than two. */
+export const shortLevel = (level: Level): Level => ({ ...level, goal: level.goal.map((n) => Math.max(2, Math.ceil(n / 2))) as unknown as Level['goal'] });
 
 /** `combo` counts the combo levels opened beyond the first (absent in saves from before World 5). */
 export type Progress = { stars: Record<string, number>; open: number; combo?: number };

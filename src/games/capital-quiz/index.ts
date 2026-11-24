@@ -489,6 +489,8 @@ const game: GameModule = {
         fb.innerHTML = `<strong>${tr(timedOut ? (m === 'capital' ? 'fb.timeoutCapital' : 'fb.timeoutCountry') : m === 'capital' ? 'fb.wrongCapital' : 'fb.wrongCountry', { name })}</strong><small>${run?.c === 'survival' ? tr('fb.lifeLost', { n: lives }) : run?.c === 'blitz' ? tr('fb.penalty') : lostStreak >= 2 ? tr('fb.lostRun', { n: lostStreak }) : typedText ? tr('type.yours', { text: escapeHtml(typedText) }) : tr(timedOut ? 'fb.timeoutHint' : 'fb.hint')}</small>`;
       }
       el<HTMLElement>('[data-next]').innerHTML = `<button type="button" class="cq-action" data-next-btn>${done() ? tr('btn.results') : tr('btn.next')}</button>`;
+      // The typed answer's input is now disabled; keep the keyboard flow going (Enter = Next) by moving focus to Next.
+      if (input && fresh) el<HTMLElement>('[data-next-btn]').focus({ preventScroll: true });
     }
 
     function answer(i: number) {

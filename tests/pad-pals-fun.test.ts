@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUTTON_INDEX, type ButtonName, type PadState } from '../src/games/_shared/gamepad-kit';
+import { BUTTON_INDEX, type ButtonName, type Direction, type PadState } from '../src/games/_shared/gamepad-kit';
 import { CARRY_LEVEL, COMBO_LEVELS, combosOpen, emptyProgress, isMastered, isOpen, LEVELS, PARTY_LEVELS, RACE_LEVEL, recordResult, STICKERS, type Difficulty } from '../src/games/pad-pals/levels';
 import { SPOKEN } from '../src/games/pad-pals/i18n';
 import { createMini, type MiniEnv } from '../src/games/pad-pals/minis';
@@ -103,5 +103,42 @@ describe('Pad Pals stickers and voice', () => {
   });
   it('speaks a hint for every new level', () => {
     for (const id of [...COMBO_LEVELS, CARRY_LEVEL, RACE_LEVEL].map((l) => l.id)) expect(SPOKEN).toContain(`hint.${id}`);
+  });
+});
+
+describe('Pad Pals remix rounds and touch combos', () => {
+  it('finishes every half-length remix round of the journey and World 5 with real play', async () => {
+    const { shortLevel } = await import('../src/games/pad-pals/levels');
+    for (const level of [...LEVELS, ...COMBO_LEVELS]) for (const d of [0, 1, 2] as Difficulty[]) {
+      const short = shortLevel(level), mini = createMini(short, env(d));
+      expect(short.goal[d]).toBeLessThanOrEqual(level.goal[d]); expect(short.goal[d]).toBeGreaterThanOrEqual(2);
+      let tapped = false, frames = 0, was: Direction | null = null;
+      while (!mini.done && frames < 60 * 200) {
+        const move = mini.bot(), press: ButtonName[] = tapped ? [] : move.press ? [move.press] : [];
+        tapped = press.length > 0;
+        const x = move.x ?? 0, y = move.y ?? 0;
+        const direction: Direction | null = Math.max(Math.abs(x), Math.abs(y)) < 0.5 ? null : Math.abs(x) > Math.abs(y) ? (x > 0 ? 'right' : 'left') : y > 0 ? 'down' : 'up';
+        const state = pad(press, [...(move.hold ?? [])], { x, y, rx: move.rx ?? 0, ry: move.ry ?? 0, dirPressed: direction !== was ? direction : null });
+        was = direction;
+        mini.update(1 / 60, { any: state, pads: [state, idle] });
+        if (level.kind === 'maze') { mini.update(1 / 60, { any: idle, pads: [] }); was = null; }
+        frames++;
+      }
+      expect(mini.done, `${level.id} ${d}`).toBe(true);
+    }
+  });
+
+  it('lets two fingers on the touch pad hold a trigger while tapping a button, or push both sticks', async () => {
+    const { createTouchPad } = await import('../src/games/pad-pals/pad-view');
+    const touch = createTouchPad(() => 0);
+    expect(touch.down(1, 1100, 500)).toBe(true); // right trigger tab
+    expect(touch.down(2, 1065, 662)).toBe(true); // bottom face button
+    const both = touch.read();
+    expect(both.buttons[BUTTON_INDEX.r2]).toBe(true); expect(both.buttons[BUTTON_INDEX.south]).toBe(true);
+    touch.clear();
+    touch.down(3, 430, 646); touch.move(3, 500, 646);
+    touch.down(4, 850, 646); touch.move(4, 850, 590);
+    const sticks = touch.read();
+    expect(sticks.x).toBeGreaterThan(0.6); expect(sticks.ry).toBeLessThan(-0.6);
   });
 });

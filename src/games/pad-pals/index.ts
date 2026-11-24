@@ -2,7 +2,7 @@ import type { GameModule, GameServices } from '../../core/game-types';
 import { BUTTON_INDEX, createInput, createSound, startLoop, type ButtonName, type PadState } from '../_shared/gamepad-kit';
 import { defaultLang, isLang, t, type Key, type Lang, type SpokenKey } from './i18n';
 import { dailyKey, dailyRandom, playedToday, readDaily, recordDaily } from '../_shared/daily';
-import { CARRY_LEVEL, COMBO_LEVELS, combosOpen, RACE_LEVEL, bestStars, DIFFICULTIES, DIFFICULTY_ICONS, emptyProgress, isMastered, isOpen, isProgress, levelStars, LEVELS, masteredCount, maxScore, PARTY_LEVEL, recordResult, starCount, STARS_PER_STICKER, starsFor, starsToNextSticker, stickerCount, STICKERS, totalScore, type Difficulty, type Level, type Progress } from './levels';
+import { CARRY_LEVEL, COMBO_LEVELS, combosOpen, RACE_LEVEL, shortLevel, bestStars, DIFFICULTIES, DIFFICULTY_ICONS, emptyProgress, isMastered, isOpen, isProgress, levelStars, LEVELS, masteredCount, maxScore, PARTY_LEVEL, recordResult, starCount, STARS_PER_STICKER, starsFor, starsToNextSticker, stickerCount, STICKERS, totalScore, type Difficulty, type Level, type Progress } from './levels';
 import { createMini, type Frame, type Mini, type MiniEnv } from './minis';
 import { createVoice } from './voice';
 import { createTouchPad, drawChip, drawPad, HEIGHT, hitsMenu, PLAY_HEIGHT, WIDTH, type Demo, type GlyphSet, type Highlight } from './pad-view';
@@ -45,9 +45,7 @@ const MAP_CELLS: MapCell[] = [
   { item: { kind: 'remix' }, row: 3, column: 3, x: COLUMN_X[3], y: ROW_Y[2] },
   ...[PARTY_LEVEL, CARRY_LEVEL, RACE_LEVEL].map((level, i) => ({ item: { kind: 'level', level } as MapItem, row: i + 1, column: 4, x: COLUMN_X[4], y: ROW_Y[i] }))
 ];
-/** Remix rounds are short: half a level's usual goal, never less than two. */
 const REMIX_ROUNDS = 5;
-const shortLevel = (level: Level): Level => ({ ...level, goal: level.goal.map((n) => Math.max(2, Math.ceil(n / 2))) as unknown as Level['goal'] });
 /** One surprise sticker per day the remix is finished; they join the sticker scenes. */
 const REMIX_GIFTS = ['🎁', '🧸', '🪀', '🎠', '🍭', '🦩', '🛸', '🐲', '🍰', '🎡', '🦜', '🪅'] as const;
 const SCENES = 3, SCENE_LIMIT = 40, TRAY_Y = 452;
@@ -171,6 +169,8 @@ function mount(host: HTMLElement, services: GameServices) {
       const frontier = LEVELS[Math.max(0, Math.min(Math.floor(progress.open) || 0, LEVELS.length - 1))];
       cursor = (levelStars(progress, frontier.id) === 0 ? cellOf(frontier) : screen === 'title' ? undefined : cellOf(level)) ?? cursor;
     }
+    // Leaving for the map or title ends a Surprise Remix, whatever caused it (unplugged pad, shell restart, Start).
+    if (next === 'map' || next === 'title') remix = null;
     screen = next; idle = 0; renderBar();
   }
   function begin(next: Level) {
