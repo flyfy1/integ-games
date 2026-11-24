@@ -61,8 +61,8 @@ export function createRenderer(reduced: boolean) {
     const w = sim?.w ?? 8, h = sim?.h ?? 6;
     const left = insets.left ?? 0, right = insets.right ?? 0;
     const availW = width - left - right, availH = height - insets.top - insets.bottom;
-    const cell = Math.max(18, Math.floor(Math.min(availW / (w + 0.7), availH / (h + 0.9), 92)));
-    layout = { cell, w, h, width, height, ox: Math.round(left + (availW - cell * w) / 2), oy: Math.round(insets.top + (availH - cell * h) / 2 + cell * 0.1) };
+    const cell = Math.max(18, Math.floor(Math.min(availW / (w + 0.7), availH / (h + 1.5), 92)));
+    layout = { cell, w, h, width, height, ox: Math.round(left + (availW - cell * w) / 2), oy: Math.round(insets.top + (availH - cell * (h + 0.8)) / 2 + cell * 0.8) };
     staticKey = '';
   }
 
@@ -292,6 +292,14 @@ export function createRenderer(reduced: boolean) {
     ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(src.dir * Math.PI / 2);
     ctx.fillStyle = '#ffd98a'; ctx.beginPath(); ctx.moveTo(s * 0.5, 0); ctx.lineTo(s * 0.36, -s * 0.12); ctx.lineTo(s * 0.36, s * 0.12); ctx.closePath(); ctx.fill();
     ctx.restore();
+    // The chute's rhythm: one pip per beat of its cycle, the lit one is now.
+    if (src.every > 1) {
+      const offset = src.offset ?? 1, phase = sim.beat >= offset ? (sim.beat - offset) % src.every : -1;
+      for (let k = 0; k < src.every; k++) {
+        ctx.fillStyle = k === phase && sim.status !== 'build' ? '#ffd36b' : 'rgba(255,220,160,0.35)';
+        ctx.beginPath(); ctx.arc(c.x + (k - (src.every - 1) / 2) * s * 0.14, c.y - s * 0.36, s * 0.045, 0, 7); ctx.fill();
+      }
+    }
     if (src.goods.length > 1) {
       // A chute that alternates goods shows what comes after the next one.
       const after = src.goods[(src.k + 1) % src.goods.length];
@@ -388,9 +396,10 @@ export function createRenderer(reduced: boolean) {
 
     // Inspector Mittens
     drawCatLayer(ctx, sim, view);
+    const garland = drawGarland(ctx, sim, time);
 
     // dusk and lamplight
-    drawLight(ctx, sim, view, items);
+    drawLight(ctx, sim, view, items, garland);
 
     // particles above the light
     for (const p of particles) {
@@ -423,6 +432,36 @@ export function createRenderer(reduced: boolean) {
     mark(view.cursor, '#ffd36b', [5, 4]);
     mark(view.selected, '#fff2c4', []);
     ctx.restore();
+  }
+
+  /**
+   * A string of paper lanterns across the top of the workshop. They light up one by one as the order fills (in
+   * Night Shift, with each order served), so the room gets brighter the closer the job is to done.
+   */
+  function drawGarland(ctx: CanvasRenderingContext2D, sim: Sim, time: number): Pos[] {
+    const s = layout.cell, n = Math.max(3, Math.round(sim.w * 0.8));
+    const x0 = layout.ox - s * 0.25, x1 = layout.ox + sim.w * s + s * 0.25, y0 = layout.oy - s * 0.9;
+    let want = 0, got = 0;
+    for (const st of sim.stalls) for (const w of st.wants) { want += w.n; got += Math.min(w.got, w.n); }
+    const lit = sim.level.endless ? Math.min(n, sim.served % (n + 1)) : want ? Math.round(n * got / want) : 0;
+    ctx.strokeStyle = '#2a1a10'; ctx.lineWidth = Math.max(1.5, s * 0.03);
+    ctx.beginPath(); ctx.moveTo(x0, y0);
+    const sag = (k: number) => y0 + Math.sin(k * Math.PI) * s * 0.18;
+    for (let i = 1; i <= 20; i++) ctx.lineTo(x0 + (x1 - x0) * i / 20, sag(i / 20));
+    ctx.stroke();
+    const glow: Pos[] = [];
+    const colors = ['red', 'red', 'orange', 'red', 'yellow'] as const;
+    for (let i = 0; i < n; i++) {
+      const k = (i + 0.5) / n, x = x0 + (x1 - x0) * k, y = sag(k) + s * 0.2;
+      const on = i < lit;
+      ctx.save(); ctx.translate(x, y - s * 0.2); ctx.rotate(reduced ? 0 : Math.sin(time * 1.3 + i) * 0.06);
+      ctx.strokeStyle = '#2a1a10'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, s * 0.1); ctx.stroke();
+      ctx.globalAlpha = on ? 1 : 0.8;
+      drawGood(ctx, { kind: 'lantern', shape: i % 4 === 3 ? 'lotus' : 'round', color: on ? colors[i % colors.length] : 'muddy', stamp: 'none', lit: on }, 0, s * 0.3, s * 0.62, time + i);
+      ctx.restore();
+      if (on) glow.push({ x, y });
+    }
+    return glow;
   }
 
   function sourceOrigin(sim: Sim, item: Item): Pos | null {
@@ -475,10 +514,10 @@ export function createRenderer(reduced: boolean) {
       drawPaw(ctx, c.x + s * 0.15, c.y - s * 0.12, s * 0.8, a);
     }
     const st = catState(sim, beatF);
-    if (st) drawCat(ctx, st.pos.x, st.pos.y, s * 1.15, st.facing, st.sit, view.time);
+    if (st) drawCat(ctx, st.pos.x, st.pos.y, s * 1.45, st.facing, st.sit, view.time);
   }
 
-  function drawLight(ctx: CanvasRenderingContext2D, sim: Sim, view: ViewState, items: ReturnType<typeof itemsOf>) {
+  function drawLight(ctx: CanvasRenderingContext2D, sim: Sim, view: ViewState, items: ReturnType<typeof itemsOf>, garland: Pos[]) {
     const dusk = view.dusk;
     if (dusk <= 0.01) return;
     const W = Math.ceil(layout.width / 2), H = Math.ceil(layout.height / 2);
@@ -487,17 +526,18 @@ export function createRenderer(reduced: boolean) {
     const d = dark.getContext('2d')!;
     d.globalCompositeOperation = 'source-over';
     d.clearRect(0, 0, W, H);
-    d.fillStyle = `rgba(14,12,38,${0.25 + dusk * 0.45})`; d.fillRect(0, 0, W, H);
+    d.fillStyle = `rgba(14,12,38,${0.32 + dusk * 0.48})`; d.fillRect(0, 0, W, H);
     d.globalCompositeOperation = 'destination-out';
     const s = layout.cell;
     const lights: { x: number; y: number; r: number; a: number }[] = [];
     for (const { item, cell, slot } of items) {
       if (slot === 'tank') continue;
-      if ((item.kind === 'lantern' && item.lit) || item.kind === 'string') { const c = center(cell % sim.w, Math.floor(cell / sim.w)); lights.push({ x: c.x, y: c.y, r: s * 1.5, a: 0.9 }); }
+      if ((item.kind === 'lantern' && item.lit) || item.kind === 'string') { const c = center(cell % sim.w, Math.floor(cell / sim.w)); lights.push({ x: c.x, y: c.y, r: s * 2, a: 0.95 }); }
     }
     for (const st of sim.stalls) { const c = center(st.x, st.y); lights.push({ x: c.x, y: c.y, r: s * (1.3 + (pulses.get(st.y * sim.w + st.x) ?? 0) * 0.6), a: 0.85 }); }
     for (const [cell, v] of pulses) { if (sim.parts[cell]) { const c = center(cell % sim.w, Math.floor(cell / sim.w)); lights.push({ x: c.x, y: c.y, r: s * (0.8 + v * 0.6), a: 0.6 * v }); } }
     sim.parts.forEach(p => { if (p?.kind === 'wick') { const c = center(p.x, p.y); lights.push({ x: c.x, y: c.y, r: s * 1.1, a: 0.6 }); } });
+    for (const g of garland) lights.push({ x: g.x, y: g.y + s * 0.4, r: s * 1.6, a: 0.8 });
     for (const p of particles) if (p.kind === 'rise') lights.push({ x: p.x, y: p.y, r: p.size * 2.2, a: Math.min(1, p.life / 1.2) * 0.7 });
     for (const l of lights) {
       const x = l.x / 2, y = l.y / 2, r = l.r / 2;

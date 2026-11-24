@@ -15,6 +15,7 @@ export const STYLES = `
 /* HUD */
 .lw-top{position:absolute;left:0;right:0;top:0;display:flex;flex-direction:column;gap:4px;padding:6px 8px 4px;background:linear-gradient(#170d07f2,#170d07c0 80%,#170d0700);pointer-events:none}
 .lw-top>*{pointer-events:auto}
+.lw.is-immersive .lw-top{padding-left:62px}
 .lw-row{display:flex;align-items:center;gap:6px;min-width:0}
 .lw-title{font-weight:900;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;letter-spacing:.01em}
 .lw-title small{color:#d9b27a;font-weight:700;margin-right:4px}

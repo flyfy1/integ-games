@@ -7,7 +7,7 @@ export const defaultLang = (): Lang => (typeof navigator !== 'undefined' && /^zh
 
 export const EN = {
   'title.name': 'Lantern Works', 'title.tag': 'Lay belts, fold, dye and light: build a little workshop that fills every festival order.',
-  'title.campaign': 'Workshop', 'title.continue': 'Continue', 'title.night': 'Night Shift', 'title.daily': 'Daily Order', 'title.settings': 'Settings',
+  'title.campaign': 'Workshop', 'title.start': 'Start', 'title.continue': 'Continue', 'title.night': 'Night Shift', 'title.daily': 'Daily Order', 'title.settings': 'Settings',
   'title.nightLocked': 'Clear 1-5 to open', 'title.stars': '{n} of {total} stars',
   'map.chapter': 'Chapter {n}', 'map.locked': 'Locked', 'map.back': 'Back', 'map.records': 'Best: {parts} parts · {beats} beats', 'map.rush': 'Festival rush',
   'hud.menu': 'Menu', 'hud.run': 'Run', 'hud.pause': 'Pause', 'hud.resume': 'Resume', 'hud.reset': 'Reset', 'hud.undo': 'Undo', 'hud.erase': 'Erase', 'hud.speed': 'Speed',
@@ -35,7 +35,7 @@ export type Key = keyof typeof EN;
 
 export const ZH: Record<Key, string> = {
   'title.name': '灯笼工坊', 'title.tag': '铺传送带，折纸、染色、点灯：搭一座小工坊，把节日订单全部做完。',
-  'title.campaign': '工坊', 'title.continue': '继续', 'title.night': '夜班', 'title.daily': '每日订单', 'title.settings': '设置',
+  'title.campaign': '工坊', 'title.start': '开始', 'title.continue': '继续', 'title.night': '夜班', 'title.daily': '每日订单', 'title.settings': '设置',
   'title.nightLocked': '通过 1-5 后开放', 'title.stars': '{n} / {total} 星',
   'map.chapter': '第 {n} 章', 'map.locked': '未解锁', 'map.back': '返回', 'map.records': '最佳：{parts} 件 · {beats} 拍', 'map.rush': '节日赶工',
   'hud.menu': '菜单', 'hud.run': '开工', 'hud.pause': '暂停', 'hud.resume': '继续', 'hud.reset': '清空', 'hud.undo': '撤销', 'hud.erase': '拆除', 'hud.speed': '速度',

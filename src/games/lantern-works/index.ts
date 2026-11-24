@@ -95,6 +95,7 @@ export const lanternWorks: GameModule = {
     const layout = () => {
       if (destroyed) return;
       const immersive = host.classList.contains('is-immersive') || (typeof document !== 'undefined' && document.fullscreenElement === host);
+      root.classList.toggle('is-immersive', immersive);
       const css = getComputedStyle(host), pad = (a: string, b: string) => (parseFloat(a) || 0) + (parseFloat(b) || 0);
       const hw = host.clientWidth - pad(css.paddingLeft, css.paddingRight);
       const width = hw > 40 ? hw : 360;
@@ -136,8 +137,8 @@ export const lanternWorks: GameModule = {
       const el = h('div', { class: 'lw-screen' },
         h('div', { class: 'lw-hero' }, lanternRow(), h('h1', { text: t('title.name') }), h('p', { text: t('title.tag') })),
         h('div', { class: 'lw-menu' },
-          h('button', { class: 'lw-btn primary', onclick: () => { audio.unlock(); audio.ui(); if (next && stars > 0) openLevel(next.id); else mapScreen(); } },
-            stars > 0 && next ? `${t('title.continue')} · ${next.id}` : t('title.campaign')),
+          h('button', { class: 'lw-btn primary', onclick: () => { audio.unlock(); audio.ui(); if (next && stars > 0) openLevel(next.id); else if (stars === 0) openLevel(LEVELS[0].id); else mapScreen(); } },
+            stars > 0 && next ? `${t('title.continue')} · ${next.id} ${i18n.tr(next.name)}` : stars > 0 ? t('title.campaign') : `${t('title.start')} · ${i18n.tr(LEVELS[0].name)}`),
           h('button', { class: 'lw-btn', onclick: () => { audio.unlock(); audio.ui(); mapScreen(); } }, `${t('title.campaign')} · `, h('small', { text: t('title.stars', { n: stars, total }) })),
           h('button', { class: 'lw-btn', disabled: !nightOk, onclick: () => { audio.unlock(); audio.ui(); openNight('night'); } }, t('title.night'), ' ', h('small', { text: nightOk ? t('night.best', { n: save.night.best }) : t('title.nightLocked') })),
           h('button', { class: 'lw-btn', disabled: !nightOk, onclick: () => { audio.unlock(); audio.ui(); openNight('daily'); } }, t('title.daily'), ' ', h('small', { text: nightOk ? (daily.streak ? t('daily.streak', { n: daily.streak }) : dailyKey()) : t('title.nightLocked') })),
@@ -745,7 +746,7 @@ export const lanternWorks: GameModule = {
     const startLoop = () => { if (!raf && !destroyed && !externalPause) { last = typeof performance !== 'undefined' ? performance.now() : 0; raf = requestAnimationFrame(frame); } };
 
     Object.defineProperty(root, '__lw', { configurable: true, value: {
-      get play() { return play; }, get save() { return save; }, get screen() { return screenName; }, get card() { return !!card; },
+      get play() { return play; }, get save() { return save; }, get layout() { return renderer.layout; }, get screen() { return screenName; }, get card() { return !!card; },
       openLevel, openNight, mapScreen, titleScreen, closeCard, edit: (e: Edit) => edit(e), run: () => toggleRun(), levels: LEVELS.map(l => l.id),
       unlockAll() { for (const l of LEVELS) save.levels[l.id] ??= { stars: [true, false, false], bestParts: null, bestBeats: null }; persist(); }
     } });

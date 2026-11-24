@@ -73,12 +73,12 @@ export function drawGood(ctx: Ctx, g: Good, x: number, y: number, s: number, tim
       break;
     }
     case 'candle': {
-      ctx.fillStyle = 'rgba(30,15,5,0.35)'; ctx.fillRect(-r * 0.3 + r * 0.1, -r * 0.55 + r * 0.12, r * 0.6, r * 1.5);
-      const g2 = ctx.createLinearGradient(-r * 0.3, 0, r * 0.3, 0); g2.addColorStop(0, '#f6e6c6'); g2.addColorStop(1, '#d9bd8a');
-      ctx.fillStyle = g2; ctx.beginPath(); ctx.roundRect(-r * 0.3, -r * 0.55, r * 0.6, r * 1.5, r * 0.1); ctx.fill();
-      ctx.fillStyle = '#fff6df'; ctx.beginPath(); ctx.ellipse(0, -r * 0.55, r * 0.3, r * 0.1, 0, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#3a2412'; ctx.lineWidth = Math.max(1, r * 0.08); ctx.beginPath(); ctx.moveTo(0, -r * 0.6); ctx.lineTo(0, -r * 0.85); ctx.stroke();
-      ctx.fillStyle = '#c94a2a'; ctx.fillRect(-r * 0.3, r * 0.6, r * 0.6, r * 0.12);
+      ctx.fillStyle = 'rgba(30,15,5,0.35)'; ctx.fillRect(-r * 0.36 + r * 0.12, -r * 0.6 + r * 0.14, r * 0.72, r * 1.6);
+      const g2 = ctx.createLinearGradient(-r * 0.36, 0, r * 0.36, 0); g2.addColorStop(0, '#f05a3c'); g2.addColorStop(0.5, '#d8321f'); g2.addColorStop(1, '#8e1c12');
+      ctx.fillStyle = g2; ctx.beginPath(); ctx.roundRect(-r * 0.36, -r * 0.6, r * 0.72, r * 1.6, r * 0.12); ctx.fill();
+      ctx.fillStyle = '#ff8a6a'; ctx.beginPath(); ctx.ellipse(0, -r * 0.6, r * 0.36, r * 0.12, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffd772'; ctx.fillRect(-r * 0.36, -r * 0.1, r * 0.72, r * 0.1); ctx.fillRect(-r * 0.36, r * 0.55, r * 0.72, r * 0.1);
+      ctx.strokeStyle = '#2a170c'; ctx.lineWidth = Math.max(1, r * 0.09); ctx.beginPath(); ctx.moveTo(0, -r * 0.66); ctx.lineTo(r * 0.05, -r * 0.92); ctx.stroke();
       break;
     }
     case 'dye': {
@@ -311,26 +311,54 @@ export function drawFilterIcon(ctx: Ctx, filter: string, x: number, y: number, s
 
 /** Inspector Mittens, seen from above: a grey tabby with a slow tail. `sit` 0..1 eases her from walking to sitting. */
 export function drawCat(ctx: Ctx, x: number, y: number, s: number, facing: number, sit: number, time: number) {
-  ctx.save(); ctx.translate(x, y); ctx.rotate(facing);
-  ctx.fillStyle = 'rgba(15,8,4,0.4)'; ctx.beginPath(); ctx.ellipse(s * 0.04, s * 0.08, s * 0.34, s * 0.24, 0, 0, 7); ctx.fill();
-  // tail
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = 'rgba(15,8,4,0.4)'; ctx.beginPath(); ctx.ellipse(s * 0.05, s * 0.12, s * 0.36, s * 0.26, 0, 0, 7); ctx.fill();
+  if (sit > 0.5) {
+    // Sitting loaf, face toward the player, tail wrapped round, an inspector's red collar and brass tag.
+    const swish = Math.sin(time * 1.6) * 0.25;
+    ctx.strokeStyle = '#6f6a66'; ctx.lineCap = 'round'; ctx.lineWidth = s * 0.09;
+    ctx.beginPath(); ctx.moveTo(s * 0.2, s * 0.2); ctx.quadraticCurveTo(s * 0.42, s * (0.1 + swish * 0.3), s * 0.3, s * (-0.08 + swish * 0.2)); ctx.stroke();
+    const body = ctx.createRadialGradient(-s * 0.06, -s * 0.02, s * 0.03, 0, s * 0.06, s * 0.34);
+    body.addColorStop(0, '#b4aea8'); body.addColorStop(1, '#6d6762');
+    ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(0, s * 0.08, s * 0.27, s * 0.22, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#57524e'; ctx.lineWidth = s * 0.03;
+    for (const k of [-0.12, 0, 0.12]) { ctx.beginPath(); ctx.moveTo(s * k, -s * 0.06); ctx.quadraticCurveTo(s * (k + 0.03), s * 0.1, s * k, s * 0.26); ctx.stroke(); }
+    // head
+    const hy = -s * 0.16;
+    ctx.fillStyle = '#948e89'; ctx.beginPath(); ctx.ellipse(0, hy, s * 0.17, s * 0.15, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-s * 0.15, hy - s * 0.04); ctx.lineTo(-s * 0.13, hy - s * 0.22); ctx.lineTo(-s * 0.03, hy - s * 0.12); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(s * 0.15, hy - s * 0.04); ctx.lineTo(s * 0.13, hy - s * 0.22); ctx.lineTo(s * 0.03, hy - s * 0.12); ctx.fill();
+    ctx.fillStyle = '#e8a3a0'; ctx.beginPath(); ctx.moveTo(-s * 0.125, hy - s * 0.07); ctx.lineTo(-s * 0.12, hy - s * 0.17); ctx.lineTo(-s * 0.06, hy - s * 0.11); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(s * 0.125, hy - s * 0.07); ctx.lineTo(s * 0.12, hy - s * 0.17); ctx.lineTo(s * 0.06, hy - s * 0.11); ctx.fill();
+    const blink = (time % 4) < 0.15;
+    ctx.fillStyle = '#ffd54a';
+    if (blink) { ctx.fillRect(-s * 0.09, hy - s * 0.01, s * 0.06, s * 0.012); ctx.fillRect(s * 0.03, hy - s * 0.01, s * 0.06, s * 0.012); }
+    else { ctx.beginPath(); ctx.ellipse(-s * 0.06, hy, s * 0.035, s * 0.03, 0, 0, 7); ctx.ellipse(s * 0.06, hy, s * 0.035, s * 0.03, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#1a120c'; ctx.fillRect(-s * 0.068, hy - s * 0.025, s * 0.016, s * 0.05); ctx.fillRect(s * 0.052, hy - s * 0.025, s * 0.016, s * 0.05); }
+    ctx.fillStyle = '#d98a8a'; ctx.beginPath(); ctx.moveTo(-s * 0.02, hy + s * 0.05); ctx.lineTo(s * 0.02, hy + s * 0.05); ctx.lineTo(0, hy + s * 0.075); ctx.fill();
+    ctx.strokeStyle = '#efe7df'; ctx.lineWidth = Math.max(1, s * 0.01);
+    for (const sg of [-1, 1]) for (const k of [-0.02, 0.02]) { ctx.beginPath(); ctx.moveTo(sg * s * 0.05, hy + s * 0.06); ctx.lineTo(sg * s * 0.2, hy + s * (0.04 + k * 2)); ctx.stroke(); }
+    ctx.strokeStyle = '#c7271b'; ctx.lineWidth = s * 0.04; ctx.beginPath(); ctx.arc(0, hy + s * 0.02, s * 0.14, 0.5, Math.PI - 0.5); ctx.stroke();
+    ctx.fillStyle = '#ffd772'; ctx.beginPath(); ctx.arc(0, hy + s * 0.165, s * 0.035, 0, 7); ctx.fill();
+    ctx.restore(); return;
+  }
+  ctx.rotate(facing);
   ctx.strokeStyle = '#6f6a66'; ctx.lineCap = 'round'; ctx.lineWidth = s * 0.08;
-  const swish = Math.sin(time * (sit > 0.5 ? 1.6 : 4)) * 0.6;
+  const swish = Math.sin(time * 4) * 0.6;
   ctx.beginPath(); ctx.moveTo(-s * 0.26, 0); ctx.quadraticCurveTo(-s * 0.5, swish * s * 0.25, -s * 0.46 + Math.cos(swish) * s * 0.05, swish * s * 0.4); ctx.stroke();
-  // body
   const body = ctx.createRadialGradient(-s * 0.05, -s * 0.05, s * 0.02, 0, 0, s * 0.32);
   body.addColorStop(0, '#a8a29c'); body.addColorStop(1, '#6d6762');
-  ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(-s * 0.04, 0, s * (0.28 - sit * 0.04), s * (0.18 + sit * 0.04), 0, 0, 7); ctx.fill();
-  ctx.strokeStyle = '#55504c'; ctx.lineWidth = s * 0.03;
-  for (const k of [-0.14, -0.04, 0.06]) { ctx.beginPath(); ctx.moveTo(s * k, -s * 0.16); ctx.quadraticCurveTo(s * (k + 0.03), 0, s * k, s * 0.16); ctx.stroke(); }
-  // head
-  ctx.fillStyle = '#8f8984'; ctx.beginPath(); ctx.arc(s * 0.24, 0, s * 0.13, 0, 7); ctx.fill();
+  ctx.fillStyle = body; ctx.beginPath(); ctx.ellipse(-s * 0.04, 0, s * 0.28, s * 0.17, 0, 0, 7); ctx.fill();
+  // legs stepping
   ctx.fillStyle = '#7b7570';
-  ctx.beginPath(); ctx.moveTo(s * 0.26, -s * 0.1); ctx.lineTo(s * 0.36, -s * 0.16); ctx.lineTo(s * 0.32, -s * 0.04); ctx.fill();
-  ctx.beginPath(); ctx.moveTo(s * 0.26, s * 0.1); ctx.lineTo(s * 0.36, s * 0.16); ctx.lineTo(s * 0.32, s * 0.04); ctx.fill();
-  // inspector's collar with a little brass tag
-  ctx.strokeStyle = '#b5321f'; ctx.lineWidth = s * 0.035; ctx.beginPath(); ctx.arc(s * 0.24, 0, s * 0.12, 2.3, 4); ctx.stroke();
-  ctx.fillStyle = '#ffd772'; ctx.beginPath(); ctx.arc(s * 0.15, 0, s * 0.03, 0, 7); ctx.fill();
+  const step = Math.sin(time * 10) * s * 0.05;
+  for (const [lx, ly, ph] of [[0.12, -0.15, 1], [0.12, 0.15, -1], [-0.18, -0.14, -1], [-0.18, 0.14, 1]]) { ctx.beginPath(); ctx.ellipse(s * lx + step * ph, s * ly, s * 0.05, s * 0.035, 0, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = '#55504c'; ctx.lineWidth = s * 0.03;
+  for (const k of [-0.14, -0.04, 0.06]) { ctx.beginPath(); ctx.moveTo(s * k, -s * 0.15); ctx.quadraticCurveTo(s * (k + 0.03), 0, s * k, s * 0.15); ctx.stroke(); }
+  ctx.fillStyle = '#8f8984'; ctx.beginPath(); ctx.arc(s * 0.25, 0, s * 0.13, 0, 7); ctx.fill();
+  ctx.fillStyle = '#7b7570';
+  ctx.beginPath(); ctx.moveTo(s * 0.27, -s * 0.1); ctx.lineTo(s * 0.38, -s * 0.16); ctx.lineTo(s * 0.33, -s * 0.04); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(s * 0.27, s * 0.1); ctx.lineTo(s * 0.38, s * 0.16); ctx.lineTo(s * 0.33, s * 0.04); ctx.fill();
+  ctx.strokeStyle = '#b5321f'; ctx.lineWidth = s * 0.035; ctx.beginPath(); ctx.arc(s * 0.25, 0, s * 0.12, 2.3, 4); ctx.stroke();
   ctx.restore();
 }
 
