@@ -14,8 +14,10 @@ export type Play = Mode | 'mix';
 export const PLAYS: readonly Play[] = ['capital', 'flag', 'shape', 'mix'];
 export const isPlay = (p: unknown): p is Play => p === 'mix' || isMode(p);
 
-/** `kind` is only set in a mixed round; everywhere else the round's mode is the kind of every question. */
-export type Question = { entry: CountryEntry; options: string[]; answerIndex: number; kind?: Mode };
+/** Every kind of question: the three atlas kinds plus "which of these borders X" (see modes.ts). */
+export type Kind = Mode | 'border';
+/** `kind` is only set in a mixed round (and the challenge modes); everywhere else the round's mode is the kind of every question. */
+export type Question = { entry: CountryEntry; options: string[]; answerIndex: number; kind?: Kind };
 
 export const ROUND_LENGTH = 10;
 /** Difficulty ramp across a round: 3 easy, 4 medium, 3 hard. */
@@ -32,16 +34,15 @@ export const MIN_TIME_FACTOR = 0.4;
 export const TIME_GRACE = 0.15;
 
 /** Base points left after `remainingMs` of the question's clock: full during the grace slice, then falling linearly to MIN_TIME_FACTOR at zero. */
-export function timedBase(difficulty: Difficulty, remainingMs: number): number {
-  const limit = TIME_LIMIT_MS[difficulty];
+export function timedBase(difficulty: Difficulty, remainingMs: number, limit: number = TIME_LIMIT_MS[difficulty]): number {
   const frac = Math.max(0, Math.min(1, remainingMs / limit));
   const live = Math.min(1, frac / (1 - TIME_GRACE));
   return Math.round(BASE_POINTS[difficulty] * (MIN_TIME_FACTOR + (1 - MIN_TIME_FACTOR) * live));
 }
 
 /** Points for a correct answer given at `remainingMs`: time-decayed base plus the unchanged streak bonus. */
-export function timedPointsFor(difficulty: Difficulty, streak: number, remainingMs: number): number {
-  return pointsFor(difficulty, streak) - BASE_POINTS[difficulty] + timedBase(difficulty, remainingMs);
+export function timedPointsFor(difficulty: Difficulty, streak: number, remainingMs: number, limit?: number): number {
+  return pointsFor(difficulty, streak) - BASE_POINTS[difficulty] + timedBase(difficulty, remainingMs, limit);
 }
 
 /**
@@ -61,6 +62,8 @@ export class QuestionClock {
   }
   resume(now: number) { if (!this.running) { this.last = now; this.running = true; } }
   pause(now: number) { this.tick(now); this.running = false; }
+  /** Take `ms` off the clock at once (a wrong answer in Blitz). */
+  penalize(ms: number) { this.spent = Math.min(this.limitMs, this.spent + Math.max(0, ms)); }
   get remainingMs() { return this.limitMs - this.spent; }
   get expired() { return this.spent >= this.limitMs; }
 }
@@ -123,7 +126,7 @@ function draw(rand: Random, pool: readonly CountryEntry[], want: Difficulty, tak
 }
 
 /** A round that mixes the three kinds (each at least three times) along the same easy-to-hard ramp, with ten different countries. */
-export function buildMixRound(rand: Random, weigh?: Weigh): Question[] {
+export function buildMixRound(rand: Random, weigh?: Weigh): Array<Question & { kind: Mode }> {
   const kinds = shuffle([...MODES, ...MODES, ...MODES, MODES[pick(rand, MODES.length)]], rand);
   const taken = new Set<string>();
   return ROUND_PLAN.map((want, i) => {
