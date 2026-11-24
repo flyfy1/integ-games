@@ -1,11 +1,11 @@
 /** Everything visible: cached ground, tread decals, tanks with googly eyes, particles and the overlay screens. */
 import { COLS, ROWS, TILE, WORLD_H, WORLD_W } from './arenas';
-import { MAX_AMMO, type GameEvent, type Match, type PowerKind, type Tank, type World } from './sim';
+import { FOG_RADIUS, MAX_AMMO, mirrored, type GameEvent, type Match, type PowerKind, type Tank, type World } from './sim';
 
 export const WIDTH = 1280, HEIGHT = 720, OFFSET_X = (WIDTH - WORLD_W) / 2, OFFSET_Y = 86;
 export const SEAT_COLORS = ['#4de8b0', '#ff7d8b'] as const;
-const ENEMY_COLORS: Record<string, string> = { grunt: '#a2adbb', zippy: '#ffd84d', bouncer: '#b98cff', heavy: '#c8503f', king: '#ffb52e' };
-export const POWER_ICONS: Record<PowerKind, string> = { triple: '🔱', mega: '💣', bee: '🐝', laser: '⚡', duck: '🦆', shield: '🛡️', giant: '🍄', swap: '🔀' };
+const ENEMY_COLORS: Record<string, string> = { grunt: '#a2adbb', zippy: '#ffd84d', bouncer: '#b98cff', heavy: '#c8503f', king: '#ffb52e', mother: '#f6f1d1' };
+export const POWER_ICONS: Record<PowerKind, string> = { triple: '🔱', mega: '💣', bee: '🐝', laser: '⚡', duck: '🦆', shield: '🛡️', giant: '🍄', swap: '🔀', freeze: '❄️', boomerang: '🪃' };
 const HATS = ['🎩', '🧢', '👒', '🎓', '🍌', '🦆', '🍄'];
 const COMIC = ['POW!', 'BAM!', 'BONK!', 'WHAM!', 'OUCH!', 'KABLAM!'];
 const FONT = 'ui-rounded,"SF Pro Rounded",system-ui,sans-serif';
@@ -18,10 +18,20 @@ export type Overlay =
   | { kind: 'card'; top: string; title: string; hint: string; progress: number; rolling: boolean; lines?: string[]; alert?: string }
   | { kind: 'count'; value: string }
   | { kind: 'result'; title: string; color: string; lines: string[]; prompt?: string; party: boolean }
-  | { kind: 'paused'; title: string; hint: string };
+  | { kind: 'paused'; title: string; hint: string }
+  | { kind: 'tour'; title: string; subtitle: string; nodes: TourNode[]; cursor: number; info: string[]; back: string; go: string };
+export type TourNode = { number: string; name: string; stars: number; locked: boolean; icon: string };
 export type Touch = { sticks: Array<{ x: number; y: number; dx: number; dy: number } | null>; buttons: Array<{ x: number; y: number; r: number; label: string; held: boolean }> };
 
-export const menuRowBox = (index: number) => ({ x: 290, y: 132 + index * 64, w: 700, h: 56 });
+export const menuRowBox = (index: number) => ({ x: 290, y: 126 + index * 54, w: 700, h: 48 });
+/** Tour map: twelve stops snaking across three rows of four. */
+export const tourNodeCenter = (index: number) => {
+  const row = Math.floor(index / 4), slot = index % 4, col = row % 2 ? 3 - slot : slot;
+  return { x: 250 + col * 260, y: 186 + row * 140 };
+};
+export const TOUR_NODE_R = 40;
+export const TOUR_BACK_BOX = { x: 30, y: 22, w: 190, h: 54 };
+export const TOUR_GO_BOX = { x: 1010, y: 610, w: 240, h: 70 };
 export const START_BOX = { x: 440, y: 458, w: 400, h: 72 };
 
 export const tankColor = (tank: Tank) => (tank.enemy ? ENEMY_COLORS[tank.enemy] : SEAT_COLORS[tank.seat] ?? '#fff');
@@ -31,6 +41,11 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
   ground.width = decals.width = WORLD_W; ground.height = decals.height = WORLD_H;
   const groundCtx = ground.getContext('2d')!, decalCtx = decals.getContext('2d')!;
   let particles: Particle[] = [], shake = 0, flash = 0, world: World | null = null, zoom = 0, zoomX = 0, zoomY = 0, clock = 0, smoke = 0;
+  /** Wardrobe hats per seat, and the seats whose surroundings stay lit in Fog of War. */
+  let worn: string[] = ['', ''], fogSeats: number[] = [0, 1];
+  const fogLayer = document.createElement('canvas');
+  fogLayer.width = WORLD_W; fogLayer.height = WORLD_H;
+  const fogCtx = fogLayer.getContext('2d');
   const treadMarks = new Map<number, number>(), bubbles = new Map<number, { text: string; life: number }>();
 
   function setWorld(next: World) {
@@ -80,6 +95,8 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
         case 'ko': burst(item.x, item.y, '#ff5a3d', 60, 520, 11); burst(item.x, item.y, '#2b2b2b', 30, 260, 12); ring(item.x, item.y, 170, '#fff'); comic(item.x, item.y, 'K.O.!', '#ff5a5a'); scorch(item.x, item.y, 80); addShake(26); if (!reduced) { flash = 0.2; zoom = 1; zoomX = item.x; zoomY = item.y; } break;
         case 'honk': bubbles.set(item.tank, { text: Math.random() < 0.15 ? 'QUACK!' : 'HONK!', life: 0.6 }); break;
         case 'collapse': addShake(14); break;
+        case 'freeze': burst(item.x, item.y, '#bdf4ff', 18, 220, 6); ring(item.x, item.y, 56, '#bdf4ff'); comic(item.x, item.y, chinese ? '冻住！' : 'FROZEN!', '#bdf4ff'); break;
+        case 'mirror': comic(WORLD_W / 2, WORLD_H / 2, item.on ? (chinese ? '左右颠倒！' : 'MIRROR!') : (chinese ? '恢复！' : 'NORMAL!'), item.on ? '#ff9df0' : '#fff'); if (!reduced && item.on) flash = Math.max(flash, 0.12); break;
       }
     }
   }
@@ -208,9 +225,17 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
       ctx.beginPath(); ctx.arc(0, 0, 33, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = '#8fe9ff22'; ctx.fill(); ctx.globalAlpha = 1;
     }
     ctx.restore();
+    if (tank.frozen > 0) {
+      ctx.fillStyle = '#bdf4ff88'; ctx.strokeStyle = '#ffffffcc'; ctx.lineWidth = 3;
+      box(tank.x - 30 * scale, tank.y - 30 * scale, 60 * scale, 60 * scale, 10); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffffff88'; ctx.fillRect(tank.x - 22 * scale, tank.y - 24 * scale, 8 * scale, 30 * scale);
+    }
     ctx.font = `27px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
-    for (let i = 0; i < hats; i++) ctx.fillText(HATS[i % HATS.length], tank.x + Math.sin(clock * 3 + i) * i * 1.5, tank.y - 14 * scale - 12 - i * 17);
-    if (crown) ctx.fillText('👑', tank.x, tank.y - 14 * scale - 12 - hats * 17);
+    const own = tank.seat >= 0 && !tank.enemy ? worn[tank.seat] ?? '' : '';
+    const stack = own ? [own] : tank.enemy === 'mother' ? ['🦆'] : [];
+    for (let i = 0; i < hats; i++) stack.push(HATS[i % HATS.length]);
+    stack.forEach((hat, i) => ctx.fillText(hat, tank.x + Math.sin(clock * 3 + i) * i * 1.5, tank.y - 14 * scale - 12 - i * 17));
+    if (crown) ctx.fillText('👑', tank.x, tank.y - 14 * scale - 12 - stack.length * 17);
     if (tank.enemy && tank.maxHp > 1) {
       ctx.fillStyle = '#0007'; ctx.fillRect(tank.x - 24, tank.y + 28 * scale, 48, 6);
       ctx.fillStyle = color; ctx.fillRect(tank.x - 24, tank.y + 28 * scale, 48 * tank.hp / tank.maxHp, 6);
@@ -255,9 +280,9 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
       if (pickup.drop > 0) label('🪂', pickup.x, pickup.y - 44 - lift, 24, '#000');
     }
     for (const duck of current.ducks) {
-      ctx.font = `26px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
-      ctx.fillText('🦆', duck.x, duck.y + Math.sin(duck.age * 8) * 2);
-      if (duck.age > 0.9 && Math.floor(duck.age * 5) % 2) { ctx.strokeStyle = '#ff5a5a88'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(duck.x, duck.y, 44, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.font = `${duck.big ? 78 : 26}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000';
+      ctx.fillText('🦆', duck.x, duck.y + Math.sin(duck.age * (duck.big ? 3 : 8)) * (duck.big ? 4 : 2));
+      if (duck.age > 0.9 && Math.floor(duck.age * 5) % 2) { ctx.strokeStyle = '#ff5a5a88'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(duck.x, duck.y, duck.big ? 62 : 44, 0, Math.PI * 2); ctx.stroke(); }
     }
     const leader = match && match.wins[0] !== match.wins[1] ? (match.wins[0] > match.wins[1] ? 0 : 1) : -1;
     for (const tank of current.tanks) if (tank.alive) drawTank(current, tank, tank.seat >= 0 && match ? match.hats[tank.seat] : 0, leader >= 0 && tank.seat === leader);
@@ -285,6 +310,17 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - Math.cos(angle) * 26, y - Math.sin(angle) * 26); ctx.stroke(); ctx.lineCap = 'butt';
     }
     if (kind === 'bee') { ctx.font = `24px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('🐝', x, y + Math.sin(clock * 30) * 2); return; }
+    if (kind === 'boomerang') {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(reduced ? 0 : clock * 18);
+      ctx.font = `28px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('🪃', 0, 0);
+      ctx.restore(); return;
+    }
+    if (kind === 'freeze') {
+      ctx.fillStyle = '#dffaff'; ctx.beginPath(); ctx.arc(x, y, radius + 2, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#4fc8ff'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.font = `14px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('❄️', x, y + 1);
+      return;
+    }
     ctx.fillStyle = kind === 'mega' ? '#20263a' : '#fff6cf'; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = kind === 'mega' ? '#ff9f40' : team ? '#ff5a6e' : '#25b98a'; ctx.lineWidth = 3; ctx.stroke();
   }
@@ -324,8 +360,8 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
         ctx.globalAlpha = row.enabled ? 1 : 0.32;
         ctx.fillStyle = active ? '#ffffff26' : '#ffffff12'; box(area.x, area.y, area.w, area.h, 16); ctx.fill();
         if (active) { ctx.strokeStyle = '#ffd34d'; ctx.lineWidth = 3; ctx.stroke(); }
-        label(row.label, area.x + 26, area.y + area.h / 2, 27, '#b9c2d6', 'left', 700);
-        label(`◀  ${row.value}  ▶`, area.x + area.w - 26, area.y + area.h / 2, 28, '#fff', 'right', 800);
+        label(row.label, area.x + 26, area.y + area.h / 2, 25, '#b9c2d6', 'left', 700);
+        label(`◀  ${row.value}  ▶`, area.x + area.w - 26, area.y + area.h / 2, 26, '#fff', 'right', 800);
         ctx.globalAlpha = 1;
       });
       const active = overlay.cursor === overlay.rows.length, pulse = active && !reduced ? Math.sin(clock * 5) * 4 : 0;
@@ -360,11 +396,60 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
       outlined(overlay.title, WIDTH / 2, 262 - rise, 78, overlay.color);
       overlay.lines.forEach((line, index) => label(line, WIDTH / 2, 356 - rise + index * 46, 30, index ? '#ffe9a8' : '#f7f9ff', 'center', 800));
       if (overlay.prompt) { ctx.fillStyle = '#090d18cc'; box(WIDTH / 2 - 420, 566, 840, 56, 28); ctx.fill(); label(overlay.prompt, WIDTH / 2, 595, 28, '#ffd34d', 'center', 800); }
+    } else if (overlay.kind === 'tour') {
+      drawTour(overlay);
     } else if (overlay.kind === 'paused') {
       ctx.fillStyle = '#090d18c4'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
       outlined(overlay.title, WIDTH / 2, 310, 76, '#fff');
       label(overlay.hint, WIDTH / 2, 400, 28, '#d7ddec', 'center', 700);
     }
+  }
+
+  /** Fog of War: dark everywhere except a soft circle around each lit seat's tank. */
+  function drawFog(current: World) {
+    if (!fogCtx) return;
+    fogCtx.globalCompositeOperation = 'source-over';
+    fogCtx.clearRect(0, 0, WORLD_W, WORLD_H);
+    fogCtx.fillStyle = '#0b0f1efa'; fogCtx.fillRect(0, 0, WORLD_W, WORLD_H);
+    fogCtx.globalCompositeOperation = 'destination-out';
+    for (const tank of current.tanks) {
+      if (!tank.alive || tank.seat < 0 || !fogSeats.includes(tank.seat)) continue;
+      const gradient = fogCtx.createRadialGradient(tank.x, tank.y, FOG_RADIUS * 0.55, tank.x, tank.y, FOG_RADIUS);
+      gradient.addColorStop(0, '#000'); gradient.addColorStop(1, '#0000');
+      fogCtx.fillStyle = gradient; fogCtx.beginPath(); fogCtx.arc(tank.x, tank.y, FOG_RADIUS, 0, Math.PI * 2); fogCtx.fill();
+    }
+    fogCtx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(fogLayer, 0, 0);
+  }
+
+  function drawTour(overlay: Extract<Overlay, { kind: 'tour' }>) {
+    ctx.fillStyle = '#090d18d8'; ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    outlined(overlay.title, WIDTH / 2, 50, 54, '#ffd34d');
+    label(overlay.subtitle, WIDTH / 2, 96, 23, '#d7ddec', 'center', 700);
+    ctx.strokeStyle = '#ffffff30'; ctx.lineWidth = 8; ctx.setLineDash([2, 16]); ctx.lineCap = 'round'; ctx.beginPath();
+    overlay.nodes.forEach((_, index) => { const { x, y } = tourNodeCenter(index); if (index) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+    ctx.stroke(); ctx.setLineDash([]); ctx.lineCap = 'butt';
+    overlay.nodes.forEach((node, index) => {
+      const { x, y } = tourNodeCenter(index), active = index === overlay.cursor, pulse = active && !reduced ? Math.sin(clock * 5) * 3 : 0;
+      ctx.globalAlpha = node.locked ? 0.4 : 1;
+      ctx.fillStyle = node.stars >= 3 ? '#ffd34d' : node.stars > 0 ? '#4de8b0' : '#2b3557';
+      ctx.beginPath(); ctx.arc(x, y, TOUR_NODE_R + pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = active ? '#fff' : '#ffffff55'; ctx.lineWidth = active ? 5 : 3; ctx.stroke();
+      label(node.locked ? '🔒' : node.icon, x, y - 10, 26, '#000', 'center', 900);
+      label(node.number, x, y + 18, 20, node.stars > 0 ? '#10162a' : '#fff', 'center', 900);
+      label(`${'★'.repeat(node.stars)}${'☆'.repeat(3 - node.stars)}`, x, y + TOUR_NODE_R + 16, 22, node.stars ? '#ffd34d' : '#ffffff66', 'center', 900);
+      label(node.name, x, y - TOUR_NODE_R - 14, 17, '#c3cbdd', 'center', 700);
+      ctx.globalAlpha = 1;
+    });
+    ctx.fillStyle = '#ffffff14'; box(30, 560, 960, 132, 18); ctx.fill();
+    overlay.info.forEach((line, index) => label(line, 54, 588 + index * 34, index ? 23 : 27, index ? '#e3e8f4' : '#ffd98a', 'left', index ? 700 : 900));
+    ctx.fillStyle = '#ffffff1f'; box(TOUR_BACK_BOX.x, TOUR_BACK_BOX.y, TOUR_BACK_BOX.w, TOUR_BACK_BOX.h, 16); ctx.fill();
+    label(overlay.back, TOUR_BACK_BOX.x + TOUR_BACK_BOX.w / 2, TOUR_BACK_BOX.y + TOUR_BACK_BOX.h / 2, 24, '#fff', 'center', 800);
+    const locked = overlay.nodes[overlay.cursor]?.locked;
+    ctx.globalAlpha = locked ? 0.4 : 1;
+    ctx.fillStyle = '#ffd34d'; box(TOUR_GO_BOX.x, TOUR_GO_BOX.y, TOUR_GO_BOX.w, TOUR_GO_BOX.h, 20); ctx.fill();
+    label(overlay.go, TOUR_GO_BOX.x + TOUR_GO_BOX.w / 2, TOUR_GO_BOX.y + TOUR_GO_BOX.h / 2 + 1, 32, '#1b2340', 'center', 900);
+    ctx.globalAlpha = 1;
   }
 
   function drawTouch(touch: Touch) {
@@ -393,13 +478,17 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
       ctx.translate(zoomX, zoomY); ctx.scale(amount, amount); ctx.translate(-zoomX, -zoomY);
     }
     drawWorld(current, match);
+    if (current.twist.fog) drawFog(current);
     ctx.restore();
+    if (mirrored(current) && !reduced) { ctx.strokeStyle = '#ff9df0'; ctx.lineWidth = 6; ctx.globalAlpha = 0.5 + Math.sin(clock * 10) * 0.3; ctx.strokeRect(OFFSET_X - 4, OFFSET_Y - 4, WORLD_W + 8, WORLD_H + 8); ctx.globalAlpha = 1; }
     if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash})`; ctx.fillRect(0, 0, WIDTH, HEIGHT); }
     if (touch) drawTouch(touch);
     drawOverlay(overlay);
   }
 
-  return { setWorld, consume, advance, draw };
+  const setWardrobe = (hats: string[]) => { worn = hats; };
+  const setFogSeats = (seats: number[]) => { fogSeats = seats; };
+  return { setWorld, consume, advance, draw, setWardrobe, setFogSeats };
 }
 
 function shade(hex: string) {

@@ -3,10 +3,11 @@ import { createMobileControls } from '../_shared/mobile-controls';
 import { createInput, startLoop, type KeyboardMap, type PadState, type VirtualPad } from '../_shared/gamepad-kit';
 import { ARENAS, arenaById } from './arenas';
 import { createTankAudio } from './audio';
-import { botIntent, enemySkill, SKILLS } from './bot';
-import { BOSS, botLevels, matchBonus, MEDALS, medalRow, recordCoopRun, recordSoloMatch, roundScore, validCareer } from './career';
-import { createRenderer, HEIGHT, menuRowBox, SEAT_COLORS, START_BOX, WIDTH, type MenuRow, type Overlay, type Touch } from './render';
-import { arenaForRound, COOP_HP, createMatch, createWorld, heartsAfterWave, idle, makeTank, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, suddenDeathAt, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
+import { botIntent, enemySkill, SKILLS, withStyle, type BotSkill } from './bot';
+import { BOSS, botLevels, earnedHats, hatById, matchBonus, MEDALS, medalRow, recordCoopRun, recordSoloMatch, recordTourStop, roundScore, tourTotal, validCareer, WARDROBE, type Career } from './career';
+import { createRenderer, HEIGHT, menuRowBox, SEAT_COLORS, START_BOX, TOUR_BACK_BOX, TOUR_GO_BOX, TOUR_NODE_R, tourNodeCenter, WIDTH, type MenuRow, type Overlay, type Touch } from './render';
+import { arenaForRound, bossOf, COOP_HP, createMatch, createWorld, heartsAfterWave, idle, isBossWave, makeTank, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, suddenDeathAt, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
+import { BOT_BLURB, BOT_NAMES, GOAL_TEXT, TOUR, TOUR_TARGET, tourStars, tourUnlocked, type RoundStats } from './tour';
 
 const ACCENT = '#ffd34d';
 const VERSUS_HP = 5, FIRE = 0, DASH = 1, HONK = 2, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9;
@@ -16,19 +17,25 @@ const KEYS: KeyboardMap[] = [
 ];
 const zh = () => /^zh\b/i.test(navigator.language || '');
 
-type Screen = 'menu' | 'card' | 'count' | 'fight' | 'ko' | 'result' | 'over';
-type Settings = { mode: Mode; players: 1 | 2; skill: number; arena: string; target: number };
-const DEFAULTS: Settings = { mode: 'versus', players: 2, skill: 0, arena: 'shuffle', target: 3 };
+type Screen = 'menu' | 'tour' | 'card' | 'count' | 'fight' | 'ko' | 'result' | 'over';
+type MenuMode = Mode | 'tour';
+type Settings = { mode: MenuMode; players: 1 | 2; skill: number; arena: string; target: number; hat: string; stop: number };
+const DEFAULTS: Settings = { mode: 'versus', players: 2, skill: 0, arena: 'shuffle', target: 3, hat: 'none', stop: 0 };
+const MODES: readonly MenuMode[] = ['versus', 'coop', 'tour'];
+/** Menu rows: mode, players, bot, arena, first to, hat. START sits right after them. */
+const ROWS = 6;
 const coarsePointer = () => globalThis.matchMedia?.('(pointer: coarse)').matches ?? false;
 
 /** A first visit on a phone is almost always one person, so it opens on the bot; a keyboard keeps the couch default. */
 function validSettings(raw: Partial<Settings> | null): Settings {
   const merged = { ...DEFAULTS, players: coarsePointer() ? 1 : 2, ...raw };
   return {
-    mode: merged.mode === 'coop' ? 'coop' : 'versus', players: merged.players === 1 ? 1 : 2,
+    mode: MODES.includes(merged.mode) ? merged.mode : 'versus', players: merged.players === 1 ? 1 : 2,
     skill: SKILLS[merged.skill] ? merged.skill : 1,
     arena: merged.arena === 'shuffle' || ARENAS.some((arena) => arena.id === merged.arena) ? merged.arena : 'shuffle',
-    target: [3, 5, 7].includes(merged.target) ? merged.target : 3
+    target: [3, 5, 7].includes(merged.target) ? merged.target : 3,
+    hat: typeof merged.hat === 'string' && WARDROBE.some((hat) => hat.id === merged.hat) ? merged.hat : 'none',
+    stop: Number.isInteger(merged.stop) && merged.stop >= 0 && merged.stop < TOUR.length ? merged.stop : 0
   };
 }
 
@@ -38,6 +45,8 @@ function mount(host: HTMLElement, services: GameServices) {
   let settings = validSettings(services.storage.get<Partial<Settings> | null>('settings', null));
   let career = validCareer(services.storage.get<unknown>('career', null));
   if (settings.skill >= botLevels(career)) settings.skill = botLevels(career) - 1;
+  if (!earnedHats(career).some((hat) => hat.id === settings.hat)) settings.hat = 'none';
+  if (!tourUnlocked(career.tour, settings.stop)) settings.stop = 0;
 
   const root = document.createElement('div');
   root.dataset.tankBrawl = '';
@@ -76,12 +85,28 @@ function mount(host: HTMLElement, services: GameServices) {
   };
   const input = createInput({ keyboard: KEYS, virtual, exclusiveKeyboard: true });
 
-  let screen: Screen = 'menu', timer = 0, paused = false, userPaused = false, accumulator = 0, hitStop = 0, cursor = 5, rollNext = 0;
+  let screen: Screen = 'menu', timer = 0, paused = false, userPaused = false, accumulator = 0, hitStop = 0, cursor = ROWS, rollNext = 0;
+  /** The tour stop being played (-1 outside the tour), what each of its rounds looked like, and the live round. */
+  let tourStop = -1, tourRounds: RoundStats[] = [], roundStat: RoundStats = blankRound(), coopCleared = false;
   let match: Match | null = null, world: World = demoWorld(), rolledTwist: Twist = TWISTS[0], heroes: Tank[] = [], lastCount = 0, overHold = 0;
   let overlayResult: Overlay = { kind: 'none' };
   /** Solo-versus score for the leaderboard, and who has actually touched their controls this match. */
   let soloScore = 0, seatSeen = [false, false], autoBot = [false, false], takeoverNote = 0, skipCard = false, rotated = false, taught = false;
   renderer?.setWorld(world);
+
+  function blankRound(): RoundStats { return { won: false, heroHp: 0, heroMax: 0, time: 0, botFell: false, grabbed: false }; }
+  /** One person at the controls: the solo setting, or any tour stop. */
+  const oneSeat = () => settings.players === 1 || tourStop >= 0;
+  const botLevel = () => (tourStop >= 0 ? TOUR[tourStop].skill : settings.skill);
+  const botSkill = (): BotSkill => (tourStop >= 0 ? withStyle(SKILLS[TOUR[tourStop].skill], TOUR[tourStop].style) : SKILLS[settings.skill]);
+  const twistById = (id: string) => TWISTS.find((twist) => twist.id === id) ?? TWISTS[0];
+  const wearing = () => { renderer?.setWardrobe([hatById(settings.hat).icon, '']); };
+  wearing();
+  /** Lines for any hats this career change just earned. */
+  function newHats(before: Career) {
+    const had = new Set(earnedHats(before).map((hat) => hat.id));
+    return earnedHats(career).filter((hat) => !had.has(hat.id)).map((hat) => tr(`New hat: ${hat.icon} ${hat.name[0]}! Wear it from the menu`, `新帽子：${hat.icon} ${hat.name[1]}！去菜单戴上`));
+  }
 
   function demoWorld() {
     const arena = ARENAS[Math.floor(services.random() * ARENAS.length)];
@@ -93,18 +118,22 @@ function mount(host: HTMLElement, services: GameServices) {
   const saveSettings = () => services.storage.set('settings', settings);
   const arenaChoices = ['shuffle', ...ARENAS.map((arena) => arena.id)];
   function menuRows(): MenuRow[] {
-    const solo = settings.players === 1, versus = settings.mode === 'versus';
+    const tour = settings.mode === 'tour', solo = settings.players === 1 || tour, versus = settings.mode === 'versus';
+    const hat = hatById(settings.hat), owned = earnedHats(career).length - 1;
+    const modeName = versus ? tr('⚔️ Versus', '⚔️ 对战') : tour ? tr('🗺️ Solo Tour', '🗺️ 单人巡回赛') : tr('🤝 Co-op Waves', '🤝 合作闯关');
     return [
-      { label: tr('Mode', '模式'), value: versus ? tr('⚔️ Versus', '⚔️ 对战') : tr('🤝 Co-op Waves', '🤝 合作闯关'), enabled: true },
-      { label: tr('Players', '玩家'), value: solo ? tr('1 Player', '单人') : tr('2 Players', '双人'), enabled: true },
+      { label: tr('Mode', '模式'), value: modeName, enabled: true },
+      { label: tr('Players', '玩家'), value: solo ? tr('1 Player', '单人') : tr('2 Players', '双人'), enabled: !tour },
       { label: tr('Bot', '电脑'), value: `${career.botWins[settings.skill] > 0 ? `${MEDALS[settings.skill]} ` : ''}${skillName(settings.skill)}`, enabled: solo && versus },
-      { label: tr('Arena', '场地'), value: settings.arena === 'shuffle' ? tr('🎲 Shuffle', '🎲 随机轮换') : arenaById(settings.arena).name[lang], enabled: true },
-      { label: tr('First to', '先赢'), value: tr(`${settings.target} rounds`, `${settings.target} 局`), enabled: versus }
+      { label: tr('Arena', '场地'), value: tour ? tr('set by the stop', '由站点决定') : settings.arena === 'shuffle' ? tr('🎲 Shuffle', '🎲 随机轮换') : arenaById(settings.arena).name[lang], enabled: !tour },
+      { label: tr('First to', '先赢'), value: tour ? tr(`${TOUR_TARGET} rounds`, `${TOUR_TARGET} 局`) : tr(`${settings.target} rounds`, `${settings.target} 局`), enabled: versus },
+      { label: tr(`Hat  ${owned}/${WARDROBE.length - 1}`, `帽子  ${owned}/${WARDROBE.length - 1}`), value: `${hat.icon} ${hat.name[lang]}`.trim(), enabled: true }
     ];
   }
   const skillName = (skill: number) => [tr('Easy', '简单'), tr('Normal', '普通'), tr('Hard', '困难'), tr('Boss', '魔王')][skill];
   function recordLine() {
-    if (settings.mode === 'coop') return career.bestScore > 0 ? tr(`🏆 Best run: wave ${Math.min(career.bestWave + 1, WAVES)} of ${WAVES} · score ${career.bestScore}`, `🏆 最佳：第 ${Math.min(career.bestWave + 1, WAVES)}/${WAVES} 波 · ${career.bestScore} 分`) : tr(`Survive ${WAVES} waves. The King Tank waits at wave 5 👑`, `撑过 ${WAVES} 波，第 5 波有坦克大王 👑`);
+    if (settings.mode === 'tour') return tr(`🗺️ 12 stops, 3 stars each  ·  ${tourTotal(career)} / 36 ★  ·  stars earn hats`, `🗺️ 12 站，每站 3 颗星 · ${tourTotal(career)} / 36 ★ · 星星换帽子`);
+    if (settings.mode === 'coop') return career.bestWave > 0 ? tr(`🏆 Best: ${career.bestWave} waves cleared · score ${career.bestScore}  ·  a boss every 5th wave, no end after ${WAVES}`, `🏆 最佳：清完 ${career.bestWave} 波 · ${career.bestScore} 分 · 每 5 波一个首领，${WAVES} 波后无尽`) : tr(`Survive ${WAVES} waves, then keep going. A boss every 5th wave 👑`, `撑过 ${WAVES} 波后继续闯，每 5 波一个首领 👑`);
     if (settings.players === 2) return tr('Loser of every round wears one more hat 🎩', '每输一局多戴一顶帽子 🎩');
     const locked = botLevels(career) <= 3;
     const ladder = tr(`Bot ladder  ${medalRow(career)}`, `电脑段位  ${medalRow(career)}`);
@@ -113,11 +142,12 @@ function mount(host: HTMLElement, services: GameServices) {
   }
   function changeRow(row: number, direction: number) {
     const cycle = <T,>(items: readonly T[], value: T) => items[(items.indexOf(value) + direction + items.length) % items.length];
-    if (row === 0) settings.mode = settings.mode === 'versus' ? 'coop' : 'versus';
+    if (row === 0) settings.mode = cycle(MODES, settings.mode);
     else if (row === 1) settings.players = settings.players === 1 ? 2 : 1;
     else if (row === 2) settings.skill = cycle(Array.from({ length: botLevels(career) }, (_, level) => level), settings.skill);
     else if (row === 3) settings.arena = cycle(arenaChoices, settings.arena);
-    else settings.target = cycle([3, 5, 7], settings.target);
+    else if (row === 4) settings.target = cycle([3, 5, 7], settings.target);
+    else { settings.hat = cycle(earnedHats(career).map((hat) => hat.id), settings.hat); wearing(); }
     audio.move(); saveSettings();
   }
   function moveCursor(direction: number) {
@@ -126,10 +156,19 @@ function mount(host: HTMLElement, services: GameServices) {
     audio.move();
   }
 
+  /** START on the menu: the tour opens its map, the other modes go straight in. */
+  function startFromMenu() {
+    if (settings.mode === 'tour') { screen = 'tour'; audio.pick(); return; }
+    startMatch();
+  }
+
   function startMatch() {
-    const arenas = settings.arena === 'shuffle' ? ARENAS : [arenaById(settings.arena)];
-    match = createMatch(settings.mode, settings.target, arenas, services.random);
-    soloScore = 0; seatSeen = [false, false]; autoBot = [false, false]; takeoverNote = 0;
+    if (screen === 'tour' || tourStop >= 0) tourStop = settings.stop; else tourStop = -1;
+    const stop = tourStop >= 0 ? TOUR[tourStop] : null;
+    const arenas = stop ? [arenaById(stop.arena)] : settings.arena === 'shuffle' ? ARENAS : [arenaById(settings.arena)];
+    match = createMatch(stop ? 'versus' : settings.mode === 'coop' ? 'coop' : 'versus', stop ? TOUR_TARGET : settings.target, arenas, services.random);
+    soloScore = 0; seatSeen = [false, false]; autoBot = [false, false]; takeoverNote = 0; tourRounds = []; coopCleared = false;
+    renderer?.setFogSeats(oneSeat() ? [0] : [0, 1]);
     services.reportScore(0);
     audio.pick();
     startRound();
@@ -138,29 +177,30 @@ function mount(host: HTMLElement, services: GameServices) {
   function startRound() {
     if (!match) return;
     const coop = match.mode === 'coop', arena = arenaForRound(match);
-    rolledTwist = pickTwist(match, services.random);
+    rolledTwist = tourStop >= 0 ? twistById(TOUR[tourStop].twist) : pickTwist(match, services.random);
     match.twists.push(rolledTwist);
     world = createWorld(arena, rolledTwist, services.random, !coop);
     heroes = [];
-    const seats = coop && settings.players === 1 ? [0] : [0, 1];
+    const seats = coop && oneSeat() ? [0] : [0, 1];
     for (const seat of seats) {
       const [x, y] = spawnPoint(arena, seat);
-      const boss = !coop && settings.players === 1 && seat === 1 && settings.skill === BOSS;
+      const boss = !coop && oneSeat() && seat === 1 && botLevel() === BOSS;
       const hp = coop ? COOP_HP : (rolledTwist.hp ?? VERSUS_HP) + (boss ? 2 : 0);
       const tank = makeTank(world, coop ? 0 : seat, seat, x, y, hp);
       if (coop && match.hp[seat] > 0) tank.hp = match.hp[seat];
       heroes.push(tank);
     }
     if (coop) spawnWave(world, match.wave);
+    roundStat = { ...blankRound(), heroMax: heroes[0]?.maxHp ?? 0 };
     renderer?.setWorld(world);
     fingers.clear();
     screen = 'card'; timer = 0; rollNext = 0; skipCard = false;
   }
 
   const overPrompt = (again: string) => (touched ? tr(`Tap left: ${again}  ·  Tap right: menu`, `点左边：${again} · 点右边：回菜单`) : tr(`Fire: ${again}  ·  Dash: menu`, `开火：${again} · 冲刺：回菜单`));
-  const seatName = (seat: number) => (settings.players === 1 && seat === 1 ? tr('BOT', '电脑') : `P${seat + 1}`);
+  const seatName = (seat: number) => (oneSeat() && seat === 1 ? (tourStop >= 0 ? BOT_NAMES[TOUR[tourStop].style][lang].toUpperCase() : tr('BOT', '电脑')) : `P${seat + 1}`);
 
-  const soloVersus = () => settings.players === 1 && match?.mode === 'versus';
+  const soloVersus = () => settings.players === 1 && match?.mode === 'versus' && tourStop < 0;
   const saveCareer = () => services.storage.set('career', career);
 
   function finishRound() {
@@ -168,6 +208,10 @@ function mount(host: HTMLElement, services: GameServices) {
     timer = 0;
     if (match.mode === 'coop') return finishWave();
     const winner = world.winner, champion = recordRound(match, winner), solo = soloVersus(), level = settings.skill;
+    if (tourStop >= 0) {
+      tourRounds.push({ ...roundStat, won: winner === 0, heroHp: Math.max(0, heroes[0]?.hp ?? 0), time: world.time });
+      if (champion >= 0) return finishTourStop(champion === 0);
+    }
     if (solo && winner === 0) soloScore += roundScore(level, heroes[0]?.hp ?? 0);
     if (solo && champion === 0) soloScore += matchBonus(level, match.wins[1]);
     services.reportScore(solo ? soloScore : match.wins[0] * 100);
@@ -199,6 +243,26 @@ function mount(host: HTMLElement, services: GameServices) {
     screen = 'result';
   }
 
+  function finishTourStop(won: boolean) {
+    if (!match) return;
+    const stopIndex = tourStop, stop = TOUR[stopIndex], stars = tourStars(stop, tourRounds, won), count = stars.filter(Boolean).length;
+    const before = career, result = recordTourStop(career, stopIndex, count);
+    career = result.career; saveCareer();
+    services.reportScore(tourTotal(career) * 100);
+    services.reportComplete(1);
+    won ? audio.fanfare() : audio.sad();
+    const starRow = stars.map((got) => (got ? '★' : '☆')).join(' ');
+    const lines = [`P1  ${match.wins[0]} : ${match.wins[1]}  ${seatName(1)}`,
+      `${starRow}   ${tr('win', '获胜')} · ${tr('no round lost', '不丢一局')} · ${GOAL_TEXT[stop.goal][lang]}`,
+      ...newHats(before)];
+    if (won && result.gained > 0) lines.splice(2, 0, tr(`+${result.gained} ★  ·  tour total ${tourTotal(career)} / 36`, `+${result.gained} ★ · 总计 ${tourTotal(career)} / 36`));
+    let again = tr('try again', '再试一次');
+    if (won && stopIndex + 1 < TOUR.length) { settings.stop = stopIndex + 1; saveSettings(); again = tr(`stop ${stopIndex + 2}`, `第 ${stopIndex + 2} 站`); }
+    else if (won) again = tr('play it again', '再玩一次');
+    overlayResult = { kind: 'result', title: won ? tr(`STOP ${stopIndex + 1} WON!`, `第 ${stopIndex + 1} 站胜利！`) : tr(`${seatName(1)} WINS`, `${seatName(1)} 获胜`), color: won ? '#ffd34d' : '#ff7d8b', lines: lines.slice(0, 4), prompt: overPrompt(again).replace(tr('menu', '回菜单'), tr('tour map', '巡回地图')), party: won };
+    screen = 'over'; overHold = 0.9;
+  }
+
   function finishWave() {
     if (!match) return;
     const cleared = world.winner === 0;
@@ -209,25 +273,35 @@ function mount(host: HTMLElement, services: GameServices) {
     }
     const score = waveScore(match);
     services.reportScore(score);
-    if (!cleared || match.wave > WAVES) {
-      const won = cleared;
-      won ? audio.fanfare() : audio.sad();
-      services.reportComplete(won ? 1 : (match.wave - 1) / WAVES);
-      const run = recordCoopRun(career, match.wave - 1, score);
+    if (!cleared) {
+      // The run only ends when the heroes fall: after wave 10 it keeps going for the best-wave board.
+      const waves = match.wave - 1;
+      audio.sad();
+      if (!coopCleared) services.reportComplete(waves / WAVES);
+      const before = career, run = recordCoopRun(career, waves, score);
       career = run.career; saveCareer();
       const points = run.newBest ? tr(`Score ${score} · NEW BEST! 🎉`, `得分 ${score} · 新纪录！🎉`) : tr(`Score ${score} · best ${career.bestScore}`, `得分 ${score} · 最高 ${career.bestScore}`);
-      overlayResult = { kind: 'result', title: won ? tr('ALL WAVES CLEARED!', '全部通关！') : tr('TANKS DOWN', '全军覆没'), color: won ? '#ffd34d' : '#ff7d8b', lines: [tr(`Reached wave ${Math.min(match.wave, WAVES)} of ${WAVES}`, `到达第 ${Math.min(match.wave, WAVES)} / ${WAVES} 波`), points], prompt: overPrompt(tr('try again', '再试一次')), party: won };
+      const board = career.board.slice(0, 3).map((entry, index) => `${index === run.place ? '▶ ' : ''}${index + 1}. ${tr(`wave ${entry.wave}`, `${entry.wave} 波`)} · ${entry.score}`).join('    ');
+      overlayResult = { kind: 'result', title: coopCleared ? tr(`OVERTIME OVER AT WAVE ${match.wave}`, `加时止步第 ${match.wave} 波`) : tr('TANKS DOWN', '全军覆没'), color: coopCleared ? '#ffd34d' : '#ff7d8b', lines: [tr(`Waves cleared: ${waves}`, `清完 ${waves} 波`) + (run.place === 0 && waves > 0 ? tr(' · BEST WAVE! 🏆', ' · 最佳纪录！🏆') : ''), points, board, ...newHats(before)].filter(Boolean).slice(0, 4), prompt: overPrompt(tr('try again', '再试一次')), party: coopCleared };
       screen = 'over'; overHold = 0.9;
       return;
     }
     audio.tick();
-    overlayResult = { kind: 'result', title: tr(`WAVE ${match.wave - 1} CLEAR!`, `第 ${match.wave - 1} 波完成！`), color: '#70f0c2', lines: [tr(`Score ${score}`, `得分 ${score}`) + (healed > 0 ? ` · +${healed} ❤️` : '')], party: false };
+    const done = match.wave - 1;
+    let title = tr(`WAVE ${done} CLEAR!`, `第 ${done} 波完成！`), color = '#70f0c2';
+    if (done === WAVES && !coopCleared) {
+      coopCleared = true; services.reportComplete(1); audio.fanfare();
+      title = tr(`ALL ${WAVES} WAVES CLEARED!`, `${WAVES} 波全部通关！`); color = '#ffd34d';
+    }
+    const extra = done === WAVES ? tr('Overtime: how far can you go?', '加时赛：看你能走多远？') : isBossWave(done) ? tr('Boss down! 👑', '首领倒下！👑') : '';
+    overlayResult = { kind: 'result', title, color, lines: [tr(`Score ${score}`, `得分 ${score}`) + (healed > 0 ? ` · +${healed} ❤️` : ''), extra].filter(Boolean), party: done === WAVES };
     screen = 'result';
   }
 
   function backToMenu() {
-    match = null; world = demoWorld(); heroes = []; renderer?.setWorld(world);
-    screen = 'menu'; fingers.clear(); userPaused = false;
+    const toMap = tourStop >= 0;
+    match = null; world = demoWorld(); heroes = []; renderer?.setWorld(world); tourStop = -1;
+    screen = toMap ? 'tour' : 'menu'; fingers.clear(); userPaused = false;
   }
 
   function padIntent(pad: PadState): Intent {
@@ -250,15 +324,18 @@ function mount(host: HTMLElement, services: GameServices) {
     const intents = new Map<number, Intent>();
     for (const tank of world.tanks) {
       if (!tank.alive) continue;
-      if (screen === 'menu') intents.set(tank.id, botIntent(world, tank, SKILLS[1]));
+      if (screen === 'menu' || screen === 'tour') intents.set(tank.id, botIntent(world, tank, SKILLS[1]));
       else if (tank.enemy) intents.set(tank.id, botIntent(world, tank, enemySkill(tank.enemy)));
-      else if (settings.players === 1) intents.set(tank.id, tank.seat === 0 ? padIntent(merged) : botIntent(world, tank, SKILLS[settings.skill]));
+      else if (oneSeat()) intents.set(tank.id, tank.seat === 0 ? padIntent(merged) : botIntent(world, tank, botSkill()));
       else intents.set(tank.id, seatIntent(tank, pads));
     }
     step(world, intents);
-    if (screen === 'menu') { world.events.length = 0; return; }
+    if (screen === 'menu' || screen === 'tour') { world.events.length = 0; return; }
+    const hero = heroes[0], bot = heroes[1];
     for (const event of world.events) {
       audio.event(event);
+      if (event.type === 'fall' && bot && event.tank === bot.id) roundStat.botFell = true;
+      if (event.type === 'pickup' && hero && event.tank === hero.id) roundStat.grabbed = true;
       if (event.type === 'ko' && match?.mode === 'coop' && !heroes.some((tank) => tank.id === event.tank)) match.kills++;
       if (event.type === 'hit' && !services.isReducedMotion) hitStop = Math.max(hitStop, 0.05);
       if (event.type === 'ko' && !services.isReducedMotion) hitStop = 0.14;
@@ -269,7 +346,7 @@ function mount(host: HTMLElement, services: GameServices) {
 
   function update(dt: number, pads: PadState[] | null, merged: PadState) {
     timer += dt;
-    if (screen === 'menu') {
+    if (screen === 'menu' || screen === 'tour') {
       accumulator += dt;
       while (accumulator >= STEP) { accumulator -= STEP; stepWorld(null, merged); }
       if (world.finished && timer > 1) { timer = 0; const next = demoWorld(); world = next; renderer?.setWorld(next); } else if (!world.finished) timer = 0;
@@ -309,14 +386,40 @@ function mount(host: HTMLElement, services: GameServices) {
   function handleMenu(merged: PadState) {
     const direction = merged.dirPressed;
     if (direction === 'up') moveCursor(-1); else if (direction === 'down') moveCursor(1);
-    else if ((direction === 'left' || direction === 'right') && cursor < 5) changeRow(cursor, direction === 'left' ? -1 : 1);
+    else if ((direction === 'left' || direction === 'right') && cursor < ROWS) changeRow(cursor, direction === 'left' ? -1 : 1);
     if (merged.justPressed[FIRE] || merged.justPressed[START]) {
-      if (cursor === 5) startMatch(); else changeRow(cursor, 1);
+      if (cursor === ROWS) startFromMenu(); else changeRow(cursor, 1);
     }
+  }
+
+  /** The tour map: arrows walk the stops, Fire plays, Dash goes back. */
+  function handleTour(merged: PadState) {
+    const direction = merged.dirPressed, step = direction === 'left' || direction === 'up' ? -1 : direction === 'right' || direction === 'down' ? 1 : 0;
+    if (step) {
+      const next = settings.stop + step;
+      if (next >= 0 && next < TOUR.length && tourUnlocked(career.tour, next)) { settings.stop = next; saveSettings(); audio.move(); }
+    }
+    if (merged.justPressed[FIRE] || merged.justPressed[START]) startMatch();
+    else if (merged.justPressed[DASH] || merged.justPressed[SELECT]) { screen = 'menu'; audio.move(); }
+  }
+
+  function tourOverlay(): Overlay {
+    const stop = TOUR[settings.stop], arena = arenaById(stop.arena), twist = twistById(stop.twist), got = career.tour[settings.stop];
+    return {
+      kind: 'tour', title: tr('SOLO TOUR', '单人巡回赛'), subtitle: tr(`${tourTotal(career)} / 36 ★  ·  win a stop to open the next`, `${tourTotal(career)} / 36 ★ · 赢下一站解锁下一站`),
+      cursor: settings.stop, back: tr('◀ Menu', '◀ 菜单'), go: tr('▶ PLAY', '▶ 出发'),
+      nodes: TOUR.map((item, index) => ({ number: String(index + 1), name: arenaById(item.arena).name[lang], stars: career.tour[index], locked: !tourUnlocked(career.tour, index), icon: item.skill >= BOSS ? '😈' : item.style === 'camper' ? '⛺' : item.style === 'rammer' ? '🐏' : '🏓' })),
+      info: [
+        tr(`Stop ${settings.stop + 1}: ${arena.name[0]} · ${twist.name[0]}`, `第 ${settings.stop + 1} 站：${arena.name[1]} · ${twist.name[1]}`),
+        tr(`vs ${BOT_NAMES[stop.style][0]} (${skillName(stop.skill)}), who ${BOT_BLURB[stop.style][0]}`, `对手：${BOT_NAMES[stop.style][1]}（${skillName(stop.skill)}），${BOT_BLURB[stop.style][1]}`),
+        `${'★'.repeat(got)}${'☆'.repeat(3 - got)}  ${tr('Win', '获胜')} · ${tr('2-0', '2:0 完胜')} · ${GOAL_TEXT[stop.goal][lang]}`
+      ]
+    };
   }
 
   function overlay(): Overlay {
     if (userPaused) return { kind: 'paused', title: tr('PAUSED', '已暂停'), hint: touched ? tr('Tap to resume', '点一下继续') : tr('P or Start: resume  ·  T or Select: quit to menu', 'P 或 Start：继续 · T 或 Select：回菜单') };
+    if (screen === 'tour') return tourOverlay();
     if (screen === 'menu') return {
       kind: 'menu', title: tr('TANK BRAWL', '坦克大乱斗'), subtitle: tr('Bouncing shells, knockback chaos, and a new hat for every loss.', '弹射炮弹、击退混战，输一局多戴一顶帽子'), rows: menuRows(), cursor, start: tr('▶  START', '▶  开战'), record: recordLine(),
       legend: touched ? [
@@ -333,7 +436,15 @@ function mount(host: HTMLElement, services: GameServices) {
       const spinning = rolling && timer < 1.1;
       const shown = spinning ? TWISTS[Math.floor(timer * 11) % TWISTS.length] : world.twist;
       const lines = teaching() ? controlLines() : undefined;
-      if (match.mode === 'coop') return { kind: 'card', top: world.arena.name[lang], title: tr(`WAVE ${match.wave}`, `第 ${match.wave} 波`) + (match.wave === 5 || match.wave === WAVES ? ' 👑' : ''), hint: match.wave === 5 || match.wave === WAVES ? tr('The King Tank arrives!', '坦克大王驾到！') : world.arena.tagline[lang], progress: timer / 1.8, rolling: false, lines };
+      if (match.mode === 'coop') {
+        const bosses = bossOf(match.wave), mother = bosses.includes('mother'), kings = bosses.filter((boss) => boss === 'king').length;
+        const hint = mother && kings ? tr('The King AND the Duck Mother!', '坦克大王和鸭妈妈一起来了！') : mother ? tr('The Duck Mother arrives! Her ducks only blow up on you.', '鸭妈妈驾到！她下的鸭子只炸你') : kings > 1 ? tr('Two King Tanks!', '两个坦克大王！') : kings ? tr('The King Tank arrives!', '坦克大王驾到！') : match.wave > WAVES ? tr('Overtime. Every wave is a new record.', '加时赛，每一波都是新纪录') : world.arena.tagline[lang];
+        return { kind: 'card', top: world.arena.name[lang], title: tr(`WAVE ${match.wave}`, `第 ${match.wave} 波`) + (bosses.length ? (mother ? ' 🦆' : ' 👑') : ''), hint, progress: timer / 1.8, rolling: false, lines };
+      }
+      if (tourStop >= 0) {
+        const stop = TOUR[tourStop];
+        return { kind: 'card', top: tr(`Tour stop ${tourStop + 1} · Round ${match.round + 1} · ${world.arena.name[0]}`, `巡回赛第 ${tourStop + 1} 站 · 第 ${match.round + 1} 局 · ${world.arena.name[1]}`), title: world.twist.name[lang], hint: tr(`vs ${BOT_NAMES[stop.style][0]}  ·  ★ ${GOAL_TEXT[stop.goal][0]}`, `对手 ${BOT_NAMES[stop.style][1]} · ★ ${GOAL_TEXT[stop.goal][1]}`), progress: timer / 2.4, rolling: false, lines, alert: Math.max(...match.wins) === match.target - 1 && match.round > 0 ? tr('MATCH POINT', '赛点') : undefined };
+      }
       const point = Math.max(...match.wins) === match.target - 1 && match.round > 0;
       return { kind: 'card', top: tr(`Round ${match.round + 1} · ${world.arena.name[0]}`, `第 ${match.round + 1} 局 · ${world.arena.name[1]}`), title: rolling ? shown.name[lang] : tr('Fight!', '开打！'), hint: rolling ? shown.hint[lang] : world.arena.tagline[lang], progress: timer / 2.4, rolling: spinning, lines, alert: point ? tr('MATCH POINT', '赛点') : undefined };
     }
@@ -347,22 +458,30 @@ function mount(host: HTMLElement, services: GameServices) {
   const teaching = () => match?.round === 0 && !taught;
   function controlLines() {
     if (touched) return [tr('Drag to drive  ·  FIRE to shoot  ·  DASH to leap pits', '拖动行驶 · 开火射击 · 冲刺飞跃坑洞'), tr('Shells bounce — your own can hit you!', '炮弹会反弹，小心打到自己！')];
-    if (settings.players === 1) return [tr('Move WASD  ·  Fire F or Space  ·  Dash G', '移动 WASD · 开火 F 或空格 · 冲刺 G'), tr('Shells bounce — your own can hit you!', '炮弹会反弹，小心打到自己！')];
+    if (oneSeat()) return [tr('Move WASD  ·  Fire F or Space  ·  Dash G', '移动 WASD · 开火 F 或空格 · 冲刺 G'), tr('Shells bounce — your own can hit you!', '炮弹会反弹，小心打到自己！')];
     return [tr('P1  WASD move · F fire · G dash', '玩家1  WASD 移动 · F 开火 · G 冲刺'), tr('P2  Arrows move · K fire · L dash', '玩家2  方向键 移动 · K 开火 · L 冲刺')];
   }
 
   function hudLabels() {
     if (screen === 'menu' || !match) return null;
-    const names = settings.players === 1 ? [tr('P1', '玩家1'), tr('BOT', '电脑')] : [autoBot[0] ? tr('BOT', '电脑') : tr('P1', '玩家1'), autoBot[1] ? tr('BOT', '电脑') : tr('P2', '玩家2')];
+    const names = oneSeat() ? [tr('P1', '玩家1'), seatName(1)] : [autoBot[0] ? tr('BOT', '电脑') : tr('P1', '玩家1'), autoBot[1] ? tr('BOT', '电脑') : tr('P2', '玩家2')];
     if (takeoverNote > 0 && (autoBot[0] || autoBot[1])) { const who = autoBot[0] ? 'P1' : 'P2'; return { center: tr(`A bot is driving ${who}`, `电脑正在代打 ${who}`), sub: tr(`Press any ${who} control to take over`, `按任意 ${who} 按键即可接管`), names }; }
-    if (match.mode === 'coop') return { center: tr(`WAVE ${Math.min(match.wave, WAVES)}/${WAVES}`, `第 ${Math.min(match.wave, WAVES)}/${WAVES} 波`), sub: tr(`Enemies ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · Score ${waveScore(match)}`, `敌人 ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · 得分 ${waveScore(match)}`), names };
+    if (match.mode === 'coop') return { center: match.wave > WAVES ? tr(`WAVE ${match.wave} · OVERTIME`, `第 ${match.wave} 波 · 加时`) : tr(`WAVE ${match.wave}/${WAVES}`, `第 ${match.wave}/${WAVES} 波`), sub: tr(`Enemies ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · Score ${waveScore(match)}`, `敌人 ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · 得分 ${waveScore(match)}`), names };
     const left = Math.ceil(Math.max(0, suddenDeathAt(world.twist) - world.time));
+    if (tourStop >= 0 && !world.suddenDeath) {
+      const goal = TOUR[tourStop].goal, clock = goal === 'fast' ? Math.max(0, Math.ceil(20 - world.time)) : -1;
+      const sub = goal === 'fast' ? (clock > 0 ? tr(`★ Win in ${clock}s`, `★ ${clock} 秒内获胜`) : tr('★ Too slow this round', '★ 这局超时了'))
+        : goal === 'hearts' ? (heroes[0] && heroes[0].hp >= heroes[0].maxHp ? tr('★ No hearts lost yet', '★ 还没丢心') : tr('★ Hearts lost this round', '★ 这局已丢心'))
+        : goal === 'pit' ? (roundStat.botFell ? tr('★ Bot in the pit! Now win', '★ 电脑落坑了！拿下这局') : tr('★ Knock the bot into a pit', '★ 把电脑撞进坑'))
+        : roundStat.grabbed ? tr('★ Power grabbed! Now win', '★ 吃到道具了！拿下这局') : tr('★ Grab a power-up, then win', '★ 吃个道具再赢');
+      return { center: world.twist.name[lang], sub: `${sub}  ·  ${tr(`floor crumbles in ${left}s`, `${left} 秒后崩塌`)}`, names };
+    }
     return { center: world.twist.name[lang], sub: world.suddenDeath ? tr('SUDDEN DEATH: the floor is crumbling!', '决战时刻：地面正在崩塌！') : tr(`Floor crumbles in ${left}s`, `${left} 秒后地面崩塌`), names };
   }
 
   function touchLayer(): Touch | null {
     if (!touched || (screen !== 'fight' && screen !== 'count' && screen !== 'ko')) return null;
-    const seats = settings.players === 1 ? [0] : [0, 1];
+    const seats = oneSeat() ? [0] : [0, 1];
     const held = (seat: number, kind: 'fire' | 'dash') => [...fingers.values()].some((finger) => finger.seat === seat && finger.kind === kind);
     return {
       sticks: seats.map((seat) => { const finger = [...fingers.values()].find((item) => item.seat === seat && item.kind === 'stick'); return finger ? { x: finger.x, y: finger.y, dx: finger.dx, dy: finger.dy } : null; }),
@@ -381,8 +500,18 @@ function mount(host: HTMLElement, services: GameServices) {
   };
   const inside = (x: number, y: number, area: { x: number; y: number; w: number; h: number }) => x >= area.x && y >= area.y && x <= area.x + area.w && y <= area.y + area.h;
 
+  function tourTap(x: number, y: number) {
+    if (inside(x, y, TOUR_BACK_BOX)) { screen = 'menu'; audio.move(); return; }
+    if (inside(x, y, TOUR_GO_BOX)) { if (tourUnlocked(career.tour, settings.stop)) startMatch(); return; }
+    TOUR.forEach((_, index) => {
+      const spot = tourNodeCenter(index);
+      if (Math.hypot(x - spot.x, y - spot.y) > TOUR_NODE_R + 8 || !tourUnlocked(career.tour, index)) return;
+      if (settings.stop === index) startMatch(); else { settings.stop = index; saveSettings(); audio.move(); }
+    });
+  }
+
   function menuTap(x: number, y: number) {
-    if (inside(x, y, START_BOX)) { cursor = 5; startMatch(); return; }
+    if (inside(x, y, START_BOX)) { cursor = ROWS; startFromMenu(); return; }
     const rows = menuRows();
     rows.forEach((row, index) => {
       const area = menuRowBox(index);
@@ -397,10 +526,11 @@ function mount(host: HTMLElement, services: GameServices) {
     const { x, y } = point(event);
     if (userPaused) { userPaused = false; return; }
     if (screen === 'menu') { menuTap(x, y); return; }
+    if (screen === 'tour') { tourTap(x, y); return; }
     if (screen === 'over') { if (overHold > 0) return; if (touched && x >= WIDTH / 2) backToMenu(); else startMatch(); return; }
     if (screen === 'card') { skipCard = true; return; }
     if (!touched || screen === 'result') return;
-    const seat = settings.players === 1 ? 0 : x < WIDTH / 2 ? 0 : 1;
+    const seat = oneSeat() ? 0 : x < WIDTH / 2 ? 0 : 1;
     const spot = seatButtons(seat);
     const kind = Math.hypot(x - spot.fire.x, y - spot.fire.y) < FIRE_R + 12 ? 'fire' : Math.hypot(x - spot.dash.x, y - spot.dash.y) < DASH_R + 12 ? 'dash' : 'stick';
     fingers.set(event.pointerId, { seat, kind, x, y, dx: 0, dy: 0 });
@@ -437,12 +567,13 @@ function mount(host: HTMLElement, services: GameServices) {
   function frame(dt: number) {
     if (paused) return;
     fitScreen();
-    const pads = settings.players === 2 && screen !== 'menu' ? input.read() : null;
+    const pads = !oneSeat() && screen !== 'menu' && screen !== 'tour' ? input.read() : null;
     const merged = input.readMerged();
-    if (merged.justPressed[START] && screen !== 'menu') userPaused = !userPaused;
+    if (merged.justPressed[START] && screen !== 'menu' && screen !== 'tour') userPaused = !userPaused;
     else if (userPaused && merged.justPressed[SELECT]) backToMenu();
     if (!userPaused) {
       if (screen === 'menu') handleMenu(merged);
+      else if (screen === 'tour') handleTour(merged);
       else if (screen === 'over' && overHold <= 0) {
         if (merged.justPressed[FIRE]) startMatch(); else if (merged.justPressed[DASH]) backToMenu();
       }
@@ -454,7 +585,7 @@ function mount(host: HTMLElement, services: GameServices) {
 
   void input.reconnect();
   const stop = startLoop(frame);
-  const debug = { state: () => ({ screen, settings, match, career, soloScore, autoBot, rotated, twist: world.twist.id, time: world.time, tanks: world.tanks.map(({ x, y, hp, seat, team }) => ({ x, y, hp, seat, team })), shells: world.shells.length }) };
+  const debug = { state: () => ({ screen, settings, match, career, tourStop, tourRounds, coopCleared, frozen: world.tanks.some((tank) => tank.frozen > 0), soloScore, autoBot, rotated, twist: world.twist.id, time: world.time, tanks: world.tanks.map(({ x, y, hp, seat, team }) => ({ x, y, hp, seat, team })), shells: world.shells.length }) };
   (globalThis as { __tankBrawl?: typeof debug }).__tankBrawl = debug;
 
   return {
@@ -473,7 +604,7 @@ const game: GameModule = {
   meta: {
     slug: 'tank-brawl-opus', title: 'Tank Brawl', category: 'action',
     description: 'A silly couch tank brawl: bouncing shells, knockback into lava, power-up ducks, a new twist every round, and one more hat for every loss.',
-    instructions: 'Versus or co-op, two players or one against a bot ladder (beat Hard to unlock the Boss). P1: WASD, F or Space fires, G dashes. P2: arrows, K or Enter fires, L dashes. Controllers and touch work too; on a phone, turn it sideways. Dash jumps pits and rams tanks; your own shells bounce back and hurt.',
+    instructions: 'Versus, co-op waves (a boss every fifth wave, endless after ten) or a 12-stop Solo Tour with three stars per stop; stars and wins earn hats for your wardrobe. Two players or one against a bot ladder (beat Hard to unlock the Boss). P1: WASD, F or Space fires, G dashes. P2: arrows, K or Enter fires, L dashes. Controllers and touch work too; on a phone, turn it sideways. Dash jumps pits and rams tanks; your own shells bounce back and hurt.',
     accent: '#ffd34d', mechanic: 'Bounce shells, ram, grab power-ups'
   },
   mount

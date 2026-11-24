@@ -10,13 +10,15 @@ const ARM_TIME = 0.22, INVULN = 1.1, ENEMY_INVULN = 0.3, SUDDEN_DEATH_AT = 50, C
 export type Intent = { x: number; y: number; ax: number; ay: number; fire: boolean; dash: boolean; honk: boolean };
 export const idle = (): Intent => ({ x: 0, y: 0, ax: 0, ay: 0, fire: false, dash: false, honk: false });
 
-export type PowerKind = 'triple' | 'mega' | 'bee' | 'laser' | 'duck' | 'shield' | 'giant' | 'swap';
-export const POWERS: readonly PowerKind[] = ['triple', 'mega', 'bee', 'laser', 'duck', 'shield', 'giant', 'swap'];
-const CHARGES: Partial<Record<PowerKind, number>> = { triple: 3, mega: 2, bee: 2, laser: 1, duck: 3 };
+export type PowerKind = 'triple' | 'mega' | 'bee' | 'laser' | 'duck' | 'shield' | 'giant' | 'swap' | 'freeze' | 'boomerang';
+export const POWERS: readonly PowerKind[] = ['triple', 'mega', 'bee', 'laser', 'duck', 'shield', 'giant', 'swap', 'freeze', 'boomerang'];
+const CHARGES: Partial<Record<PowerKind, number>> = { triple: 3, mega: 2, bee: 2, laser: 1, duck: 3, freeze: 2, boomerang: 2 };
+/** Seconds a Freeze shell locks its target in an ice block. */
+export const FREEZE_TIME = 1.6;
 
-export type EnemyKind = 'grunt' | 'zippy' | 'bouncer' | 'heavy' | 'king';
+export type EnemyKind = 'grunt' | 'zippy' | 'bouncer' | 'heavy' | 'king' | 'mother';
 /** Wave enemies shoot slower shells than players do, so a crowd of them can still be dodged. */
-const ENEMY_SHELL_SPEED: Record<EnemyKind, number> = { grunt: 290, zippy: 290, bouncer: 340, heavy: 300, king: 320 };
+const ENEMY_SHELL_SPEED: Record<EnemyKind, number> = { grunt: 290, zippy: 290, bouncer: 340, heavy: 300, king: 320, mother: 300 };
 export type Tank = {
   id: number; team: number; seat: number; enemy?: EnemyKind;
   x: number; y: number; vx: number; vy: number;
@@ -27,11 +29,13 @@ export type Tank = {
   power: PowerKind | null; charges: number; laserCharge: number;
   falling: number; downed: boolean; revive: number; alive: boolean; portalCooldown: number;
   spawnX: number; spawnY: number; mileage: number;
+  /** Seconds left frozen in an ice block (cannot drive, turn or fire). */
+  frozen: number;
 };
 
-export type ShellKind = 'shell' | 'mega' | 'bee';
+export type ShellKind = 'shell' | 'mega' | 'bee' | 'freeze' | 'boomerang';
 export type Shell = { id: number; kind: ShellKind; owner: number; team: number; x: number; y: number; vx: number; vy: number; radius: number; damage: number; bounces: number; age: number; life: number; portalCooldown: number };
-export type Duck = { id: number; owner: number; team: number; x: number; y: number; age: number };
+export type Duck = { id: number; owner: number; team: number; x: number; y: number; age: number; big?: boolean };
 export type Pickup = { id: number; kind: PowerKind; x: number; y: number; drop: number; age: number };
 export type Beam = { points: Array<[number, number]>; life: number; team: number };
 
@@ -46,9 +50,25 @@ export type GameEvent =
   | { type: 'ko'; x: number; y: number; tank: number }
   | { type: 'honk'; x: number; y: number; tank: number }
   | { type: 'collapse'; ring: number }
+  | { type: 'freeze'; x: number; y: number; tank: number }
+  | { type: 'mirror'; on: boolean }
   | { type: 'empty'; tank: number };
 
-export type Twist = { id: string; name: readonly [string, string]; hint: readonly [string, string]; bounces: number; speed: number; scale: number; crateEvery: number; knock: number; ammoReload: number; hp?: number; collapseAt?: number };
+export type Twist = {
+  id: string; name: readonly [string, string]; hint: readonly [string, string]; bounces: number; speed: number; scale: number; crateEvery: number; knock: number; ammoReload: number; hp?: number; collapseAt?: number;
+  /** Dash lasts this much longer (and floats further). */
+  dash?: number;
+  /** Multiplies floor grip: below 1 everything drifts. */
+  grip?: number;
+  /** Steering flips left/right for 5 s out of every 12. */
+  mirror?: boolean;
+  /** One giant duck waits mid-arena and comes back after it blows. */
+  bigDuck?: boolean;
+  /** You only see near your own tank, and bots only see what is close. */
+  fog?: boolean;
+  /** Landing a hit steals a heart back for the shooter. */
+  thief?: boolean;
+};
 export const TWISTS: readonly Twist[] = [
   { id: 'classic', name: ['Plain Brawl', '普通乱斗'], hint: ['No tricks. Just tanks.', '没有花招，只有坦克'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 1, ammoReload: 1 },
   { id: 'rubber', name: ['Rubber Shells', '橡皮炮弹'], hint: ['Shells bounce six times. Watch your back!', '炮弹能弹六次，小心背后！'], bounces: 6, speed: 1, scale: 1, crateEvery: 6, knock: 1, ammoReload: 1 },
@@ -58,8 +78,17 @@ export const TWISTS: readonly Twist[] = [
   { id: 'pow', name: ['Super Knockback', '超级击退'], hint: ['One shell sends you flying.', '一炮把你轰上天'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 2.4, ammoReload: 1 },
   { id: 'glass', name: ['Glass Cannons', '玻璃大炮'], hint: ['Two hearts each. Blink and it is over.', '每人只有两颗心，眨眼就结束'], bounces: 2, speed: 1, scale: 1, crateEvery: 5, knock: 1, ammoReload: 0.8, hp: 2 },
   { id: 'crumble', name: ['Crumbling Floor', '塌方警报'], hint: ['The floor starts falling after 12 seconds!', '12 秒后地面就开始塌！'], bounces: 2, speed: 1, scale: 1, crateEvery: 4, knock: 1.2, ammoReload: 1, collapseAt: 12 },
-  { id: 'tiny', name: ['Teeny Tanks', '迷你坦克'], hint: ['Small, zippy and very hard to hit.', '又小又快，超难打中'], bounces: 3, speed: 1.2, scale: 0.72, crateEvery: 6, knock: 1.1, ammoReload: 0.85 }
+  { id: 'tiny', name: ['Teeny Tanks', '迷你坦克'], hint: ['Small, zippy and very hard to hit.', '又小又快，超难打中'], bounces: 3, speed: 1.2, scale: 0.72, crateEvery: 6, knock: 1.1, ammoReload: 0.85 },
+  { id: 'moon', name: ['Moon Dash', '月球冲刺'], hint: ['Low gravity: dashes fly twice as far and nothing stops quickly.', '低重力：冲刺飞两倍远，谁都刹不住'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 1.3, ammoReload: 1, dash: 1.8, grip: 0.35 },
+  { id: 'mirror', name: ['Mirror Minutes', '镜像时间'], hint: ['Every few seconds left and right swap places!', '每隔一会儿，左右就会颠倒！'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 1, ammoReload: 1, mirror: true },
+  { id: 'bigduck', name: ['One Giant Duck', '一只巨鸭'], hint: ['A huge duck sits in the middle. Do not touch it. Or do.', '场地中间蹲着一只巨鸭，别碰它……或者碰？'], bounces: 2, speed: 1, scale: 1, crateEvery: 7, knock: 1, ammoReload: 1, bigDuck: true },
+  { id: 'fog', name: ['Fog of War', '战争迷雾'], hint: ['You only see what is close to your tank.', '只看得见自己身边'], bounces: 3, speed: 1, scale: 1, crateEvery: 5, knock: 1, ammoReload: 1, fog: true },
+  { id: 'thief', name: ['Heart Thief', '偷心大盗'], hint: ['Every hit steals a heart for the shooter.', '打中对手就偷走一颗心'], bounces: 2, speed: 1, scale: 1, crateEvery: 6, knock: 1, ammoReload: 1, thief: true }
 ];
+/** How far a tank sees in Fog of War. */
+export const FOG_RADIUS = 230;
+/** Mirror Minutes: steering is flipped while this is true. */
+export const mirrored = (world: World) => Boolean(world.twist.mirror) && world.time % 12 >= 7;
 /** Seconds of normal play before the floor starts to go. */
 export const suddenDeathAt = (twist: Twist) => twist.collapseAt ?? SUDDEN_DEATH_AT;
 
@@ -68,6 +97,8 @@ export type World = {
   tanks: Tank[]; shells: Shell[]; ducks: Duck[]; pickups: Pickup[]; beams: Beam[]; events: GameEvent[];
   time: number; crateTimer: number; collapseRing: number; collapseTimer: number; warnRing: number;
   friendlyFire: boolean; suddenDeath: boolean; finished: boolean; winner: number; nextId: number; random: () => number;
+  /** Seconds until the giant duck (re)appears; 0 when it is out or the twist has none. */
+  bigDuckTimer: number;
 };
 
 const key = (col: number, row: number) => (col < 0 || row < 0 || col >= COLS || row >= ROWS ? null : `${col},${row}`);
@@ -83,7 +114,7 @@ export function makeTank(world: World, team: number, seat: number, x: number, y:
     id: world.nextId++, team, seat, enemy, x, y, vx: 0, vy: 0, heading: facing, turret: facing, scale: world.twist.scale, speed: BASE_SPEED * world.twist.speed,
     hp, maxHp: hp, ammo: MAX_AMMO, reload: 0, cooldown: 0, dash: 0, dashCooldown: 0, dashX: 0, dashY: 0, rammed: false,
     invuln: 1.2, shield: 0, giant: 0, flash: 0, recoil: 0, honk: 0, power: null, charges: 0, laserCharge: 0,
-    falling: 0, downed: false, revive: 0, alive: true, portalCooldown: 0, spawnX: x, spawnY: y, mileage: 0
+    falling: 0, downed: false, revive: 0, alive: true, portalCooldown: 0, spawnX: x, spawnY: y, mileage: 0, frozen: 0
   };
   world.tanks.push(tank);
   return tank;
@@ -95,11 +126,18 @@ export function createWorld(arena: Arena, twist: Twist, random: () => number, fr
     tiles.push([...row].map((char) => ('12'.includes(char) ? floorUnder(row) : char) as Tile));
     crateHp.push([...row].map((char) => (char === 'c' ? 2 : 0)));
   });
-  return {
+  const world: World = {
     arena, twist, tiles, crateHp, tanks: [], shells: [], ducks: [], pickups: [], beams: [], events: [],
     time: 0, crateTimer: 3, collapseRing: 0, collapseTimer: suddenDeathAt(twist), warnRing: -1,
-    friendlyFire, suddenDeath: false, finished: false, winner: -1, nextId: 1, random
+    friendlyFire, suddenDeath: false, finished: false, winner: -1, nextId: 1, random, bigDuckTimer: twist.bigDuck ? 0.01 : 0
   };
+  return world;
+}
+
+/** The giant duck sits on the free tile nearest the centre line. */
+function placeBigDuck(world: World) {
+  const [x, y] = safeSpot(world, WORLD_W / 2, WORLD_H / 2);
+  world.ducks.push({ id: world.nextId++, owner: -1, team: -1, x, y, age: 0, big: true });
 }
 const floorUnder = (row: string): Tile => (row.includes('~') ? '~' : '.');
 
@@ -115,7 +153,13 @@ export function spawnPoint(arena: Arena, seat: number): [number, number] {
 const free = (tile: Tile) => !isSolid(tile) && !isPit(tile) && tile !== 'P' && tile !== 'p';
 
 export function step(world: World, intents: Map<number, Intent>) {
+  const wasMirrored = mirrored(world);
   world.time += STEP;
+  if (mirrored(world) !== wasMirrored) world.events.push({ type: 'mirror', on: !wasMirrored });
+  if (world.bigDuckTimer > 0) {
+    world.bigDuckTimer -= STEP;
+    if (world.bigDuckTimer <= 0) { world.bigDuckTimer = 0; placeBigDuck(world); }
+  }
   for (const tank of world.tanks) if (tank.alive) stepTank(world, tank, intents.get(tank.id) ?? idle());
   resolveTankContacts(world);
   stepShells(world);
@@ -129,7 +173,9 @@ export function step(world: World, intents: Map<number, Intent>) {
 }
 
 function stepTank(world: World, tank: Tank, intent: Intent) {
-  for (const field of ['reload', 'cooldown', 'dashCooldown', 'invuln', 'flash', 'portalCooldown', 'shield', 'giant', 'honk'] as const) tank[field] = Math.max(0, tank[field] - STEP);
+  for (const field of ['reload', 'cooldown', 'dashCooldown', 'invuln', 'flash', 'portalCooldown', 'shield', 'giant', 'honk', 'frozen'] as const) tank[field] = Math.max(0, tank[field] - STEP);
+  if (tank.seat >= 0 && mirrored(world)) intent = { ...intent, x: -intent.x, ax: -intent.ax };
+  if (tank.frozen > 0) intent = { ...idle(), honk: intent.honk };
   tank.recoil = Math.max(0, tank.recoil - STEP * 6);
   tank.scale += ((tank.giant > 0 ? 1.7 : baseScale(world, tank)) - tank.scale) * 0.14;
   if (tank.downed) { tank.vx = tank.vy = 0; return; }
@@ -153,7 +199,7 @@ function stepTank(world: World, tank: Tank, intent: Intent) {
     if (tank.dash <= 0 && isPit(worldTile(world, tank.x, tank.y))) startFall(world, tank);
   } else {
     const limit = tank.speed * (tank.giant > 0 ? 0.85 : 1) * (charging ? 0.25 : 1);
-    const grip = (ice ? 1.6 : 11) * STEP;
+    const grip = (ice ? 1.6 : 11) * (world.twist.grip ?? 1) * STEP;
     tank.vx += (intent.x * limit - tank.vx) * grip;
     tank.vy += (intent.y * limit - tank.vy) * grip;
     if (stick > 0.1) tank.heading = turnToward(tank.heading, Math.atan2(intent.y, intent.x), 13 * STEP);
@@ -177,14 +223,14 @@ function stepTank(world: World, tank: Tank, intent: Intent) {
   if (intent.honk && tank.honk <= 0) { tank.honk = 0.45; world.events.push({ type: 'honk', x: tank.x, y: tank.y, tank: tank.id }); }
 }
 
-const baseScale = (world: World, tank: Tank) => (tank.enemy === 'king' ? 2 : tank.enemy === 'heavy' ? 1.4 : tank.enemy === 'zippy' ? 0.8 : world.twist.scale);
+const baseScale = (world: World, tank: Tank) => (tank.enemy === 'king' ? 2 : tank.enemy === 'mother' ? 1.8 : tank.enemy === 'heavy' ? 1.4 : tank.enemy === 'zippy' ? 0.8 : world.twist.scale);
 
 function startDash(world: World, tank: Tank, intent: Intent) {
   const moving = Math.hypot(intent.x, intent.y) > 0.2;
   const angle = moving ? Math.atan2(intent.y, intent.x) : tank.heading;
   tank.heading = angle;
   tank.dashX = Math.cos(angle); tank.dashY = Math.sin(angle);
-  tank.dash = DASH_TIME; tank.dashCooldown = DASH_COOLDOWN; tank.rammed = false;
+  tank.dash = DASH_TIME * (world.twist.dash ?? 1); tank.dashCooldown = DASH_COOLDOWN; tank.rammed = false;
   tank.invuln = Math.max(tank.invuln, DASH_TIME * 0.7);
   world.events.push({ type: 'dash', x: tank.x, y: tank.y });
 }
@@ -309,6 +355,9 @@ function tryFire(world: World, tank: Tank) {
   if (tank.power === 'triple') { launch(world, tank, 'shell', x, y, angle - 0.22); launch(world, tank, 'shell', x, y, angle + 0.22); }
   if (tank.power === 'mega' || tank.enemy === 'heavy') kind = 'mega';
   if (tank.power === 'bee') kind = 'bee';
+  if (tank.power === 'freeze') kind = 'freeze';
+  if (tank.power === 'boomerang') kind = 'boomerang';
+  if (tank.enemy === 'mother') { lobDuck(world, tank, angle); return; }
   launch(world, tank, kind, x, y, angle);
   if (tank.enemy === 'king') { launch(world, tank, 'shell', x, y, angle - 0.35); launch(world, tank, 'shell', x, y, angle + 0.35); }
   world.events.push({ type: 'fire', x, y, angle, kind });
@@ -320,12 +369,31 @@ function spendCharge(tank: Tank) {
 }
 
 function launch(world: World, tank: Tank, kind: ShellKind, x: number, y: number, angle: number) {
-  const speed = kind === 'mega' ? 300 : kind === 'bee' ? 250 : tank.enemy ? ENEMY_SHELL_SPEED[tank.enemy] : 430;
-  const bounces = kind === 'bee' ? 0 : kind === 'mega' ? 1 : tank.enemy === 'bouncer' ? 4 : tank.enemy ? 1 : world.twist.bounces;
+  const speed = kind === 'mega' ? 300 : kind === 'bee' ? 250 : kind === 'boomerang' ? 470 : tank.enemy ? ENEMY_SHELL_SPEED[tank.enemy] : 430;
+  const bounces = kind === 'bee' ? 0 : kind === 'mega' ? 1 : kind === 'boomerang' ? 3 : tank.enemy === 'bouncer' ? 4 : tank.enemy ? 1 : world.twist.bounces;
   world.shells.push({
     id: world.nextId++, kind, owner: tank.id, team: tank.team, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-    radius: kind === 'mega' ? 15 : 7, damage: kind === 'mega' ? 2 : 1, bounces, age: 0, life: kind === 'bee' ? 5 : 7, portalCooldown: 0
+    radius: kind === 'mega' ? 15 : kind === 'boomerang' ? 10 : 7, damage: kind === 'mega' ? 2 : 1, bounces, age: 0, life: kind === 'bee' ? 5 : kind === 'boomerang' ? 3 : 7, portalCooldown: 0
   });
+}
+
+/** The Duck Mother does not shoot: she lobs a duck a few tiles ahead of her. */
+function lobDuck(world: World, tank: Tank, angle: number) {
+  const [x, y] = safeSpot(world, tank.x + Math.cos(angle) * 150, tank.y + Math.sin(angle) * 150);
+  world.ducks.push({ id: world.nextId++, owner: tank.id, team: tank.team, x, y, age: 0 });
+  tank.cooldown = 1.6;
+  world.events.push({ type: 'fire', x, y, angle: 0, kind: 'duck' });
+}
+
+/** A boomerang curls back toward its thrower after a moment and can be caught again. */
+function steerBoomerang(world: World, shell: Shell) {
+  if (shell.age < 0.45) return;
+  const owner = world.tanks.find((tank) => tank.id === shell.owner && tank.alive);
+  if (!owner) return;
+  const speed = Math.hypot(shell.vx, shell.vy);
+  const angle = turnToward(Math.atan2(shell.vy, shell.vx), Math.atan2(owner.y - shell.y, owner.x - shell.x), 5.5 * STEP);
+  shell.vx = Math.cos(angle) * speed; shell.vy = Math.sin(angle) * speed;
+  if (Math.hypot(owner.x - shell.x, owner.y - shell.y) < TANK_RADIUS * owner.scale + 8) shell.life = -1; // caught
 }
 
 function dropDuck(world: World, tank: Tank) {
@@ -373,12 +441,13 @@ function stepShells(world: World) {
     shell.age += STEP;
     shell.portalCooldown = Math.max(0, shell.portalCooldown - STEP);
     if (shell.kind === 'bee') steerBee(world, shell);
+    if (shell.kind === 'boomerang') steerBoomerang(world, shell);
     moveShell(world, shell);
     if (shell.age >= shell.life) shell.life = -1;
     if (shell.life < 0) continue;
     for (const tank of world.tanks) {
       if (!tank.alive || tank.downed || tank.falling > 0) continue;
-      if (tank.id === shell.owner && shell.age < ARM_TIME) continue;
+      if (tank.id === shell.owner && (shell.age < ARM_TIME || shell.kind === 'boomerang')) continue;
       if (Math.hypot(tank.x - shell.x, tank.y - shell.y) > TANK_RADIUS * tank.scale + shell.radius) continue;
       hitTank(world, shell, tank);
       break;
@@ -458,7 +527,12 @@ function hitTank(world: World, shell: Shell, tank: Tank) {
   const power = shell.kind === 'mega' ? 620 : 380;
   const length = Math.hypot(shell.vx, shell.vy) || 1;
   if (tank.team === shell.team && !world.friendlyFire) { tank.vx += shell.vx / length * power * 0.6; tank.vy += shell.vy / length * power * 0.6; world.events.push({ type: 'bounce', x: shell.x, y: shell.y }); return; }
+  const guarded = tank.invuln > 0;
   damage(world, tank, shell.damage, shell.x, shell.y, shell.vx / length * power, shell.vy / length * power, false, shell.owner);
+  if (shell.kind === 'freeze' && !guarded && tank.alive && !tank.downed) {
+    tank.frozen = FREEZE_TIME; tank.vx *= 0.2; tank.vy *= 0.2; tank.dash = 0; tank.laserCharge = 0;
+    world.events.push({ type: 'freeze', x: tank.x, y: tank.y, tank: tank.id });
+  }
 }
 
 function clashShells(world: World) {
@@ -482,6 +556,10 @@ export function damage(world: World, tank: Tank, amount: number, x: number, y: n
   tank.flash = 0.2; tank.invuln = tank.enemy ? ENEMY_INVULN : INVULN; // Bosses must be burst-able, or a King outlasts any hero.
   tank.vx += pushX * world.twist.knock; tank.vy += pushY * world.twist.knock;
   world.events.push({ type: 'hit', x, y, tank: tank.id, left: Math.max(0, tank.hp), by });
+  if (world.twist.thief && by >= 0 && by !== tank.id) {
+    const thief = world.tanks.find((other) => other.id === by && other.alive && !other.downed);
+    if (thief && thief.hp < thief.maxHp) thief.hp++;
+  }
   if (tank.hp > 0) return;
   tank.hp = 0; tank.laserCharge = 0;
   world.events.push({ type: 'ko', x: tank.x, y: tank.y, tank: tank.id });
@@ -535,10 +613,16 @@ function stepDucks(world: World) {
   for (const duck of world.ducks) {
     duck.age += STEP;
     if (duck.age < 0.9) continue;
-    const trigger = world.tanks.some((tank) => tank.alive && !tank.downed && tank.falling <= 0 && Math.hypot(tank.x - duck.x, tank.y - duck.y) < 44 * tank.scale);
-    const shot = world.shells.find((shell) => Math.hypot(shell.x - duck.x, shell.y - duck.y) < 18);
+    const reach = duck.big ? 62 : 44;
+    // A wave's own ducks only go off under the heroes (or a shell), never under the enemy that laid them.
+    const trigger = world.tanks.some((tank) => tank.alive && !tank.downed && tank.falling <= 0 && !(duck.team === 1 && tank.team === 1) && Math.hypot(tank.x - duck.x, tank.y - duck.y) < reach * tank.scale);
+    const shot = world.shells.find((shell) => Math.hypot(shell.x - duck.x, shell.y - duck.y) < (duck.big ? 34 : 18));
     if (shot) shot.life = -1;
-    if (trigger || shot || duck.age > 14) { duck.age = -1; explode(world, duck.x, duck.y, 92, duck.owner); }
+    if (trigger || shot || (!duck.big && duck.age > 14)) {
+      duck.age = -1;
+      explode(world, duck.x, duck.y, duck.big ? 170 : 92, duck.owner);
+      if (duck.big) world.bigDuckTimer = 9;
+    }
   }
   world.ducks = world.ducks.filter((duck) => duck.age >= 0);
 }
@@ -739,27 +823,42 @@ export function recordRound(match: Match, winner: number): number {
   return match.wins[winner] >= match.target ? winner : -1;
 }
 
-export type WaveSpec = { grunt: number; zippy: number; bouncer: number; heavy: number; king: number };
+export type WaveSpec = { grunt: number; zippy: number; bouncer: number; heavy: number; king: number; mother: number };
+/** Every fifth wave is a boss wave, forever: the King, then the Duck Mother, then both, round and round. */
+export const isBossWave = (wave: number) => wave % 5 === 0;
+export function bossOf(wave: number): Array<'king' | 'mother'> {
+  if (!isBossWave(wave)) return [];
+  if (wave <= WAVES) return ['king'];
+  const turn = (wave / 5 - 3) % 3;
+  return turn === 0 ? ['mother'] : turn === 1 ? ['king', 'king'] : ['king', 'mother'];
+}
 /** A lone hero faces a thinner wave: the same mix, minus one of whatever there is most of. */
 export function waveSpec(wave: number, heroes = 2): WaveSpec {
   const spec = fullWave(wave);
   if (heroes >= 2) return spec;
   for (let cut = wave >= 7 ? 2 : 1; cut > 0; cut--) {
     const kinds = (['grunt', 'zippy', 'bouncer', 'heavy'] as const).filter((kind) => spec[kind] > 0);
-    const total = kinds.reduce((sum, kind) => sum + spec[kind], 0) + spec.king;
+    const total = kinds.reduce((sum, kind) => sum + spec[kind], 0) + spec.king + spec.mother;
     if (total <= 1 || !kinds.length) break;
     spec[kinds.reduce((most, kind) => (spec[kind] > spec[most] ? kind : most), kinds[0])]--;
   }
   return spec;
 }
 function fullWave(wave: number): WaveSpec {
-  if (wave === 5) return { grunt: 2, zippy: 0, bouncer: 0, heavy: 0, king: 1 };
-  if (wave === WAVES) return { grunt: 0, zippy: 2, bouncer: 2, heavy: 1, king: 1 };
-  return { grunt: Math.max(1, 3 - Math.floor(wave / 3)), zippy: wave >= 2 ? Math.min(2, Math.ceil(wave / 3)) : 0, bouncer: wave >= 3 ? Math.min(2, Math.floor(wave / 3)) : 0, heavy: wave >= 6 ? Math.floor(wave / 4) : 0, king: 0 };
+  if (wave === 5) return { grunt: 2, zippy: 0, bouncer: 0, heavy: 0, king: 1, mother: 0 };
+  if (wave === WAVES) return { grunt: 0, zippy: 2, bouncer: 2, heavy: 1, king: 1, mother: 0 };
+  if (wave > WAVES) {
+    // Overtime: the field stays the same size and gets meaner, bosses keep coming every fifth wave.
+    const bosses = bossOf(wave);
+    const king = bosses.filter((boss) => boss === 'king').length, mother = bosses.filter((boss) => boss === 'mother').length;
+    if (bosses.length) return { grunt: 0, zippy: 2, bouncer: 1, heavy: bosses.length > 1 ? 0 : 1, king, mother };
+    return { grunt: 1, zippy: 2, bouncer: 2, heavy: Math.min(3, Math.floor(wave / 5)), king: 0, mother: 0 };
+  }
+  return { grunt: Math.max(1, 3 - Math.floor(wave / 3)), zippy: wave >= 2 ? Math.min(2, Math.ceil(wave / 3)) : 0, bouncer: wave >= 3 ? Math.min(2, Math.floor(wave / 3)) : 0, heavy: wave >= 6 ? Math.floor(wave / 4) : 0, king: 0, mother: 0 };
 }
 
 const ENEMY_STATS: Record<EnemyKind, { hp: number; speed: number }> = {
-  grunt: { hp: 1, speed: 0.55 }, zippy: { hp: 1, speed: 1.05 }, bouncer: { hp: 2, speed: 0.7 }, heavy: { hp: 4, speed: 0.5 }, king: { hp: 12, speed: 0.5 }
+  grunt: { hp: 1, speed: 0.55 }, zippy: { hp: 1, speed: 1.05 }, bouncer: { hp: 2, speed: 0.7 }, heavy: { hp: 4, speed: 0.5 }, king: { hp: 12, speed: 0.5 }, mother: { hp: 10, speed: 0.45 }
 };
 
 /** Enemies land as far from the players as the map allows, so a wave never appears on someone's nose. */
@@ -775,7 +874,8 @@ export function spawnWave(world: World, wave: number) {
   kinds.forEach((kind, index) => {
     const [x, y] = spots[Math.min(index * 11, spots.length - 1)];
     const stats = ENEMY_STATS[kind];
-    const tank = makeTank(world, 1, -1, x, y, kind === 'king' && heroCount < 2 ? SOLO_KING_HP : stats.hp, kind);
+    const boss = kind === 'king' || kind === 'mother';
+    const tank = makeTank(world, 1, -1, x, y, boss && heroCount < 2 ? Math.round(stats.hp * SOLO_KING_HP / ENEMY_STATS.king.hp) : stats.hp, kind);
     tank.speed = BASE_SPEED * stats.speed;
     tank.ammo = kind === 'grunt' ? 1 : 2;
     tank.scale = baseScale(world, tank);
