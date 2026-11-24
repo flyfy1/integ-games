@@ -92,7 +92,7 @@ describe('block drop modes in the cabinet', () => {
     let n = 5;
     return {
       storage: { get: <T>(key: string, fallback: T) => (values.has(key) ? values.get(key) as T : fallback), set: (key, value) => { values.set(key, value); }, remove: (key) => { values.delete(key); } },
-      sound: { muted: true, play: vi.fn(), stop: vi.fn(), setMuted: vi.fn() }, random: () => { n = (1664525 * n + 1013904223) >>> 0; return n / 2 ** 32; }, reportScore: vi.fn(), reportComplete: vi.fn(), isReducedMotion: true
+      sound: { muted: true, play: vi.fn(), stop: vi.fn(), setMuted: vi.fn() }, random: vi.fn(() => { n = (1664525 * n + 1013904223) >>> 0; return n / 2 ** 32; }), reportScore: vi.fn(), reportComplete: vi.fn(), isReducedMotion: true
     };
   };
   const press = (root: Element, key: string) => { root.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); root.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })); };
@@ -172,7 +172,11 @@ describe('block drop modes in the cabinet', () => {
       expect(panel.textContent, panel.textContent!).toMatch(/TIME'S UP/);
       expect(s.reportScore).not.toHaveBeenCalled();
       if (mode === 'ultra') expect(s.storage.get<{ trace: number[] }>('ultra', { trace: [] }).trace.length).toBeGreaterThanOrEqual(120);
-      else { expect(s.storage.get<{ played: number }>('daily', { played: 0 }).played).toBe(1); expect(panel.querySelector('[data-share]')).not.toBeNull(); }
+      else {
+        expect(s.storage.get<{ played: number }>('daily', { played: 0 }).played).toBe(1); expect(panel.querySelector('[data-share]')).not.toBeNull();
+        // The Daily's pieces come from the day's seed only; the player's own random source is never read.
+        expect(vi.mocked(s.random)).not.toHaveBeenCalled();
+      }
       controller.destroy();
     }
   });

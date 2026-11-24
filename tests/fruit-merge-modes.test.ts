@@ -90,13 +90,14 @@ describe('fruit orbit helpers, missions and skins', () => {
 });
 
 describe('fruit orbit cabinet modes', () => {
-  const make = (seed: Record<string, unknown> = {}, seat = false) => {
+  const make = (seed: Record<string, unknown> = {}, seat = false, random?: () => number) => {
     const values = new Map<string, unknown>(Object.entries(seed));
     let n = 9;
     const services = {
       storage: { get: <T>(key: string, fallback: T) => (values.has(key) ? values.get(key) as T : fallback), set: (key: string, value: unknown) => { values.set(key, value); }, remove: (key: string) => { values.delete(key); } },
       sound: { muted: true, play: vi.fn(), stop: vi.fn(), setMuted: vi.fn() }, random: () => { n = (1664525 * n + 1013904223) >>> 0; return n / 2 ** 32; }, reportScore: vi.fn(), reportComplete: vi.fn(), isReducedMotion: true
     };
+    if (random) services.random = random;
     const parent = document.createElement('div'); if (seat) parent.dataset.versusSeat = ''; document.body.append(parent);
     const host = document.createElement('div'); parent.append(host);
     const controller = fruitMerge.mount(host, services);
@@ -134,8 +135,11 @@ describe('fruit orbit cabinet modes', () => {
   });
 
   it('the daily jar deals the same drops for everyone today and stays off the leaderboard', () => {
-    const a = make({ mode: 'daily' });
+    // Every player's own random source differs; the daily jar must never read it.
+    const own = vi.fn(() => 0.5);
+    const a = make({ mode: 'daily' }, false, own);
     for (let i = 0; i < 10; i++) { a.key(' '); a.run(0.6); }
+    expect(own).not.toHaveBeenCalled();
     expect(a.services.reportScore).not.toHaveBeenCalled();
     expect(a.host.querySelector('.fo-bar')!.textContent).toMatch(/Daily/);
     a.controller.destroy();

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import game from '../src/games/merge-2048';
+import { dailyKey } from '../src/games/_shared/daily';
 import type { GameServices } from '../src/core/game-types';
 import { seededRandom } from '../src/core/services';
 import { boardFromTiles, canMove, maxTile, resolveMove, restore, seededSpawn, tilesFromBoard, type Board, type Cell } from '../src/games/merge-2048/logic';
@@ -94,9 +95,9 @@ describe('Merge 2048 move puzzles', () => {
 });
 
 
-function cabinet(seed: Record<string, unknown> = {}, seat = false) {
+function cabinet(seed: Record<string, unknown> = {}, seat = false, rng = 5) {
   const values = new Map<string, unknown>(Object.entries(seed));
-  let n = 5;
+  let n = rng;
   const services: GameServices = {
     storage: { get: <T>(key: string, fallback: T) => (values.has(key) ? values.get(key) as T : fallback), set: (key, value) => { values.set(key, value); }, remove: (key) => { values.delete(key); } },
     sound: { muted: true, setMuted: () => undefined, stop: () => undefined, play: () => undefined },
@@ -155,8 +156,9 @@ describe('Merge 2048 cabinet modes', () => {
   });
 
   it('deals the same Daily to every player, ends after 150 moves and records the day off the leaderboard', () => {
-    const play = () => {
-      const g = cabinet({ mode: 'daily' });
+    // Different players have different random sources; the Daily must not depend on them.
+    const play = (rng: number) => {
+      const g = cabinet({ mode: 'daily' }, false, rng);
       const boards: string[] = [];
       const keys = ['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowDown'];
       for (let i = 0; i < 400 && g.host.querySelector<HTMLElement>('[data-panel]')!.hidden; i++) { g.press(keys[i % 4]); if (i < 20) boards.push(JSON.stringify((g.values.get('save-daily') as { board: number[][] } | undefined)?.board)); }
@@ -164,7 +166,7 @@ describe('Merge 2048 cabinet modes', () => {
       const result = { boards, moves: save.moves, score: save.score, panel: g.host.querySelector('[data-panel]')!.textContent, daily: g.values.get('daily'), reported: vi.mocked(g.services.reportScore).mock.calls.length };
       g.done(); return result;
     };
-    const a = play(), b = play();
+    const a = play(5), b = play(987654);
     expect(a.boards).toEqual(b.boards);
     expect(a.score).toBe(b.score);
     expect(a.moves).toBeLessThanOrEqual(150);
@@ -174,7 +176,11 @@ describe('Merge 2048 cabinet modes', () => {
   });
 
   it('solves a move puzzle with the searched line for three stars, and the next one unlocks', () => {
-    const g = cabinet({ mode: 'puzzle' });
+    const g = cabinet({ mode: 'puzzle', 'puzzle-index': 4 });
+    // A stored puzzle resumes straight away; the Puzzles button opens the picker.
+    expect(g.host.querySelector<HTMLElement>('[data-panel]')!.hidden).toBe(true);
+    expect(g.host.querySelector('[data-score]')!.textContent).toBe(`0/${MOVE_PUZZLES[4].moves}`);
+    g.click('[data-modes] [data-mode="puzzle"]');
     expect(g.host.querySelector('[data-panel]')!.textContent).toContain('Move puzzles');
     g.click('[data-puzzle="0"]');
     const p = MOVE_PUZZLES[0], line = optimum(p, p.par)!.line;
@@ -193,6 +199,20 @@ describe('Merge 2048 cabinet modes', () => {
     g.press('u'); g.press('u');
     expect(g.host.querySelector('[data-score]')!.textContent).toBe(`0/${MOVE_PUZZLES[1].moves}`);
     g.done();
+  });
+
+  it('M cycles the boards, also out of a finished Daily, so arrow-and-button controllers are never stuck', () => {
+    const g = cabinet();
+    const order: string[] = [];
+    for (let i = 0; i < 6; i++) { g.press('m'); order.push(String(g.values.get('mode'))); }
+    expect(order).toEqual(['small', 'large', 'stones', 'daily', 'puzzle', 'classic']);
+    g.done();
+    const d = cabinet({ mode: 'daily', 'save-daily': { board: [[2, 4, 2, 4], [4, 2, 4, 2], [2, 4, 2, 4], [4, 2, 4, 2]], score: 10, moves: 150, key: dailyKey() } });
+    expect(d.host.querySelector('[data-panel]')!.textContent).toContain('Daily done');
+    d.press('m');
+    expect(d.values.get('mode')).toBe('puzzle');
+    expect(d.host.querySelector<HTMLElement>('[data-panel]')!.hidden).toBe(true);
+    d.done();
   });
 
   it('keeps split-screen seats on the classic board whatever mode was last picked', () => {

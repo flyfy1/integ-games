@@ -43,13 +43,14 @@ const CSS = `
 .merge-game{--g:9px;align-content:center;justify-items:center;gap:12px}
 .merge-game>.game-hud,.merge-game>.m48-bar,.merge-game>.game-status,.merge-game>.m48-modes{width:min(100%,440px)}
 .merge-game .m48-modes{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
-.merge-game .m48-modes button{flex:1 1 0;min-height:38px;min-width:0;padding:4px 2px;border:1px solid #273149;border-radius:10px;background:#12192A;color:#A8B1C5;font-weight:800;font-size:.85rem;touch-action:manipulation}
+.merge-game .m48-modes button{flex:1 1 0;min-height:38px;min-width:0;padding:4px 3px;border:1px solid #273149;border-radius:10px;background:#12192A;color:#A8B1C5;font-weight:800;font-size:.74rem;touch-action:manipulation}
 @media(pointer:coarse){.merge-game .m48-modes{padding:0 54px}.merge-game .m48-modes button{flex:1 1 28%;min-height:34px}}
 .merge-game .m48-modes button[aria-pressed=true]{background:#70F0C2;border-color:#70F0C2;color:#071712}
 .merge-game .m48-modes button:focus-visible{outline:3px solid #70F0C2;outline-offset:2px}
 .merge-game .m48-stone{position:absolute;width:calc(${CELL});height:calc(${CELL});left:calc(var(--g) + var(--x) * (${CELL} + var(--g)));top:calc(var(--g) + var(--y) * (${CELL} + var(--g)));border-radius:10px;z-index:1;background:repeating-linear-gradient(135deg,#3a4566 0 6px,#323c5a 6px 12px);box-shadow:inset 0 0 0 2px #52617f}
+.merge-game .m48-panel.is-picker .m48-card{max-height:100%;overflow:auto;padding:10px 12px;gap:6px}.merge-game .m48-panel.is-picker h2{font-size:1.3rem}.merge-game .m48-panel.is-picker p{font-size:.8rem}
 .merge-game .m48-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;width:100%}
-.merge-game .m48-picker button{min-height:44px;padding:2px 0;border:1px solid #52617f;border-radius:10px;background:#182039;color:#F7F9FF;font-weight:900;line-height:1.1}
+.merge-game .m48-picker button{min-height:40px;padding:2px 0;border:1px solid #52617f;border-radius:10px;background:#182039;color:#F7F9FF;font-weight:900;line-height:1.1}
 .merge-game .m48-picker button small{display:block;font-size:.62rem;color:#FFDA74;letter-spacing:-.05em}
 .merge-game .m48-picker button:disabled{opacity:.4}
 .merge-game .m48-picker button:focus-visible,.merge-game .m48-picker button.is-current{outline:3px solid #70F0C2;outline-offset:1px}
@@ -98,7 +99,7 @@ ${Object.entries(TILE_STYLES).map(([value, s]) => `.merge-game .tile-${value}{ba
 .merge-game>.game-status{min-height:2.5em;line-height:1.25}
 @keyframes m48-in{from{opacity:0;transform:scale(.96)}}
 @media(max-width:380px){.merge-game{--g:6px}}
-@media(max-height:640px){.game-stage.is-immersive.merge-game>.game-hud{padding-left:54px}}
+@media(max-height:640px){.game-stage.is-immersive.merge-game>.game-hud{padding-left:54px}.game-stage.is-immersive.merge-game>.m48-modes:not([hidden])+.game-hud{padding-left:0}}
 `;
 
 const HINT = 'Swipe or press the arrow keys. Matching tiles merge.';
@@ -365,11 +366,11 @@ const game: GameModule = {
       if (mode !== 'puzzle' && mode !== 'daily') state.rec = store.get(info().best, 0);
       paused = false; touchStart = undefined; persist(); render(); boardEl.focus({ preventScroll: true });
     };
-    const switchMode = (next: ModeId) => {
+    const switchMode = (next: ModeId, picker = true) => {
       if (inVersus()) return;
       mode = next; store.set('mode', mode);
       services.sound.play('tap');
-      if (mode === 'puzzle') { stopVisuals(); loadMode(true); render(); panel = 'picker'; renderPanel(); return; }
+      if (mode === 'puzzle') { stopVisuals(); loadMode(true); render(); if (picker) { panel = 'picker'; renderPanel(); } return; }
       stopVisuals(); loadMode(false); paused = false; render(); if (panel === 'none') boardEl.focus({ preventScroll: true });
     };
     const startPuzzle = (index: number) => { puzzleIndex = index; store.set('puzzle-index', index); mode = 'puzzle'; store.set('mode', mode); services.sound.play('tap'); newGame(true); };
@@ -472,6 +473,8 @@ const game: GameModule = {
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const direction = directions[key];
       if (direction) { event.preventDefault(); move(direction); return; }
+      // M steps to the next board (4×4, 3×3, 5×5, Stones, Daily, Puzzles); it works with any panel open, so it is also a way out.
+      if (key === 'm' && !inVersus() && !event.altKey && !event.ctrlKey && !event.metaKey) { event.preventDefault(); switchMode(MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length], false); return; }
       if (key === 'Escape' && panel === 'picker') { event.preventDefault(); panel = 'none'; renderPanel(); boardEl.focus({ preventScroll: true }); return; }
       // Undo: only for a solo board, or a seat that was addressed directly (a bare key press would hit both seats).
       if ((key === 'u' || key === 'z' || key === 'Backspace') && !event.altKey && (seat || !inVersus())) { event.preventDefault(); undo(); }
@@ -507,8 +510,8 @@ const game: GameModule = {
     window.addEventListener('keydown', onKey, { passive: false });
     host.addEventListener('pointerdown', onPointerDown); host.addEventListener('pointermove', onPointerMove); host.addEventListener('pointerup', onPointerUp); host.addEventListener('pointercancel', onPointerCancel);
     host.addEventListener('click', onClick);
+    // A stored puzzle resumes at its start (no picker), so a controller that only sends arrows is never stuck in a menu.
     loadMode(false);
-    if (mode === 'puzzle' && !inVersus()) panel = 'picker';
     render(); if (panel === 'none') boardEl.focus({ preventScroll: true });
     return {
       pause() { paused = true; touchStart = undefined; stopVisuals(); render(); },
