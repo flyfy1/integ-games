@@ -54,6 +54,11 @@ const CSS = `
 .merge-game .m48-stone{position:absolute;width:calc(${CELL});height:calc(${CELL});left:calc(var(--g) + var(--x) * (${CELL} + var(--g)));top:calc(var(--g) + var(--y) * (${CELL} + var(--g)));border-radius:10px;z-index:1;background:repeating-linear-gradient(135deg,#3a4566 0 6px,#323c5a 6px 12px);box-shadow:inset 0 0 0 2px #52617f}
 .merge-game .m48-panel.is-picker .m48-card{max-height:100%;overflow:auto;padding:10px 12px;gap:6px}.merge-game .m48-panel.is-picker h2{font-size:1.3rem}.merge-game .m48-panel.is-picker p{font-size:.8rem}
 .merge-game .m48-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;width:100%}
+/* On a small board the picker card scrolls; Back stays pinned to its bottom edge so it never needs a scroll to reach. */
+.merge-game .m48-panel.is-picker .m48-actions{position:sticky;bottom:-10px;z-index:1;width:calc(100% + 24px);margin:2px -12px -10px;padding:6px 12px 10px;background:#12192A;border-top:1px solid #273149}
+.merge-game .m48-panel.is-picker .m48-actions .m48-btn{min-height:40px;padding:6px 18px}
+@media(max-width:400px){.merge-game .m48-picker{gap:4px}.merge-game .m48-picker button{min-height:34px}.merge-game .m48-panel.is-picker p{font-size:.72rem}}
+.merge-game .m48-picker button{scroll-margin:8px 0 72px}
 .merge-game .m48-picker button{min-height:40px;padding:2px 0;border:1px solid #52617f;border-radius:10px;background:#182039;color:#F7F9FF;font-weight:900;line-height:1.1}
 .merge-game .m48-picker button small{display:block;font-size:.62rem;color:#FFDA74;letter-spacing:-.05em}
 .merge-game .m48-picker button:disabled{opacity:.4}
@@ -444,7 +449,10 @@ const game: GameModule = {
       if (!buttons.length) return;
       const at = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement));
       const step = direction === 'left' ? -1 : direction === 'right' ? 1 : direction === 'up' ? -6 : 6;
-      buttons[Math.max(0, Math.min(buttons.length - 1, at + step))].focus({ preventScroll: true });
+      const target = buttons[Math.max(0, Math.min(buttons.length - 1, at + step))];
+      target.focus({ preventScroll: true });
+      // The card scrolls on a small board: keep the focused puzzle clear of the pinned Back bar.
+      target.scrollIntoView?.({ block: 'nearest' });
     };
     /** Puts the board back to how it was before the last move. Costs one undo; the spawn that follows the redo is rolled again. */
     const undo = () => {
