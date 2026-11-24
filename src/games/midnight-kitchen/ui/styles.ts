@@ -590,4 +590,8 @@ export const STYLES = `
 .mk.compact .mk-pz-brief{font-size:var(--fs-xs);padding:5px 10px}
 .mk.compact .mk-pz-brief:not(.open) .mk-pz-blurb{display:none}
 @media (prefers-reduced-motion:reduce){.mk-card.cook{animation:none}}
+.mk-daily-rules{display:grid;gap:8px}
+.mk-daily-rule{padding:8px 10px;border-radius:12px;border:2px solid rgba(255,233,168,.35);background:rgba(255,233,168,.08)}
+.mk-daily-rule b{display:block;color:#ffe9a8;font-weight:900}
+.mk-daily-rule small{display:block;color:var(--dim);font-weight:700;line-height:1.3}
 `;

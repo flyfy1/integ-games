@@ -146,7 +146,19 @@ export const EN = {
   'pz.againSub': 'Still works.',
   'pz.missHead': 'Not quite',
   'pz.missSub': 'Try again: your pieces stay where you left them, so you can change just one.',
-  'pz.prep': 'Place every piece, then Cook'
+  'pz.prep': 'Place every piece, then Cook',
+  'daily.door': 'Daily Night',
+  'daily.lock': 'Win night 1–3 to open',
+  'daily.rules': 'Tonight\'s house rules',
+  'daily.rotate': 'They take turns, a new one every five waves, starting with the first. Everyone plays the same hand and the same pests today, with no upgrades.',
+  'daily.best': 'Today\'s best',
+  'daily.streak': 'Streak',
+  'daily.bestStreak': 'Best streak',
+  'daily.newBest': 'Best today!',
+  'daily.todayBest': 'Today\'s best {n}',
+  'daily.streakN': 'streak {n}',
+  'daily.share': 'Copy result',
+  'daily.copied': 'Copied!'
 } as const;
 export type Key = keyof typeof EN;
 
@@ -285,7 +297,19 @@ export const ZH: Record<Key, string> = {
   'pz.againSub': '这招还是灵。',
   'pz.missHead': '差一点',
   'pz.missSub': '再来一次：东西会留在原位，只改一样也行。',
-  'pz.prep': '摆好所有东西，再开火'
+  'pz.prep': '摆好所有东西，再开火',
+  'daily.door': '每日一夜',
+  'daily.lock': '通过第 1–3 关后开放',
+  'daily.rules': '今晚的规矩',
+  'daily.rotate': '两条规矩轮流来，每五波换一次，第一波就开始。今天大家的手牌和害虫都一样，也不算升级。',
+  'daily.best': '今日最佳',
+  'daily.streak': '连续天数',
+  'daily.bestStreak': '最长连续',
+  'daily.newBest': '今日新高！',
+  'daily.todayBest': '今日最佳 {n}',
+  'daily.streakN': '连续 {n} 天',
+  'daily.share': '复制成绩',
+  'daily.copied': '已复制！'
 };
 
 const TABLES: Record<Lang, Record<Key, string>> = { en: EN, zh: ZH };

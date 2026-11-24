@@ -19,6 +19,8 @@ export type ResultsData = {
   chapterOpened?: number | null;
   /** After Hours nights that the stars from this run opened. */
   ahOpened?: string[];
+  /** Daily Night: the date, today's best, the streak, and whether this run set the best. */
+  daily?: { key: string; best: number; streak: number; newBest: boolean };
 };
 export type ScreenParams = { level?: string; results?: ResultsData; from?: ScreenName; tab?: string; chapter?: number; panel?: string };
 
@@ -38,6 +40,10 @@ export type UiContext = {
   startNight(levelId: string, loadout: string[], gift?: string): void;
   /** Difficulty for campaign and After Hours nights (kept in the save). */
   setDifficulty(difficulty: Difficulty): void;
+  /** Daily Night record from the shared daily kit (today's best score, streak). */
+  daily(): { key: string; best: number | null; streak: number; bestStreak: number };
+  /** Copy a line to the clipboard; resolves true when it worked. */
+  copy(text: string): Promise<boolean>;
   /** Leave the results screen for the next step (outro scene, then map or next level). */
   afterResults(results: ResultsData, choice: 'next' | 'retry' | 'map' | 'endless'): void;
   resume(): void;

@@ -1,4 +1,4 @@
-import { DEFENDERS, ENDLESS_LEVEL, ENEMIES, levelById, modeOf, RECIPES } from '../data';
+import { DEFENDERS, dailyPlan, ENDLESS_LEVEL, ENEMIES, levelById, modeOf, RECIPES } from '../data';
 import * as ENDLESS from '../data/endless';
 import { clock, type Key } from '../i18n';
 import { spriteIcon } from '../render/sprites';
@@ -105,11 +105,24 @@ function grannyPanel(ui: UiContext, hand: () => string[], picked: { gift: string
   return panel;
 }
 
+/** Daily Night: today's two house rules, today's best and the streak. */
+function dailyPanel(ui: UiContext): HTMLElement {
+  const { t, tr } = ui.i18n, record = ui.daily(), plan = dailyPlan(record.key);
+  return h('div', { class: 'mk-panel', 'data-daily': record.key },
+    h('h3', null, '☀ ', t('daily.rules')),
+    h('div', { class: 'mk-daily-rules' }, plan.modifiers.map(rule => h('div', { class: 'mk-daily-rule' }, h('b', null, tr(rule.name)), h('small', null, tr(rule.desc))))),
+    h('p', { class: 'mk-sub', style: 'margin:6px 0 10px' }, t('daily.rotate')),
+    h('div', { class: 'mk-records' },
+      h('div', { class: 'mk-record' }, h('b', null, record.best === null ? '–' : String(record.best)), h('small', null, t('daily.best'))),
+      h('div', { class: 'mk-record' }, h('b', null, String(record.streak)), h('small', null, t('daily.streak'))),
+      h('div', { class: 'mk-record' }, h('b', null, String(record.bestStreak)), h('small', null, t('daily.bestStreak')))));
+}
+
 /** Briefing and hand picker. With a fixed hand (tutorial) or fewer cards than slots it is just a briefing. */
 export const loadoutScreen: Screen = (ui, params) => {
   const { t, tr } = ui.i18n, level = levelById(params.level ?? '');
   if (!level) return h('div', { class: 'mk-screen', 'data-screen': 'loadout' });
-  const endless = level.id === ENDLESS_LEVEL.id, mode = modeOf(level), rules = level.rules ?? {};
+  const mode = modeOf(level), daily = mode === 'daily', endless = level.id === ENDLESS_LEVEL.id || daily, rules = level.rules ?? {};
   // A conveyor night shows what rides the belt; a leftovers night deals from everything owned when it starts.
   const belt = rules.conveyor ? [...new Set(rules.conveyor.pool)].filter(id => DEFENDERS[id]) : null;
   const fixed = !!level.cards || !!belt || !!rules.leftovers;
@@ -155,7 +168,7 @@ export const loadoutScreen: Screen = (ui, params) => {
   const seen = visitors(level), newEnemies = new Set(level.introduces?.enemies ?? []);
   const facts = endless ? [] : [t('loadout.waves', { n: level.waves.length }), t('loadout.lanes', { n: (level.activeLanes ?? Array.from({ length: level.lanes })).length }), t('loadout.heat', { n: level.startHeat }), t('loadout.slicesFact', { n: level.slices })];
   const brief = h('div', { class: 'mk-panel paper' },
-    h('div', { class: 'mk-eyebrow' }, endless ? '∞' : mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : level.boss ? `${t('map.chapter', { n: level.chapter })} · ${t('map.boss')}` : `${t('map.chapter', { n: level.chapter })} · ${t('map.level', { n: level.index })}`),
+    h('div', { class: 'mk-eyebrow' }, daily ? `☀ ${ui.daily().key}` : endless ? '∞' : mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : level.boss ? `${t('map.chapter', { n: level.chapter })} · ${t('map.boss')}` : `${t('map.chapter', { n: level.chapter })} · ${t('map.level', { n: level.index })}`),
     h('p', { class: 'mk-lead', style: 'margin-top:4px' }, tr(level.blurb)),
     facts.length ? h('div', { class: 'mk-facts' }, facts.map(fact => h('span', { class: 'mk-chip' }, fact))) : null,
     endless ? null : h('div', { class: 'mk-goal', style: 'color:var(--ink);background:rgba(255,180,84,.18);border-color:rgba(181,101,13,.5)' }, `${t('loadout.bonus')}: ${bonusText(ui, level.bonus)}`),
@@ -179,9 +192,9 @@ export const loadoutScreen: Screen = (ui, params) => {
   // On a wide stage the picker and Start form a sticky right column (both always in view); on a phone that wrapper
   // dissolves (display:contents) so Start stays a sticky bar across the whole screen.
   return h('div', { class: 'mk-screen', 'data-screen': 'loadout' },
-    head(ui, tr(level.name), () => (mode === 'afterhours' ? ui.go('afterhours') : ui.go(endless ? 'title' : 'map', endless ? {} : { chapter: level.chapter }))),
+    head(ui, tr(level.name), () => (mode === 'afterhours' ? ui.go('afterhours') : daily ? ui.go('map') : ui.go(endless ? 'title' : 'map', endless ? {} : { chapter: level.chapter }))),
     h('div', { class: 'mk-body mk-loadout' },
-      h('div', { class: 'mk-brief' }, brief, grannyBox, endless ? endlessPanel(ui) : pests),
+      h('div', { class: 'mk-brief' }, brief, grannyBox, daily ? dailyPanel(ui) : endless ? endlessPanel(ui) : pests),
       endless ? pests : null,
       h('div', { class: 'mk-loadout-side' }, picker, h('div', { class: 'mk-loadout-foot' }, note, start))));
 };

@@ -1,5 +1,5 @@
 import type { GameStorage } from '../../core/game-types';
-import { AFTER_HOURS, AFTER_HOURS_STARS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, PUZZLES, STARTING_DEFENDERS } from './data';
+import { AFTER_HOURS, AFTER_HOURS_STARS, DAILY_ID, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, PUZZLES, STARTING_DEFENDERS } from './data';
 import { isLang, type Lang } from './i18n';
 import { isDifficulty } from './sim';
 import type { Difficulty, LevelDef, MetaState, MetaUpgradeDef } from './types';
@@ -178,6 +178,8 @@ export type Outcome = {
   won: boolean; flawless: boolean; bonus: boolean; time: number; score: number; wave: number; recipes: string[]; enemiesSeen: string[]; defendersUsed: string[];
   /** Difficulty the night was played on (default Standard). */
   difficulty?: Difficulty;
+  /** Daily Night: whether this is the first run of the date (only that one pays crumbs). */
+  firstToday?: boolean;
 };
 export type Reward = {
   crumbs: number; newStars: number; unlocked: string[]; newRecipes: string[]; firstClear: boolean; newBest: boolean;
@@ -197,6 +199,12 @@ export function applyOutcome(save: Save, level: LevelDef, outcome: Outcome): Rew
   for (const id of outcome.recipes) if (!save.cookbook.recipes.includes(id)) { save.cookbook.recipes.push(id); reward.newRecipes.push(id); }
   for (const id of outcome.enemiesSeen) if (!save.cookbook.enemies.includes(id)) save.cookbook.enemies.push(id);
   for (const id of outcome.defendersUsed) if (!save.cookbook.defenders.includes(id)) save.cookbook.defenders.push(id);
+  if (level.id === DAILY_ID) {
+    // Daily Night keeps its own record (the shared daily kit); Endless bests, losses and stars never move.
+    reward.crumbs = outcome.firstToday ? Math.floor(outcome.score / 100) : 0;
+    save.crumbs += reward.crumbs;
+    return reward;
+  }
   if (level.rules?.puzzle) {
     // Puzzles keep their own list, so campaign stars, the arcade progress number and After Hours unlocks never move.
     if (outcome.won) {

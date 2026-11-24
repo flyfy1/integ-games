@@ -1,7 +1,8 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createAudio } from './audio';
-import { AFTER_HOURS, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelById, META_UPGRADES, modeOf, nextLevelId, PUZZLE_SEED, PUZZLES } from './data';
+import { AFTER_HOURS, DAILY_ID, dailyLevel, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelById, META_UPGRADES, modeOf, nextLevelId, PUZZLE_SEED, PUZZLES } from './data';
 import type { LevelDef } from './types';
+import { dailyKey, dailyRandom, readDaily, recordDaily } from '../_shared/daily';
 import { createI18n, defaultLang, type Lang } from './i18n';
 import { attachInput } from './input';
 import { createRenderer, type ViewState } from './render/renderer';
@@ -200,10 +201,11 @@ export const midnightKitchen: GameModule = {
       night = { level: levelId, loadout: [...loadout], gift: help };
       const steps = level.tutorial?.length ?? 0;
       // Puzzles replay the same seed with no upgrades, so the stored answers hold for everyone.
-      const puzzle = modeOf(level) === 'puzzle';
+      // Daily Night too: today's seed for everyone, and no upgrades, so scores compare.
+      const puzzle = modeOf(level) === 'puzzle', daily = level.id === DAILY_ID;
       session = createSession(level, {
-        random: puzzle ? mulberry32(PUZZLE_SEED) : services.random, loadout, meta: puzzle ? undefined : metaOf(save), speed: save.speed, tutorialFrom: tutorialFrom(level.id, steps),
-        difficulty: level.id === ENDLESS_LEVEL.id ? 'standard' : save.difficulty, gift: help,
+        random: puzzle ? mulberry32(PUZZLE_SEED) : daily ? dailyRandom('midnight-kitchen', `${dailyKey()}:sim`) : services.random, loadout, meta: puzzle || daily ? undefined : metaOf(save), speed: save.speed, tutorialFrom: tutorialFrom(level.id, steps),
+        difficulty: level.id === ENDLESS_LEVEL.id || daily ? 'standard' : save.difficulty, gift: help,
         onDeny: reason => { hud?.deny(reason); audio.sfx('deny'); },
         onTutorial: index => { for (let i = 0; i < index; i++) coachStore.see(`${level.id}:${i}`); }
       });
@@ -224,10 +226,12 @@ export const midnightKitchen: GameModule = {
       if (!session || pendingResults) return;
       const sim = session.sim, level = session.level, flags = starFlags(sim), endless = level.id === ENDLESS_LEVEL.id;
       if (modeOf(level) === 'puzzle' && flags.win) puzzleLayout = null;
-      const hadEndless = !!save.levels[ENDLESS_UNLOCK]?.win;
+      const hadEndless = !!save.levels[ENDLESS_UNLOCK]?.win, isDaily = level.id === DAILY_ID;
+      const dailyBefore = isDaily ? readDaily(services.storage) : null, today = dailyKey();
       const openNights = new Set(AFTER_HOURS.filter(item => isUnlocked(save, item.id)).map(item => item.id));
       const openChapters = new Set(CHAPTERS.filter(chapter => chapter.levels[0] && isUnlocked(save, chapter.levels[0])).map(chapter => chapter.id));
-      const reward = applyOutcome(save, level, { won: flags.win, flawless: flags.flawless, bonus: flags.bonus, time: sim.time, score: sim.score, wave: sim.wave + 1, recipes: sim.stats.recipes, enemiesSeen: sim.stats.enemiesSeen, defendersUsed: sim.stats.defendersUsed, difficulty: sim.difficulty });
+      const reward = applyOutcome(save, level, { won: flags.win, flawless: flags.flawless, bonus: flags.bonus, time: sim.time, score: sim.score, wave: sim.wave + 1, recipes: sim.stats.recipes, enemiesSeen: sim.stats.enemiesSeen, defendersUsed: sim.stats.defendersUsed, difficulty: sim.difficulty, firstToday: isDaily && dailyBefore?.lastKey !== today });
+      const dailyAfter = isDaily ? recordDaily(services.storage, sim.score) : null;
       if (flags.win && level.tutorial) for (let i = 0; i < level.tutorial.length; i++) if (!save.coach.seen.includes(`${level.id}:${i}`)) save.coach.seen.push(`${level.id}:${i}`);
       persist();
       if (endless) services.reportScore(sim.score);
@@ -237,7 +241,8 @@ export const midnightKitchen: GameModule = {
       pendingResults = {
         level, won: flags.win, flags, reward, time: sim.time, kills: sim.stats.kills, score: sim.score, wave: sim.wave + 1, stats: { ...sim.stats, recipes: [...sim.stats.recipes] },
         nextLevel: flags.win ? nextOf(level) : null, endlessUnlocked: !hadEndless && !!save.levels[ENDLESS_UNLOCK]?.win, chapterOpened: opened?.id ?? null,
-        ahOpened: AFTER_HOURS.filter(item => !openNights.has(item.id) && isUnlocked(save, item.id)).map(item => item.id)
+        ahOpened: AFTER_HOURS.filter(item => !openNights.has(item.id) && isUnlocked(save, item.id)).map(item => item.id),
+        daily: dailyAfter ? { key: today, best: dailyAfter.scores[today] ?? sim.score, streak: dailyAfter.streak, newBest: sim.score > (dailyBefore?.scores[today] ?? -1) } : undefined
       };
     }
     /** The next night in the same list (campaign or Chef's Table); side nights have none. */
@@ -281,6 +286,8 @@ export const midnightKitchen: GameModule = {
       get inLevel() { return !!session; },
       go: (name, params) => { audio.sfx('ui'); go(name, params); },
       openLevel(levelId) {
+        // Daily Night is rebuilt from today's date each time it is opened (a session left open past midnight moves on).
+        if (levelId === DAILY_ID) { dailyLevel(); audio.sfx('ui'); go('loadout', { level: DAILY_ID }); return; }
         const level = levelById(levelId);
         if (!level) return;
         audio.sfx('ui');
@@ -292,6 +299,8 @@ export const midnightKitchen: GameModule = {
       },
       startNight(levelId, loadout, gift) { audio.sfx('ui'); startNight(levelId, loadout, gift); },
       setDifficulty(difficulty) { save.difficulty = difficulty; persist(); audio.sfx('select'); },
+      daily() { const key = dailyKey(), record = readDaily(services.storage); return { key, best: record.scores[key] ?? null, streak: record.streak, bestStreak: record.bestStreak }; },
+      async copy(text) { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } },
       afterResults(results, choice) {
         audio.sfx('ui');
         const proceed = () => {

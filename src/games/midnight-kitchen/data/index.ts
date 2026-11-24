@@ -15,3 +15,4 @@ export { CHAPTERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVELS, LEVEL_LIST, UPCOMING_C
 export { endlessWave } from './endless';
 export { AFTER_HOURS, AFTER_HOURS_BY_ID, AFTER_HOURS_STARS } from './afterhours';
 export { PUZZLES, PUZZLE_SEED, type PuzzleDef } from './puzzles';
+export { DAILY_ID, dailyLevel, dailyPlan, type DailyPlan } from './daily';

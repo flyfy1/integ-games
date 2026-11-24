@@ -1,5 +1,6 @@
 import { AFTER_HOURS_BY_ID, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, modeOf, PUZZLES, RECIPES } from '../data';
 import { clock, type Key } from '../i18n';
+import { dailyShareText } from '../../_shared/daily';
 import { spriteIcon } from '../render/sprites';
 import type { Screen, UiContext } from './context';
 import { crumbs, h, head } from './dom';
@@ -21,7 +22,7 @@ const stat = (label: string, value: string | number) => h('div', { class: 'mk-st
 export const resultsScreen: Screen = (ui, params) => {
   const { t, tr } = ui.i18n, data = params.results;
   if (!data) return h('div', { class: 'mk-screen', 'data-screen': 'results' });
-  const { level, won, flags, reward } = data, endless = level.id === ENDLESS_LEVEL.id, stats = data.stats, mode = modeOf(level);
+  const { level, won, flags, reward } = data, mode = modeOf(level), endless = level.id === ENDLESS_LEVEL.id || mode === 'daily', stats = data.stats;
   /** The campaign's very last night gets the dawn ending; side nights never do. */
   const lastNight = mode === 'campaign' && LEVEL_LIST[LEVEL_LIST.length - 1]?.id === level.id;
   const eyebrow = mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : mode === 'puzzle' ? t('pz.eyebrow', { n: level.index }) : t('map.chapter', { n: level.chapter });
@@ -30,7 +31,22 @@ export const resultsScreen: Screen = (ui, params) => {
   let d = 0.35;
   const next = () => (d += 0.18).toFixed(2);
 
-  if (endless) {
+  if (data.daily) {
+    // Daily Night: today's score against today's best, the streak, and a line to share.
+    const day = data.daily, share = dailyShareText(t('title.name'), data.score, day.streak, day.key, ui.i18n.lang === 'zh');
+    const status = h('span', { role: 'status', 'aria-live': 'polite', class: 'mk-sub' });
+    box.append(
+      h('div', { class: 'mk-eyebrow' }, `☀ ${tr(level.name)} · ${day.key}`),
+      h('h2', null, t('results.endless', { n: data.wave })),
+      day.newBest ? h('div', { class: 'mk-pb', role: 'status' }, '★ ', t('daily.newBest')) : '',
+      h('div', { class: 'mk-panel', style: 'width:100%', 'data-daily-result': '' },
+        h('div', { class: 'mk-eyebrow' }, t('hud.score')), h('div', { class: 'mk-bigscore' }, String(data.score)),
+        h('p', { style: 'margin-top:4px' }, t('daily.todayBest', { n: day.best }), ' · ', t('daily.streakN', { n: day.streak })),
+        h('div', { class: 'mk-row center', style: 'margin-top:8px' },
+          h('button', { class: 'mk-btn small', 'data-action': 'share', onclick: async () => { status.textContent = (await ui.copy(share)) ? t('daily.copied') : share; } }, `⧉ ${t('daily.share')}`), status)),
+      h('div', { class: 'mk-statgrid' }, stat(t('results.waves'), data.wave), stat(t('results.kills'), data.kills), stat(t('results.recipesCooked'), stats?.recipes.length ?? 0), stat(t('results.time'), clock(data.time))));
+    if (day.newBest) chime(ui, element, [0.3]);
+  } else if (endless) {
     const best = reward.newBest || reward.newBestWave;
     box.append(
       h('div', { class: 'mk-eyebrow' }, tr(level.name)),
