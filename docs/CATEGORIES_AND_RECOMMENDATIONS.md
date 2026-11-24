@@ -6,9 +6,9 @@ Classification should help a visitor answer two questions quickly: “what kind 
 
 ## Listed arcade (2026-11-11)
 
-The catalog installs 27 modules, but the arcade lists only the eleven in `featuredSlugs` (`src/core/catalog.ts`), in this order: Midnight Kitchen (added 2026-11-11), Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
+The catalog installs 28 modules, but the arcade lists only the twelve in `featuredSlugs` (`src/core/catalog.ts`), in this order: Midnight Kitchen (added 2026-11-11), Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Lantern Works (added 2026-11-24), Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
 
-Listed categories: Puzzle & Strategy (Midnight Kitchen, Merge 2048, Geo Quiz), Match & Build (Block Drop, Fruit Orbit), Quick Reflex (Tank Brawl, Pocket Survivor, Pad Pals), Action & Adventure (Ashfall, Pelican Pedal, Tank Clash). Tank Brawl and Pocket Survivor moved to Quick Reflex because their rounds and runs are short. `recommendationsFor` returns only listed games: the editorial picks that are still listed, topped up in arcade order to four. The table below records the original 26-game editorial picks and is historical for hidden games.
+Listed categories: Puzzle & Strategy (Midnight Kitchen, Merge 2048, Geo Quiz), Match & Build (Block Drop, Lantern Works, Fruit Orbit), Quick Reflex (Tank Brawl, Pocket Survivor, Pad Pals), Action & Adventure (Ashfall, Pelican Pedal, Tank Clash). Tank Brawl and Pocket Survivor moved to Quick Reflex because their rounds and runs are short. `recommendationsFor` returns only listed games: the editorial picks that are still listed, topped up in arcade order to four. The table below records the original 26-game editorial picks and is historical for hidden games.
 
 ## Primary categories
 
@@ -33,6 +33,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 | Memory Flip | Puzzle & Strategy | `Memory`, `Calm` | Word Trail, Pocket Mines, Calm Sudoku, Perfect Stack |
 | Hexa Fit | Puzzle & Strategy | `Spatial`, `Lines` | Merge 2048, Block Drop, Bubble Pop, Fruit Orbit |
 | Block Drop | Match & Build | `Lines`, `Endless` | Hexa Fit, Fruit Orbit, Merge 2048, Perfect Stack |
+| Lantern Works | Match & Build | `Factory`, `Levels` | Block Drop, Fruit Orbit, Merge 2048, Midnight Kitchen |
 | Perfect Stack | Match & Build | `Timing`, `Endless` | Block Drop, Orbit Knife, Sky Flap, Fruit Orbit |
 | Fruit Orbit | Match & Build | `Merge`, `Physics` | Merge 2048, Bubble Pop, Hexa Fit, Tiny Wheels |
 | Bubble Pop | Match & Build | `Aim`, `Match` | Fruit Orbit, Hexa Fit, Brick Pulse, Word Trail |

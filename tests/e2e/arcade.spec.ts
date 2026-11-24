@@ -7,8 +7,8 @@ test('all catalog routes render without a page error', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   const listed = await page.locator('[data-grid] article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(listed).toHaveLength(11);
-  expect(allSlugs).toHaveLength(27);
+  expect(listed).toHaveLength(12);
+  expect(allSlugs).toHaveLength(28);
   // Hidden cabinets stay playable from their direct links, so every installed route is still exercised.
   for (const gameRoute of allSlugs.map((slug) => `/play/${slug}/`)) {
     await page.goto(gameRoute);
@@ -22,16 +22,16 @@ test('all catalog routes render without a page error', async ({ page }) => {
 
 test('category filters persist in the URL and search stays within the active category', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /Match & Build 2/ }).click();
+  await page.getByRole('button', { name: /Match & Build 3/ }).click();
   await expect(page).toHaveURL(/\?category=match-build$/);
   await expect(page.getByRole('heading', { name: 'Match & Build' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Match & Build 2/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: /Match & Build 3/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(3);
   await page.getByRole('searchbox', { name: 'Search Match & Build' }).fill('no-match-here');
   await expect(page.getByText('No games matched')).toBeVisible();
   await expect(page.locator('[data-results]')).toHaveText('0 games in Match & Build');
   await page.reload();
-  await expect(page.getByRole('button', { name: /Match & Build 2/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /Match & Build 3/ })).toHaveAttribute('aria-pressed', 'true');
   await page.goto('/play/merge-2048');
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
@@ -87,7 +87,7 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
   const primaryKey: Record<string, string> = {
     'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
     'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
-    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space', 'midnight-kitchen': 'Enter'
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space', 'midnight-kitchen': 'Enter', 'lantern-works': 'Enter'
   };
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
