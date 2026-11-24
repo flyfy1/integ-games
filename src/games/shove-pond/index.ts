@@ -175,6 +175,7 @@ export const shovePond: GameModule = {
       const sol = planFromString(scene.sc.solution);
       if (!sol) return -1;
       if (draft.some((a, i) => a !== sol[i])) return -1;
+      if (scene.list === 'puzzle' && draft.length >= 1) return -1; // a puzzle hint shows the first hop only
       const next = sol[draft.length];
       return next !== undefined && next < 4 ? next : -1;
     };
@@ -183,6 +184,7 @@ export const shovePond: GameModule = {
       const showAlways = scene.list === 'lesson' && scene.index < 2;
       if (!showAlways && !scene.hint) return false;
       const sol = planFromString(scene.sc.solution);
+      if (scene.list === 'puzzle' && draft.length >= 1) return false;
       return !!sol && draft.every((a, i) => a === sol[i]) && sol[draft.length] === BRACE;
     };
 
@@ -253,7 +255,7 @@ export const shovePond: GameModule = {
         h('button', { class: 'r', 'aria-label': 'Right', onclick: () => addStep(RIGHT) }, '▶'));
       braceBtn = h('button', { class: `sp-act brace${nextIsBrace() ? ' sp-hint' : ''}`, onclick: () => addStep(BRACE), disabled: !planning || draft.includes(BRACE) || draft.length >= 3 }, `🛡 ${t('hud.brace')}`) as HTMLButtonElement;
       const full = draft.length >= 3;
-      readyBtn = h('button', { class: `sp-act ready${ready ? ' done' : ''}${full && !ready && scene?.kind === 'scenario' && (scene.list === 'lesson' && scene.index < 2 || scene.hint) ? ' sp-hint' : ''}`, onclick: () => pressReady(), disabled: !planning }, ready ? t('hud.readyDone') : t('hud.ready')) as HTMLButtonElement;
+      readyBtn = h('button', { class: `sp-act ready${ready ? ' done' : ''}${full && !ready && scene?.kind === 'scenario' && (scene.list === 'lesson' && (scene.index < 2 || scene.hint)) ? ' sp-hint' : ''}`, onclick: () => pressReady(), disabled: !planning }, ready ? t('hud.readyDone') : t('hud.ready')) as HTMLButtonElement;
       const acts = h('div', { class: 'sp-acts' }, braceBtn, readyBtn);
       bottom.append(timerBox, slots, h('div', { class: 'sp-controls' }, pad, acts));
       if (scene?.kind === 'match' && scene.mode !== 'pass') {
@@ -261,7 +263,7 @@ export const shovePond: GameModule = {
         for (let i = 0; i < 4; i++) em.append(h('button', { 'aria-label': `Emote ${i + 1}`, onclick: () => sendEmote(i) }, t(`emote.${i}` as Key)));
         bottom.append(em);
       }
-      if (scene?.kind === 'scenario' && scene.fails > 0 && !scene.hint) {
+      if (scene?.kind === 'scenario' && scene.fails >= (scene.list === 'puzzle' ? 2 : 1) && !scene.hint) {
         bottom.prepend(h('div', { class: 'sp-slots sp-hintrow' }, h('button', { class: 'sp-small', onclick: () => { if (scene?.kind === 'scenario') { scene.hint = true; draft = []; refreshHud(); } } }, `💡 ${t('hud.hint')}`)));
       }
     }
