@@ -34,6 +34,8 @@ export type Renderer = {
   reset(): void;
   /** Screen shake amount (0 when reduced motion). */
   readonly shake: number;
+  /** Art capture only: leave out lift rings and counters so a close-up reads as a picture. */
+  clean: boolean;
 };
 
 const rand = (seed: number) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
@@ -344,7 +346,7 @@ export function createRenderer(reduced: boolean): Renderer {
       const connected = isTrail(sim, big ? food.at : idx(food.x, food.y));
       if (connected && !big) { ctx.fillStyle = 'rgba(255,220,120,.25)'; ctx.beginPath(); ctx.arc(x, y, cs * 0.5, 0, Math.PI * 2); ctx.fill(); }
       drawFood(ctx, food.kind, x, y, cs * (big ? 0.5 + Math.min(0.25, food.lift! / 60) : 0.42), frac, t, food.moving ? 1 : food.power > 0 ? 0.4 : 0);
-      if (big) {
+      if (big && !renderer.clean) {
         const k = Math.min(1, food.power / food.lift!);
         ctx.lineWidth = cs * 0.09; ctx.strokeStyle = 'rgba(43,29,20,.55)';
         ctx.beginPath(); ctx.arc(x, y, cs * 0.72, 0, Math.PI * 2); ctx.stroke();
@@ -448,6 +450,7 @@ export function createRenderer(reduced: boolean): Renderer {
   }
 
   const renderer: Renderer = {
+    clean: false,
     get layout() { return layout; },
     get shake() { return reduced ? 0 : shake; },
     resize(width, height, pr, insets, lvl) {
