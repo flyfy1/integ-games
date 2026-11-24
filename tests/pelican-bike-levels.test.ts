@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildRows, CHUNKS, LEVELS, ROWS } from '../src/games/pelican-bike/levels';
-import { cloneSim, createSim, noInput, STEP, stepSim } from '../src/games/pelican-bike/sim';
+import { cloneSim, createSim, CYCLE, noInput, STEP, stepSim } from '../src/games/pelican-bike/sim';
 import type { Input, Sim } from '../src/games/pelican-bike/sim';
 
 /**
@@ -22,8 +22,8 @@ type Node = { sim: Sim; jump: boolean };
  * `full` explores everything in time order (finds the fastest clear and which items can be reached); otherwise it
  * dives for the lighthouse, always expanding the state that has ridden furthest, and stops when it gets there.
  */
-export function explore(lv: number, full: boolean, budget = 4000000) {
-  const start = createSim(lv);
+export function explore(lv: number, full: boolean, budget = 4000000, storm = false) {
+  const start = createSim(lv, 0, { storm });
   const got = new Set<number>();
   const visits = new Map<number, { n: number; t: number; shapes: number }>();
   let queue: Node[] = [{ sim: start, jump: false }];
@@ -46,10 +46,12 @@ export function explore(lv: number, full: boolean, budget = 4000000) {
       if (s.fishGot + s.starGot !== before) s.items.forEach((it, i) => { if (it.got) got.add(i); });
       if (s.cleared) { clearTime = Math.min(clearTime, s.time); continue; }
       const P = s.P;
-      // Near a ferry or lift the same spot is a different situation at each point of the platform's cycle.
-      const near = s.movers.find((m) => Math.abs(m.ox - P.x) < 520);
-      const phase = near ? Math.floor(((near.t % TAU) / TAU) * 6) : 0;
-      const key = ((Math.floor(P.x / 32) * 32 + Math.floor((P.y + 200) / 32)) * 12 + P.jumps * 4 + (P.vy < 0 ? 2 : 0) + (a.jump ? 1 : 0)) * 6 + phase;
+      // Near a ferry or lift the same spot is a different situation at each point of the platform's cycle; near a
+      // tide pool or gust lane, at each point of the shared tide cycle.
+      const tidal = s.pools.some((p) => p.x0 - 520 < P.x && p.x1 + 520 > P.x) || s.gusts.some((g) => g.x0 - 520 < P.x && g.x1 + 520 > P.x);
+      const near = tidal ? null : s.movers.find((m) => Math.abs(m.ox - P.x) < 520);
+      const phase = tidal ? Math.floor(((s.time % CYCLE) / CYCLE) * 8) : near ? Math.floor(((near.t % TAU) / TAU) * 6) : 0;
+      const key = ((Math.floor(P.x / 32) * 32 + Math.floor((P.y + 200) / 32)) * 12 + P.jumps * 4 + (P.vy < 0 ? 2 : 0) + (a.jump ? 1 : 0)) * 8 + phase;
       // Speed and sprint energy matter at long gaps, so a spot is revisited when it is reached in a new shape.
       const shape = 1 << ((P.vx < -100 ? 0 : P.vx < 100 ? 1 : P.vx < 340 ? 2 : 3) * 2 + (P.stamina >= 0.3 ? 1 : 0));
       const seen = visits.get(key);
@@ -99,7 +101,7 @@ describe('pelican-bike level data', () => {
       expect(all.split('C').length - 1).toBe(Math.floor((lv.seq.length - 1) / 4));
       expect(all.split('o').length - 1).toBeGreaterThan(30);
       lv.seq.forEach((key) => expect(CHUNKS[key], key).toBeDefined());
-      expect(/^[#B=^xo*SCFPcgjhv.]+$/.test(all)).toBe(true);
+      expect(/^[#B=^xo*SCFPcgjhvukwWl<>.]+$/.test(all)).toBe(true);
     });
   });
 
@@ -120,8 +122,10 @@ describe('pelican-bike stages are completable without taking damage', () => {
 });
 
 // The exhaustive pass takes from half a minute to over a minute, so it runs on request: PELICAN_FULL=1 npx vitest run tests/pelican-bike-levels.test.ts
+const only = process.env.PELICAN_ONLY?.split(',').map(Number);
 describe.skipIf(!process.env.PELICAN_FULL)('pelican-bike exhaustive reachability', () => {
   LEVELS.forEach((lv, i) => {
+    if (only && !only.includes(i)) return;
     it(`${lv.nameEn}: every fish and star can be collected, and par leaves fair slack over a perfect sprint`, () => {
       const res = explore(i, true);
       console.log(lv.nameEn, JSON.stringify(res));

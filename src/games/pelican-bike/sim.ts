@@ -1,6 +1,6 @@
-import { buildRows, LEVELS, ROWS } from './levels';
+import { buildRows, LEVELS, ROWS, stormPar } from './levels';
 import { MAXST, PH, PW, T, W, WATER_Y } from './theme';
-import type { Checkpoint, Crumble, Enemy, Goal, Item, Mover, Spring } from './types';
+import type { Checkpoint, Crumble, Enemy, Goal, Gust, Item, Mover, Pool, Spring, Vent } from './types';
 
 /** Headless, deterministic simulation of one stage. No DOM, no audio, no randomness: the game shell and the tests both drive it. */
 
@@ -8,11 +8,22 @@ export const STEP = 1 / 120;
 export const PICKUP_R = 38;
 export const DEAD_TIME = 0.8;
 const BUCKET = 160;
+/** Tide pools and gust lanes share one cycle, so a stage's rhythm is easy to learn (and to search). */
+export const CYCLE = 4.8;
+/** How high rising air reaches above a vent, and the highest it can carry anyone. */
+export const UPDRAFT_H = 300;
+const UPDRAFT_CEIL = 70;
+/** Sideways drift from a full gust: on the ground, in the air, and gliding (wings out catch the most). */
+const GUST_DRIFT = [130, 200, 285];
+/** A pursuer starts this far behind the spawn point and waits this long before it moves. */
+export const CHASE_GAP = 420;
+export const CHASE_GRACE = 1.2;
+const TAU = Math.PI * 2;
 
 export type Input = { left: boolean; right: boolean; down: boolean; jump: boolean; turbo: boolean; jumpPressed: boolean };
 export const noInput = (): Input => ({ left: false, right: false, down: false, jump: false, turbo: false, jumpPressed: false });
 
-export type SimEventKind = 'jump' | 'flap' | 'land' | 'fish' | 'star' | 'stomp' | 'crate' | 'spring' | 'hurt' | 'die' | 'check' | 'oneup' | 'crumble' | 'jelly' | 'clear' | 'respawn';
+export type SimEventKind = 'jump' | 'flap' | 'land' | 'fish' | 'star' | 'stomp' | 'crate' | 'spring' | 'hurt' | 'die' | 'check' | 'oneup' | 'crumble' | 'jelly' | 'clear' | 'respawn' | 'creak';
 export type SimEvent = { k: SimEventKind; x: number; y: number; n?: number; s?: string };
 
 export type Player = {
@@ -25,9 +36,12 @@ export type Player = {
 };
 
 export type Sim = {
-  lv: number;
+  lv: number; storm: boolean; par: number;
   grid: string[][]; cols: number; worldW: number;
   items: Item[]; itemBuckets: number[][]; enemies: Enemy[]; enemySpawn: Enemy[]; movers: Mover[]; crumbles: Crumble[]; springs: Spring[]; checks: Checkpoint[]; goal: Goal;
+  vents: Vent[]; pools: Pool[]; gusts: Gust[];
+  /** Chase finale: the pursuer's speed (0 when there is none) and where and when it last set off. */
+  chaseSpeed: number; chaseX0: number; chaseT0: number; chaseKind: 'wave' | 'gull' | '';
   P: Player;
   spawnX: number; spawnY: number;
   time: number; fishGot: number; fishTot: number; starGot: number; starTot: number;
@@ -49,12 +63,41 @@ function newPlayer(): Player {
   };
 }
 
-export function createSim(lv: number, baseScore = 0): Sim {
+export type SimOptions = { storm?: boolean };
+/** Storm remixes: faster enemies, platforms and pursuers, stronger gusts, quicker jellyfish. */
+const STORM = { enemy: 1.3, mover: 1.2, jellyWait: 1.0, chase: 1.08, gust: 1.15 };
+
+/** Water level of a tide pool at time `t`: low (floor showing) at the start of its cycle, brim-full half a cycle later. */
+export function poolLevel(p: Pool, t: number): number {
+  return p.lo + (p.hi - p.lo) * (0.5 - 0.5 * Math.cos(TAU * (t / CYCLE + p.ph)));
+}
+/** Strength of a gust lane at time `t`, 0..1: on for the first ~45% of its cycle, with short ramps. */
+export function gustPower(g: Gust, t: number): number {
+  const u = ((t / CYCLE + g.ph) % 1 + 1) % 1;
+  return u < 0.06 ? u / 0.06 : u < 0.4 ? 1 : u < 0.46 ? (0.46 - u) / 0.06 : 0;
+}
+/** True for the last stretch before a gust lane starts blowing, so it can be shown coming. */
+export function gustWarning(g: Gust, t: number): boolean {
+  const u = ((t / CYCLE + g.ph) % 1 + 1) % 1;
+  return u > 0.8;
+}
+/** Left edge of the pursuer, or -Infinity when the stage has none. */
+export function chaseX(s: Sim): number {
+  if (!s.chaseSpeed) return -Infinity;
+  return s.chaseX0 + s.chaseSpeed * Math.max(0, s.time - s.chaseT0 - CHASE_GRACE);
+}
+
+export function createSim(lv: number, baseScore = 0, opts: SimOptions = {}): Sim {
   const rows = buildRows(lv);
   const cols = rows[0].length;
+  const storm = !!opts.storm;
+  const L = LEVELS[lv];
+  const es = storm ? STORM.enemy : 1;
   const s: Sim = {
-    lv, grid: Array.from({ length: ROWS }, () => new Array<string>(cols).fill('.')), cols, worldW: cols * T,
+    lv, storm, par: storm ? stormPar(lv) : L.par, grid: Array.from({ length: ROWS }, () => new Array<string>(cols).fill('.')), cols, worldW: cols * T,
     items: [], itemBuckets: [], enemies: [], enemySpawn: [], movers: [], crumbles: [], springs: [], checks: [], goal: { x: cols * T - 200, y: 440 },
+    vents: [], pools: [], gusts: [],
+    chaseSpeed: L.chase ? Math.round(L.chase.speed * (storm ? STORM.chase : 1)) : 0, chaseX0: 0, chaseT0: 0, chaseKind: L.chase?.kind ?? '',
     P: newPlayer(), spawnX: 80, spawnY: 300,
     time: 0, fishGot: 0, fishTot: 0, starGot: 0, starTot: 0, deaths: 0, hits: 0, score: baseScore, cleared: false, timeBonus: 0, events: []
   };
@@ -63,25 +106,67 @@ export function createSim(lv: number, baseScore = 0): Sim {
       const ch = rows[r][c], wx = c * T, wy = r * T;
       if (ch === '#' || ch === 'B' || ch === '=' || ch === '^') s.grid[r][c] = ch;
       else if (ch === 'x') { s.grid[r][c] = 'x'; s.crumbles.push({ r, c, x: wx, y: wy, state: 0, t: 0 }); }
+      else if (ch === 'k') { s.grid[r][c] = 'k'; s.crumbles.push({ r, c, x: wx, y: wy, state: 0, t: 0, kind: 'pier' }); }
+      else if (ch === 'u') {
+        s.grid[r][c] = 'u';
+        const prev = s.vents[s.vents.length - 1];
+        if (prev && prev.y === wy && prev.x + prev.w === wx) prev.w += T;
+        else s.vents.push({ x: wx, w: T, y: wy, top: Math.max(UPDRAFT_CEIL, wy - UPDRAFT_H) });
+      }
       else if (ch === 'P') { s.spawnX = wx; s.spawnY = wy + T - PH; }
       else if (ch === 'o') { s.items.push({ type: 'fish', x: wx + 20, y: wy + 20, ph: (c + r) * 0.5, got: false }); s.fishTot++; }
       else if (ch === '*') { s.items.push({ type: 'star', x: wx + 20, y: wy + 20, ph: c * 0.3, got: false }); s.starTot++; }
       else if (ch === 'S') s.springs.push({ x: wx + 4, y: wy + 16, w: 32, h: 24, comp: 0 });
       else if (ch === 'C') s.checks.push({ x: wx + 8, y: wy - 24, w: 24, h: 64, active: false });
       else if (ch === 'F') s.goal = { x: wx + 20, y: wy + 40 };
-      else if (ch === 'c') s.enemies.push({ type: 'crab', x: wx + 4, y: wy + 12, w: 32, h: 28, vx: -65, vy: 0, dir: -1, dead: false, t: c });
-      else if (ch === 'g') s.enemies.push({ type: 'gull', x: wx, y: wy, baseX: wx, baseY: wy, w: 36, h: 26, vx: -95, vy: 0, dir: -1, dead: false, t: c * 0.7 });
+      else if (ch === 'c') s.enemies.push({ type: 'crab', x: wx + 4, y: wy + 12, w: 32, h: 28, vx: -65 * es, vy: 0, dir: -1, dead: false, t: c });
+      else if (ch === 'g') s.enemies.push({ type: 'gull', x: wx, y: wy, baseX: wx, baseY: wy, w: 36, h: 26, vx: -95 * es, vy: 0, dir: -1, dead: false, t: c * 0.7 });
       else if (ch === 'j') s.enemies.push({ type: 'jelly', x: wx + 5, y: WATER_Y + 6, baseY: wy - 70, w: 30, h: 34, vx: 0, vy: 0, dir: 1, state: 'wait', t: (c % 5) * 0.4, dead: false });
       else if (ch === 'h') s.movers.push({ x: wx, y: wy, ox: wx, oy: wy, w: 96, h: 18, dx: 180, dy: 0, sp: 1.5, t: 0, vx: 0, vy: 0 });
       else if (ch === 'v') s.movers.push({ x: wx, y: wy, ox: wx, oy: wy, w: 88, h: 18, dx: 0, dy: -165, sp: 1.6, t: 0, vx: 0, vy: 0 });
     }
   }
+  // Tide pools: each run of columns holding 'w'/'W' is one pool, brim at its highest water cell, floor below its lowest.
+  for (let c = 0; c < cols; c++) {
+    let top = -1, bot = -1, opp = false;
+    for (let r = 0; r < ROWS; r++) if (rows[r][c] === 'w' || rows[r][c] === 'W') { if (top < 0) top = r; bot = r; if (rows[r][c] === 'W') opp = true; }
+    if (top < 0) continue;
+    const last = s.pools[s.pools.length - 1];
+    if (last && last.x1 === c * T) { last.x1 += T; last.hi = Math.min(last.hi, top * T); last.lo = Math.max(last.lo, Math.min((bot + 1) * T, WATER_Y + 6)); if (opp) last.ph = 0.5; }
+    else s.pools.push({ x0: c * T, x1: (c + 1) * T, hi: top * T, lo: Math.min((bot + 1) * T, WATER_Y + 6), ph: opp ? 0.5 : 0 });
+  }
+  // Driftwood logs ride the pool they sit in.
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < cols; c++) {
+    if (rows[r][c] !== 'l') continue;
+    const pi = s.pools.findIndex((p) => c * T >= p.x0 && c * T < p.x1);
+    const wx = c * T;
+    s.movers.push({ x: wx, y: r * T, ox: wx, oy: r * T, w: 84, h: 16, dx: 26, dy: 0, sp: 1.1, t: c * 0.37, vx: 0, vy: 0, pool: pi < 0 ? undefined : pi });
+  }
+  // Gust lanes: each run of columns holding '>' or '<' (one direction per run). Lanes start calm.
+  for (let c = 0; c < cols; c++) {
+    let dir = 0;
+    for (let r = 0; r < ROWS; r++) { if (rows[r][c] === '>') dir = 1; else if (rows[r][c] === '<') dir = -1; }
+    if (!dir) continue;
+    const last = s.gusts[s.gusts.length - 1];
+    if (last && last.x1 === c * T && last.dir === dir) last.x1 += T;
+    else s.gusts.push({ x0: c * T, x1: (c + 1) * T, dir, ph: 0.5 });
+  }
+  if (storm) for (const m of s.movers) m.sp *= STORM.mover;
   s.enemySpawn = s.enemies.map((e) => ({ ...e }));
   s.itemBuckets = Array.from({ length: Math.ceil(s.worldW / BUCKET) + 1 }, () => [] as number[]);
   s.items.forEach((it, i) => s.itemBuckets[Math.floor(it.x / BUCKET)].push(i));
   placePlayer(s);
   s.P.inv = 0;
+  s.chaseX0 = s.spawnX - CHASE_GAP; s.chaseT0 = 0;
+  for (const m of s.movers) placeMover(s, m);
   return s;
+}
+
+function placeMover(s: Sim, m: Mover) {
+  if (m.pool !== undefined) {
+    m.x = m.ox + Math.sin(m.t) * m.dx;
+    m.y = poolLevel(s.pools[m.pool], s.time) - 8;
+  }
 }
 
 function placePlayer(s: Sim) {
@@ -95,8 +180,10 @@ function placePlayer(s: Sim) {
 export function respawn(s: Sim) {
   s.enemies = s.enemySpawn.map((e) => ({ ...e }));
   s.crumbles = s.crumbles.map((cr) => (cr.state === 0 ? cr : { ...cr, state: 0, t: 0 }));
-  for (const cr of s.crumbles) setCell(s, cr.r, cr.c, 'x');
+  for (const cr of s.crumbles) setCell(s, cr.r, cr.c, cr.kind === 'pier' ? 'k' : 'x');
   placePlayer(s);
+  // The pursuer sets off again from behind the checkpoint, after the same grace.
+  s.chaseX0 = s.spawnX - CHASE_GAP; s.chaseT0 = s.time;
   s.events.push({ k: 'respawn', x: s.P.x, y: s.P.y });
 }
 
@@ -127,9 +214,9 @@ export const isSolidAt = (s: Sim, r: number, c: number) => {
   if (r < 0) return false;
   if (r >= ROWS || c < 0 || c >= s.cols) return c < 0 || c >= s.cols;
   const ch = s.grid[r][c];
-  return ch === '#' || ch === 'B' || ch === 'x';
+  return ch === '#' || ch === 'B' || ch === 'x' || ch === 'u';
 };
-const isOneWay = (s: Sim, r: number, c: number) => r >= 0 && r < ROWS && c >= 0 && c < s.cols && s.grid[r][c] === '=';
+const isOneWay = (s: Sim, r: number, c: number) => r >= 0 && r < ROWS && c >= 0 && c < s.cols && (s.grid[r][c] === '=' || s.grid[r][c] === 'k');
 const isSpike = (s: Sim, r: number, c: number) => r >= 0 && r < ROWS && c >= 0 && c < s.cols && s.grid[r][c] === '^';
 
 function addScore(s: Sim, pts: number) { s.score += pts; }
@@ -152,6 +239,24 @@ function hurt(s: Sim, reason: string) {
   P.vy = -370; P.vx = -P.dir * 200; P.ground = false;
 }
 
+/**
+ * A rickety pier gives way from where it was touched, plank by plank in both directions, fast enough that stopping
+ * on it is a swim and slow enough that pedalling on keeps you dry.
+ */
+function triggerPier(s: Sim, r: number, c: number) {
+  let c0 = c, c1 = c;
+  while (c0 > 0 && s.grid[r][c0 - 1] === 'k') c0--;
+  while (c1 < s.cols - 1 && s.grid[r][c1 + 1] === 'k') c1++;
+  let fresh = false;
+  for (let i = 0; i < s.crumbles.length; i++) {
+    const cr = s.crumbles[i];
+    if (cr.kind !== 'pier' || cr.r !== r || cr.c < c0 || cr.c > c1 || cr.state !== 0) continue;
+    s.crumbles[i] = { ...cr, state: 1, t: 0.5 + Math.abs(cr.c - c) * 0.16 };
+    fresh = true;
+  }
+  if (fresh) s.events.push({ k: 'creak', x: c * T + 20, y: r * T });
+}
+
 /** Advance one fixed step. `inp.jumpPressed` is consumed by the caller (set it for exactly one step per press). */
 export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
   if (s.cleared) return;
@@ -161,7 +266,7 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
   for (const m of s.movers) {
     m.t += dt * m.sp;
     const nx = m.ox + Math.sin(m.t) * m.dx;
-    const ny = m.oy + (1 - Math.cos(m.t)) * 0.5 * m.dy;
+    const ny = m.pool !== undefined ? poolLevel(s.pools[m.pool], s.time) - 8 : m.oy + (1 - Math.cos(m.t)) * 0.5 * m.dy;
     m.vx = (nx - m.x) / dt; m.vy = (ny - m.y) / dt;
     m.x = nx; m.y = ny;
   }
@@ -170,10 +275,10 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
     if (cr.state === 0) continue;
     if (cr.state === 1) {
       cr.t -= dt;
-      if (cr.t <= 0) { cr.state = 2; cr.t = 3.2; setCell(s, cr.r, cr.c, '.'); s.events.push({ k: 'crumble', x: cr.x + 20, y: cr.y + 20 }); }
+      if (cr.t <= 0) { cr.state = 2; cr.t = cr.kind === 'pier' ? 4.2 : 3.2; setCell(s, cr.r, cr.c, '.'); s.events.push({ k: 'crumble', x: cr.x + 20, y: cr.y + 20, s: cr.kind }); }
     } else if (cr.state === 2) {
       cr.t -= dt;
-      if (cr.t <= 0 && !overlap(P.x, P.y, PW, PH, cr.x, cr.y, T, T)) { cr.state = 0; setCell(s, cr.r, cr.c, 'x'); }
+      if (cr.t <= 0 && !overlap(P.x, P.y, PW, PH, cr.x, cr.y, T, T)) { cr.state = 0; setCell(s, cr.r, cr.c, cr.kind === 'pier' ? 'k' : 'x'); }
     }
   }
   for (const sp of s.springs) if (sp.comp > 0) sp.comp = Math.max(0, sp.comp - dt * 3.5);
@@ -250,14 +355,39 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
     if (P.flap > 0 && P.flap <= 1) P.flap = Math.max(0, P.flap - dt * 2.5); else if (P.flap > 1) P.flap = 0;
   }
 
-  P.x += P.vx * dt;
+  // Rising air: holding the button rides it up (and rests the wings); letting go only softens the fall.
+  if (!P.ground) {
+    const cx = P.x + PW / 2, cy = P.y + PH / 2;
+    for (const v of s.vents) {
+      if (cx < v.x - 6 || cx > v.x + v.w + 6 || cy > v.y || cy < v.top - 30) continue;
+      const k = clamp((cy - v.top) / 60, 0, 1);
+      if (inp.jump) {
+        P.vy = Math.max(Math.min(P.vy, -340 * k), P.vy - 3000 * k * dt);
+        P.stamina = Math.min(MAXST, P.stamina + dt * 0.6);
+        P.gliding = true; P.flap += dt * 10;
+      } else P.vy -= 900 * k * dt;
+      break;
+    }
+  }
+
+  // Gust lanes push sideways like a moving floor, so the shove is the same whatever you press.
+  let drift = 0;
+  for (const g of s.gusts) {
+    const cx = P.x + PW / 2;
+    if (cx < g.x0 || cx >= g.x1) continue;
+    const pw = gustPower(g, s.time);
+    if (pw > 0) drift = g.dir * pw * GUST_DRIFT[P.ground ? 0 : P.gliding ? 2 : 1] * (s.storm ? STORM.gust : 1);
+    break;
+  }
+
+  P.x += P.vx * dt + drift * dt;
   if (P.x < 0) { P.x = 0; P.vx = 0; }
   const rTop = Math.floor((P.y + 4) / T), rBot = Math.floor((P.y + PH - 4) / T);
-  if (P.vx > 0 || (ride && ride.vx > 0)) {
+  if (P.vx > 0 || (ride && ride.vx > 0) || drift > 0) {
     const cRight = Math.floor((P.x + PW) / T);
     for (let r = rTop; r <= rBot; r++) if (isSolidAt(s, r, cRight)) { P.x = cRight * T - PW; P.vx = Math.min(0, P.vx); break; }
   }
-  if (P.vx < 0 || (ride && ride.vx < 0)) {
+  if (P.vx < 0 || (ride && ride.vx < 0) || drift < 0) {
     const cLeft = Math.floor(P.x / T);
     for (let r = rTop; r <= rBot; r++) if (isSolidAt(s, r, cLeft)) { P.x = (cLeft + 1) * T; P.vx = Math.max(0, P.vx); break; }
   }
@@ -274,7 +404,9 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
     for (let c = cL; c <= cR; c++) {
       if (isSolidAt(s, rB, c) || (isOneWay(s, rB, c) && prevBottom <= rB * T + 10 && !(inp.down && inp.jump))) {
         P.y = rB * T - PH; P.vy = 0; P.ground = true;
-        if (s.grid[rB]?.[c] === 'x') for (let i = 0; i < s.crumbles.length; i++) { const cr = s.crumbles[i]; if (cr.r === rB && cr.c === c && cr.state === 0) s.crumbles[i] = { ...cr, state: 1, t: 0.42 }; }
+        const tile = s.grid[rB]?.[c];
+        if (tile === 'x') for (let i = 0; i < s.crumbles.length; i++) { const cr = s.crumbles[i]; if (cr.r === rB && cr.c === c && cr.state === 0) s.crumbles[i] = { ...cr, state: 1, t: 0.42 }; }
+        else if (tile === 'k') triggerPier(s, rB, c);
       }
     }
     for (let i = 0; i < s.movers.length; i++) {
@@ -308,6 +440,11 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
   P.tilt = lerp(P.tilt, targetTilt, dt * 10);
 
   if (P.y + PH > WATER_Y + 14) { kill(s, 'water'); return; }
+  {
+    const cx = P.x + PW / 2;
+    for (const pool of s.pools) if (cx >= pool.x0 && cx < pool.x1 && P.y + PH > poolLevel(pool, s.time) + 14) { kill(s, 'water'); return; }
+  }
+  if (s.chaseSpeed && P.x < chaseX(s)) { kill(s, s.chaseKind); return; }
   // Urchins only sting inside their drawn body, not across the whole tile.
   const sr0 = Math.floor((P.y + 10) / T), sr1 = Math.floor((P.y + PH - 4) / T);
   const sc0 = Math.floor((P.x + 6) / T), sc1 = Math.floor((P.x + PW - 6) / T);
@@ -374,7 +511,7 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
     } else if (e.type === 'jelly') {
       if (e.state === 'wait') {
         e.y = WATER_Y + 6;
-        if (e.t > 1.35) { e.state = 'jump'; e.vy = -590; s.events.push({ k: 'jelly', x: e.x + e.w / 2, y: WATER_Y }); }
+        if (e.t > (s.storm ? STORM.jellyWait : 1.35)) { e.state = 'jump'; e.vy = -590; s.events.push({ k: 'jelly', x: e.x + e.w / 2, y: WATER_Y }); }
       } else {
         e.y += e.vy * dt; e.vy += 680 * dt;
         if (e.y >= WATER_Y + 6 && e.vy > 0) { e.state = 'wait'; e.t = 0; }
@@ -396,7 +533,7 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
 
   // Reaching the lighthouse counts at any height: a rider who glides over the top has still arrived.
   if (P.x + PW / 2 > s.goal.x - 36) {
-    s.timeBonus = Math.max(0, Math.round((LEVELS[s.lv].par - s.time) * 20));
+    s.timeBonus = Math.max(0, Math.round((s.par - s.time) * 20));
     addScore(s, 1000 + s.timeBonus);
     s.cleared = true;
     s.events.push({ k: 'clear', x: s.goal.x, y: s.goal.y - 60, n: 1000 + s.timeBonus });
@@ -404,8 +541,8 @@ export function stepSim(s: Sim, inp: Input, dt: number = STEP) {
 }
 
 /** Medals for a finished stage: bit 0 beat the par time, bit 1 all three stars, bit 2 at least 90% of the fish. */
-export function medalsFor(s: { lv: number; time: number; starGot: number; starTot: number; fishGot: number; fishTot: number }): number {
-  return (s.time <= LEVELS[s.lv].par ? 1 : 0) | (s.starTot > 0 && s.starGot >= s.starTot ? 2 : 0) | (s.fishGot >= Math.ceil(s.fishTot * 0.9) ? 4 : 0);
+export function medalsFor(s: { lv: number; time: number; starGot: number; starTot: number; fishGot: number; fishTot: number; par?: number }): number {
+  return (s.time <= (s.par ?? LEVELS[s.lv].par) ? 1 : 0) | (s.starTot > 0 && s.starGot >= s.starTot ? 2 : 0) | (s.fishGot >= Math.ceil(s.fishTot * 0.9) ? 4 : 0);
 }
 
 export type StageBest = { time: number; fish: number; stars: number; medals: number };

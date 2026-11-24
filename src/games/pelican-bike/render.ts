@@ -1,6 +1,7 @@
 import { THEMES, STARS, CLOUDS, W, H, WATER_Y, T, PW, PH, MAXST } from './theme';
-import { LEVELS } from './levels';
-import type { StageBest } from './sim';
+import { COASTS, LEVELS, stageLabel } from './levels';
+import { gustPower, gustWarning, poolLevel } from './sim';
+import type { Sim, StageBest } from './sim';
 import type { Theme } from './theme';
 import type { Item, Enemy, Mover, Crumble, Spring, Checkpoint, Goal } from './types';
 
@@ -220,6 +221,12 @@ export function drawTile(ctx: CanvasRenderingContext2D, grid: string[][], r: num
       for (let i = 0; i < 4; i++) { ctx.arc(x + 5 + i * 10, y + 7, 4, 0, Math.PI); }
       ctx.fill();
     }
+  } else if (ch === 'u') {
+    ctx.fillStyle = th.dirtDark; ctx.fillRect(x, y, T, T);
+    ctx.fillStyle = '#5b6470'; ctx.fillRect(x, y, T, 12);
+    ctx.fillStyle = '#2b3038';
+    for (let i = 0; i < 4; i++) ctx.fillRect(x + 3 + i * 9.5, y + 2, 5, 8);
+    ctx.fillStyle = '#9aa5b1'; ctx.fillRect(x, y, T, 2);
   } else if (ch === 'B') {
     ctx.fillStyle = '#c98847'; ctx.fillRect(x + 1, y + 1, T - 2, T - 2);
     ctx.strokeStyle = '#7c4c21'; ctx.lineWidth = 3; ctx.strokeRect(x + 2, y + 2, T - 4, T - 4);
@@ -414,6 +421,21 @@ export function drawEntities(
   }
 
   for (const cr of crumbles) {
+    if (cr.kind === 'pier') {
+      // Stilts stay; the plank on top shivers once the collapse is coming, then drops away.
+      ctx.fillStyle = '#4a3020'; ctx.fillRect(cr.x + 6, cr.y + 12, 5, WATER_Y - cr.y); ctx.fillRect(cr.x + T - 11, cr.y + 12, 5, WATER_Y - cr.y);
+      let oy = 0, ox = 0, rot = 0;
+      if (cr.state === 1) { ox = Math.sin(gtime * 70 + cr.c) * (cr.t < 0.35 ? 2.5 : 0.8); }
+      else if (cr.state === 2) { const f = 4.2 - cr.t; if (f > 0.6) continue; oy = f * f * 900; rot = f * 1.4 * (cr.c % 2 ? 1 : -1); }
+      ctx.save(); ctx.translate(cr.x + T / 2 + ox, cr.y + 6 + oy); ctx.rotate(rot);
+      ctx.fillStyle = '#6b4226'; ctx.fillRect(-T / 2, -1, T, 10);
+      ctx.fillStyle = cr.state === 1 ? '#c98d5a' : '#b98250'; ctx.fillRect(-T / 2, -6, T, 8);
+      ctx.strokeStyle = '#4a2c16'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-T / 2 + 6, -3); ctx.lineTo(-4, 2); ctx.lineTo(5, -2); ctx.stroke();
+      ctx.fillStyle = '#3a2412'; ctx.fillRect(-T / 2 + 2, -6, 2, 14); ctx.fillRect(T / 2 - 4, -6, 2, 14);
+      ctx.restore();
+      continue;
+    }
     if (cr.state === 2) continue;
     const ox = cr.state === 1 ? Math.sin(gtime * 65) * 3 : 0;
     ctx.fillStyle = '#b07d4f'; ctx.fillRect(cr.x + ox, cr.y, T, T);
@@ -529,9 +551,11 @@ export type Ui = {
   uw: number; uh: number; padL: number; touch: boolean; isZh: boolean; gtime: number;
   state: 'title' | 'playing' | 'paused' | 'levelclear' | 'victory';
   P: { hp: number; maxHp: number; stamina: number; turbo: boolean; streak: number };
-  lv: number; progress: number; time: number; deaths: number; bannerT: number;
+  lv: number; label: string; par: number; progress: number; time: number; deaths: number; bannerT: number;
   fishGot: number; fishTot: number; starGot: number; starTot: number; score: number; hiScore: number;
-  sel: number; unlocked: number; bests: (StageBest | null)[]; result: UiResult | null;
+  sel: number; open: boolean[]; bests: (StageBest | null)[]; result: UiResult | null;
+  /** Distance from the chase pursuer to the rider (Infinity outside a chase). */
+  chaseGap: number; coast: number; coastOpen: boolean[];
 };
 export type Hit = { x: number; y: number; w: number; h: number; act: string };
 
@@ -625,7 +649,7 @@ export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
   fishIcon(ctx, rx + 24, 21, 0.9);
   drawText(ctx, `${u.fishGot}/${u.fishTot}`, rx + 38, 22, 15, '#ffd9a0', 'left');
   for (let i = 0; i < u.starTot; i++) starIcon(ctx, rx + rw - 14 - (u.starTot - 1 - i) * 19, 21, 8, i < u.starGot);
-  drawText(ctx, fmtTime(u.time), rx + 10, 42, 15, u.time > LEVELS[u.lv].par ? '#cfd8e6' : '#9ff0a8', 'left');
+  drawText(ctx, fmtTime(u.time), rx + 10, 42, 15, u.time > u.par ? '#cfd8e6' : '#9ff0a8', 'left');
   drawText(ctx, String(u.score), rx + rw - 8, 42, 15, '#ffffff', 'right');
 
   // Middle: progress to the lighthouse
@@ -640,7 +664,7 @@ export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
     ctx.fillStyle = '#f8f9fa'; ctx.fillRect(bx1 - 4, by - 5, 6, 15);
     ctx.fillStyle = '#e63946'; ctx.fillRect(bx1 - 4, by, 6, 4);
     ctx.fillStyle = '#ffe66d'; ctx.fillRect(bx1 - 5, by - 9, 8, 5);
-    const name = isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn;
+    const name = `${u.label} · ${isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn}`;
     ctx.font = `800 14px ${FONT}`;
     if (ctx.measureText(name).width < bx1 - bx0 + 20) drawText(ctx, name, (bx0 + bx1) / 2, by + 26, 14, 'rgba(255,255,255,0.95)', 'center', '#141b2d');
   }
@@ -650,12 +674,23 @@ export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
     drawText(ctx, isZh ? `连吃 ×${mult}` : `STREAK ×${mult}`, lx + 4, 70, 15, '#ffe66d', 'left', '#141b2d');
   }
 
+  // Chase: the screen's left edge glows red as the pursuer closes in.
+  if (u.state === 'playing' && u.chaseGap < 520) {
+    const k = Math.min(1, Math.max(0, (520 - u.chaseGap) / 420));
+    const g = ctx.createLinearGradient(0, 0, 70, 0);
+    g.addColorStop(0, `rgba(255,70,70,${0.15 + k * 0.45 + Math.sin(u.gtime * 10) * 0.08 * k})`); g.addColorStop(1, 'rgba(255,70,70,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 70, u.uh);
+  }
+
   if (u.bannerT > 0 && u.state === 'playing') {
     const a = Math.min(1, u.bannerT * 1.6);
     ctx.save(); ctx.globalAlpha = a;
-    const name = isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn;
+    const name = `${u.label} · ${isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn}`;
     drawText(ctx, name, uw / 2, 92, compact ? 24 : 32, '#fff', 'center', '#141b2d');
-    const hint = isZh ? `三颗金星 · 标准用时 ${fmtTime(LEVELS[u.lv].par)}` : `3 stars to find · par ${fmtTime(LEVELS[u.lv].par)}`;
+    const chase = LEVELS[u.lv].chase;
+    const hint = chase
+      ? (chase.kind === 'wave' ? (isZh ? `巨浪追来了，快骑！ · 标准 ${fmtTime(u.par)}` : `Outrun the wave! · par ${fmtTime(u.par)}`) : (isZh ? `贪吃海鸥来抢鱼，快骑！ · 标准 ${fmtTime(u.par)}` : `The greedy gull wants your fish! · par ${fmtTime(u.par)}`))
+      : (isZh ? `三颗金星 · 标准用时 ${fmtTime(u.par)}` : `3 stars to find · par ${fmtTime(u.par)}`);
     drawText(ctx, hint, uw / 2, compact ? 120 : 126, compact ? 14 : 16, '#ffe66d', 'center', '#141b2d');
     ctx.restore();
   }
@@ -678,40 +713,59 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
   const levelName = isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn;
 
   if (u.state === 'title') {
-    let y = py + (compact ? 26 : 38);
-    drawText(ctx, isZh ? '鹈鹕骑行记' : 'Pelican Pedal', cx, y, compact ? 26 : 38, '#ffe66d', 'center', '#141b2d');
-    y += compact ? 24 : 34;
-    drawText(ctx, isZh ? '吃小鱼 · 找金星 · 冲向灯塔' : 'Catch fish · find stars · reach the lighthouse', cx, y, compact ? 14 : 16, '#9fe6ff', 'center');
-    // Stage select
-    y += compact ? 16 : 22;
-    const n = LEVELS.length, gap = 6, cw = (pw - 24 - gap * (n - 1)) / n, ch = compact ? 78 : 92;
-    for (let i = 0; i < n; i++) {
-      const x = px + 12 + i * (cw + gap), locked = i > u.unlocked, sel = i === u.sel, best = u.bests[i];
+    let y = py + (compact ? 22 : 32);
+    drawText(ctx, isZh ? '鹈鹕骑行记' : 'Pelican Pedal', cx, y, compact ? 24 : 34, '#ffe66d', 'center', '#141b2d');
+    if (u.hiScore > 0 && !compact) drawText(ctx, isZh ? `最高分 ${u.hiScore}` : `High score ${u.hiScore}`, px + pw - 16, py + 20, 14, '#7ae582', 'right');
+    // Coast tabs
+    y += compact ? 20 : 28;
+    const nC = COASTS.length, tgap = 6, tw = (pw - 24 - tgap * (nC - 1)) / nC, th = compact ? 30 : 34;
+    for (let i = 0; i < nC; i++) {
+      const x = px + 12 + i * (tw + tgap), open = u.coastOpen[i], on = i === u.coast;
+      ctx.fillStyle = on ? 'rgba(255,159,28,0.3)' : 'rgba(255,255,255,0.06)'; rrect(ctx, x, y, tw, th, 8); ctx.fill();
+      ctx.strokeStyle = on ? '#ff9f1c' : 'rgba(255,255,255,0.2)'; ctx.lineWidth = on ? 2.5 : 1.2; rrect(ctx, x, y, tw, th, 8); ctx.stroke();
+      const cName = isZh ? COASTS[i].name : COASTS[i].nameEn;
+      let label = open ? `${i + 1} ${compact ? cName.replace(/ Coast$/, '') : cName}` : `${i + 1} 🔒`;
+      ctx.font = `800 14px ${FONT}`;
+      if (ctx.measureText(label).width > tw - 8) label = open ? String(i + 1) : `${i + 1} 🔒`;
+      drawText(ctx, label, x + tw / 2, y + th / 2 + 1, 14, open ? '#ffffff' : 'rgba(255,255,255,0.5)', 'center');
+      if (open) hits.push({ x, y, w: tw, h: th, act: `coast:${i}` });
+    }
+    y += th + (compact ? 8 : 10);
+    const coast = COASTS[Math.max(0, u.coast)];
+    drawText(ctx, isZh ? `新玩意：${coast.family}` : `New here: ${coast.familyEn}`, cx, y + 6, compact ? 13 : 14, '#9fe6ff', 'center', undefined, 600);
+    y += compact ? 16 : 20;
+    // Stage cards for this coast
+    const ids = coast.stages, n = ids.length, gap = 8, cw = (pw - 24 - gap * (n - 1)) / n, ch = compact ? 74 : 90;
+    for (let k = 0; k < n; k++) {
+      const i = ids[k];
+      const x = px + 12 + k * (cw + gap), locked = !u.open[i], sel = i === u.sel, best = u.bests[i];
       ctx.fillStyle = sel ? 'rgba(255,159,28,0.28)' : 'rgba(255,255,255,0.07)'; rrect(ctx, x, y, cw, ch, 10); ctx.fill();
       ctx.strokeStyle = sel ? '#ff9f1c' : 'rgba(255,255,255,0.2)'; ctx.lineWidth = sel ? 3 : 1.5; rrect(ctx, x, y, cw, ch, 10); ctx.stroke();
       if (locked) {
         ctx.fillStyle = 'rgba(255,255,255,0.45)'; rrect(ctx, x + cw / 2 - 10, y + ch / 2 - 4, 20, 16, 3); ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x + cw / 2, y + ch / 2 - 5, 7, Math.PI, 0); ctx.stroke();
       } else {
-        drawText(ctx, String(i + 1), x + cw / 2, y + (compact ? 17 : 20), compact ? 22 : 26, '#ffffff', 'center', '#141b2d');
-        medalRow(ctx, best?.medals ?? 0, x + cw / 2, y + (compact ? 42 : 50), compact ? 9 : 11, compact ? 22 : 27);
-        drawText(ctx, best ? fmtTime(best.time) : '—', x + cw / 2, y + ch - 13, 14, best ? '#9ff0a8' : 'rgba(255,255,255,0.6)', 'center');
+        const chase = LEVELS[i].chase;
+        drawText(ctx, stageLabel(i) + (chase ? (chase.kind === 'wave' ? ' 🌊' : ' 🐦') : ''), x + cw / 2, y + (compact ? 15 : 18), compact ? 18 : 22, '#ffffff', 'center', '#141b2d');
+        medalRow(ctx, best?.medals ?? 0, x + cw / 2, y + (compact ? 38 : 46), compact ? 9 : 11, compact ? 22 : 27);
+        drawText(ctx, best ? fmtTime(best.time) : '—', x + cw / 2, y + ch - 12, 14, best ? '#9ff0a8' : 'rgba(255,255,255,0.6)', 'center');
         hits.push({ x, y, w: cw, h: ch, act: `stage:${i}` });
       }
     }
-    y += ch + (compact ? 16 : 20);
-    const sname = isZh ? LEVELS[u.sel].name : LEVELS[u.sel].nameEn;
-    drawText(ctx, `${sname} · ${isZh ? '标准' : 'par'} ${fmtTime(LEVELS[u.sel].par)}`, cx, y, compact ? 14 : 16, '#ffffff', 'center');
-    y += compact ? 18 : 24;
+    y += ch + (compact ? 14 : 18);
+    const L = LEVELS[u.sel];
+    const sname = isZh ? L.name : L.nameEn;
+    const kind = L.chase ? (isZh ? ' · 追逐' : ' · chase') : '';
+    drawText(ctx, `${stageLabel(u.sel)} ${sname}${kind} · ${isZh ? '标准' : 'par'} ${fmtTime(u.par)}`, cx, y, compact ? 14 : 16, '#ffffff', 'center');
+    y += compact ? 18 : 22;
     const tip = u.touch
       ? (isZh ? '◀ ▶ 骑行 · ⤒ 跳跃，空中再按二段跳，按住滑翔 · ⚡ 冲刺' : '◀ ▶ ride · ⤒ hop, tap again to flap, hold to glide · ⚡ sprint')
-      : (isZh ? '方向键/A D 骑行 · 空格跳跃，空中再按二段跳，按住滑翔 · Shift 冲刺 · ◀ ▶ 选关' : 'Arrows/A D ride · Space hops, press again to flap, hold to glide · Shift sprints · ◀ ▶ pick a stage');
-    const btnY = py + ph - (compact ? 28 : 36);
-    const lines = wrapLines(ctx, tip, 14, pw - 28);
-    const room = Math.floor((btnY - 26 - y) / 18) + 1;
-    lines.slice(0, Math.max(0, room)).forEach((t, i) => drawText(ctx, t, cx, y + i * 18, 14, 'rgba(255,255,255,0.85)', 'center', undefined, 600));
-    if (u.hiScore > 0 && !compact) drawText(ctx, isZh ? `最高分 ${u.hiScore}` : `High score ${u.hiScore}`, px + pw - 16, py + 20, 14, '#7ae582', 'right');
-    button(ctx, hits, 'start', u.touch ? (isZh ? '点击出发 ▶' : 'Tap to ride ▶') : (isZh ? '按 Enter / 空格出发 ▶' : 'Enter / Space to ride ▶'), cx, btnY, Math.min(280, pw - 40), 40, true, pulse);
+      : (isZh ? '方向键/A D 骑行 · 空格跳跃，空中再按二段跳，按住滑翔 · Shift 冲刺 · ◀ ▶ 选关 · 1-4 选海岸' : 'Arrows/A D ride · Space hops, again to flap, hold to glide · Shift sprints · ◀ ▶ pick a stage · 1-4 coast');
+    const btnY = py + ph - (compact ? 26 : 34);
+    const lines = wrapLines(ctx, tip, 13, pw - 28);
+    const room = Math.floor((btnY - 24 - y) / 17) + 1;
+    lines.slice(0, Math.max(0, room)).forEach((t, i) => drawText(ctx, t, cx, y + i * 17, 13, 'rgba(255,255,255,0.8)', 'center', undefined, 600));
+    button(ctx, hits, 'start', u.touch ? (isZh ? '点击出发 ▶' : 'Tap to ride ▶') : (isZh ? '按 Enter / 空格出发 ▶' : 'Enter / Space to ride ▶'), cx, btnY, Math.min(280, pw - 40), compact ? 36 : 40, true, pulse);
   } else if (u.state === 'paused') {
     drawText(ctx, isZh ? '游戏暂停' : 'PAUSED', cx, py + ph * 0.3, 34, '#ffe66d', 'center', '#141b2d');
     drawText(ctx, u.touch ? (isZh ? '点击继续骑行' : 'Tap to keep riding') : (isZh ? '按 P 继续骑行' : 'Press P to keep riding'), cx, py + ph * 0.52, 17, '#fff', 'center');
@@ -720,14 +774,14 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
   } else if (u.state === 'levelclear') {
     const res = u.result ?? { medals: 0, newBest: false, timeBonus: 0 };
     let y = py + (compact ? 26 : 34);
-    drawText(ctx, isZh ? `${levelName} 通过！` : `${levelName} clear!`, cx, y, compact ? 20 : 28, '#7ae582', 'center', '#141b2d');
+    drawText(ctx, isZh ? `${u.label} ${levelName} 通过！` : `${u.label} ${levelName} clear!`, cx, y, compact ? 20 : 28, '#7ae582', 'center', '#141b2d');
     // Three medals with what each one asks for
     const mr = compact ? 22 : 28, mgap = Math.min(150, (pw - 30) / 3);
     y += compact ? 46 : 60;
     medalRow(ctx, res.medals, cx, y, mr, mgap);
     const pct = u.fishTot ? Math.floor((u.fishGot / u.fishTot) * 100) : 100;
     const labels = [
-      [fmtTime(u.time), `${isZh ? '标准' : 'par'} ${fmtTime(LEVELS[u.lv].par)}`],
+      [fmtTime(u.time), `${isZh ? '标准' : 'par'} ${fmtTime(u.par)}`],
       [`${u.starGot}/${u.starTot}`, isZh ? '全部金星' : 'all stars'],
       [`${pct}%`, isZh ? '小鱼 90%' : '90% of fish']
     ];
@@ -758,24 +812,28 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     }
     const btnY = py + ph - (compact ? 28 : 36), bw = Math.min(180, (pw - 36) / 2);
     button(ctx, hits, 'retry', u.touch ? (isZh ? '再骑一次' : 'Ride again') : (isZh ? 'R 再骑一次' : 'R · ride again'), cx - bw / 2 - 6, btnY, bw, 40, false);
-    const last = u.lv + 1 >= LEVELS.length;
-    button(ctx, hits, 'next', last ? (isZh ? '完成 ▶' : 'Finish ▶') : (u.touch ? (isZh ? '下一关 ▶' : 'Next stage ▶') : (isZh ? 'Enter 下一关 ▶' : 'Enter · next ▶')), cx + bw / 2 + 6, btnY, bw, 40, true, pulse);
+    const coastStages = COASTS[Math.max(0, u.coast)].stages;
+    const last = coastStages.indexOf(u.lv) === coastStages.length - 1;
+    button(ctx, hits, 'next', last ? (isZh ? '海岸完成 ▶' : 'Coast clear ▶') : (u.touch ? (isZh ? '下一关 ▶' : 'Next stage ▶') : (isZh ? 'Enter 下一关 ▶' : 'Enter · next ▶')), cx + bw / 2 + 6, btnY, bw, 40, true, pulse);
   } else if (u.state === 'victory') {
+    const ci = Math.max(0, u.coast), coast = COASTS[ci], final = ci === COASTS.length - 1;
     let y = py + (compact ? 30 : 40);
-    drawText(ctx, isZh ? '通关！海岸传奇骑手' : 'Coastal legend!', cx, y, compact ? 24 : 32, '#ffe66d', 'center', '#141b2d');
+    drawText(ctx, isZh ? `${coast.name} 全部通过！` : `${coast.nameEn} conquered!`, cx, y, compact ? 22 : 30, '#ffe66d', 'center', '#141b2d');
     y += compact ? 30 : 40;
-    wrapLines(ctx, isZh ? '鹈鹕船长带着满满一喉囊的鲜鱼骑到了灯塔！' : 'Captain Pelican reached the last lighthouse with a pouch full of fresh fish!', 15, pw - 32).slice(0, 2)
-      .forEach((t, i) => drawText(ctx, t, cx, y + i * 20, 15, '#ffffff', 'center', undefined, 600));
+    const story = final
+      ? (isZh ? '鹈鹕船长带着满满一喉囊的鲜鱼骑到了最后一座灯塔！' : 'Captain Pelican reached the last lighthouse with a pouch full of fresh fish!')
+      : (isZh ? `甩掉了追兵！下一站：${COASTS[ci + 1].name}` : `Shook off the chase! Next stop: ${COASTS[ci + 1].nameEn}`);
+    wrapLines(ctx, story, 15, pw - 32).slice(0, 2).forEach((t, i) => drawText(ctx, t, cx, y + i * 20, 15, '#ffffff', 'center', undefined, 600));
     y += compact ? 52 : 60;
     let got = 0;
-    const n = LEVELS.length, gap = Math.min(120, (pw - 24) / n);
-    for (let i = 0; i < n; i++) {
-      const m = u.bests[i]?.medals ?? 0;
+    const ids = coast.stages, n = ids.length, gap = Math.min(150, (pw - 24) / n);
+    ids.forEach((id, k) => {
+      const m = u.bests[id]?.medals ?? 0;
       for (let b = 0; b < 3; b++) if (m & (1 << b)) got++;
-      const x = cx + (i - (n - 1) / 2) * gap;
-      drawText(ctx, String(i + 1), x, y - 22, 15, 'rgba(255,255,255,0.8)', 'center');
-      medalRow(ctx, m, x, y, compact ? 9 : 12, compact ? 21 : 28);
-    }
+      const x = cx + (k - (n - 1) / 2) * gap;
+      drawText(ctx, stageLabel(id), x, y - 22, 15, 'rgba(255,255,255,0.8)', 'center');
+      medalRow(ctx, m, x, y, compact ? 10 : 12, compact ? 24 : 28);
+    });
     y += compact ? 34 : 44;
     drawText(ctx, isZh ? `奖章 ${got}/${n * 3}  ·  总分 ${u.score}  ·  最高 ${u.hiScore}` : `Medals ${got}/${n * 3}  ·  Score ${u.score}  ·  Best ${u.hiScore}`, cx, y, compact ? 14 : 17, '#7ae582', 'center');
     y += 24;
@@ -783,4 +841,102 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     button(ctx, hits, 'menu', u.touch ? (isZh ? '回到选关 ▶' : 'Stage select ▶') : (isZh ? 'Enter 回到选关 ▶' : 'Enter · stage select ▶'), cx, py + ph - (compact ? 28 : 36), Math.min(280, pw - 40), 40, true, pulse);
   }
   return hits;
+}
+
+/* ---------- Coast hazards: rising air, tide pools, gust lanes and the chase pursuer (world space) ---------- */
+
+/** Drawn behind the rider: updraft columns, tide-pool water and gust streaks. */
+export function drawHazards(ctx: CanvasRenderingContext2D, s: Sim, camX: number, gtime: number, reduced: boolean) {
+  for (const v of s.vents) {
+    if (v.x + v.w < camX - 20 || v.x > camX + VW + 20) continue;
+    const h = v.y - v.top;
+    const g = ctx.createLinearGradient(0, v.top, 0, v.y);
+    g.addColorStop(0, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(220,245,255,0.28)');
+    ctx.fillStyle = g; ctx.fillRect(v.x - 4, v.top, v.w + 8, h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    const n = Math.round(v.w / 14);
+    for (let i = 0; i < n; i++) {
+      const ph = ((reduced ? 0.3 : gtime * 0.9) + i * 0.37) % 1;
+      const yy = v.y - ph * h, xx = v.x + 7 + i * 14 + Math.sin(gtime * 3 + i) * 3;
+      ctx.globalAlpha = Math.sin(ph * Math.PI) * 0.8;
+      ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx, yy - 18); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  for (const p of s.pools) {
+    if (p.x1 < camX - 20 || p.x0 > camX + VW + 20) continue;
+    const lvl = poolLevel(p, s.time), bottom = Math.min(p.lo, WATER_Y + 30);
+    // High-water mark on the pool walls, so the brim is known before the tide gets there.
+    ctx.strokeStyle = 'rgba(160,230,255,0.45)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(p.x0, p.hi + 14); ctx.lineTo(p.x1, p.hi + 14); ctx.stroke(); ctx.setLineDash([]);
+    if (lvl < bottom) {
+      ctx.fillStyle = 'rgba(42,142,208,0.62)'; ctx.fillRect(p.x0, lvl, p.x1 - p.x0, bottom - lvl + 2);
+      ctx.strokeStyle = '#bfefff'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (let x = p.x0; x <= p.x1; x += 10) { const yy = lvl + Math.sin(x * 0.06 + gtime * 4) * 2; if (x === p.x0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy); }
+      ctx.stroke();
+    }
+  }
+
+  for (const g of s.gusts) {
+    if (g.x1 < camX - 20 || g.x0 > camX + VW + 20) continue;
+    const pw = gustPower(g, s.time), warn = gustWarning(g, s.time);
+    // A wind sock at the lane's upwind end: limp when calm, twitching before a gust, straight out in one.
+    const px = g.dir > 0 ? g.x0 + 8 : g.x1 - 8;
+    ctx.fillStyle = '#d0d6de'; ctx.fillRect(px - 2, 300, 4, 140);
+    const ang = (1 - pw) * 1.25 + (warn ? Math.sin(gtime * 18) * 0.18 : 0);
+    ctx.save(); ctx.translate(px, 304); ctx.scale(g.dir, 1); ctx.rotate(ang);
+    for (let i = 0; i < 4; i++) { ctx.fillStyle = i % 2 ? '#ffffff' : '#ff5a36'; ctx.fillRect(i * 11, -7 + i, 11, 14 - i * 2); }
+    ctx.restore();
+    if (pw <= 0 && !warn) continue;
+    const a = warn && pw <= 0 ? 0.22 : 0.25 + pw * 0.45;
+    ctx.strokeStyle = `rgba(255,255,255,${a})`; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    const span = g.x1 - g.x0;
+    for (let i = 0; i < Math.max(4, Math.round(span / 70)); i++) {
+      const sp = reduced ? 0 : gtime * (220 + (i % 3) * 60);
+      const xx = g.x0 + (((i * 157 + sp * g.dir) % span) + span) % span;
+      const yy = 60 + ((i * 97) % 360);
+      const len = 26 + pw * 40;
+      ctx.beginPath(); ctx.moveTo(xx, yy); ctx.lineTo(xx - g.dir * len, yy + Math.sin(gtime * 4 + i) * 3); ctx.stroke();
+    }
+  }
+}
+
+/** The chase pursuer, drawn in front of everything at its left-edge position. */
+export function drawPursuer(ctx: CanvasRenderingContext2D, kind: string, x: number, py: number, camX: number, gtime: number) {
+  if (!Number.isFinite(x) || x < camX - 400) return;
+  if (kind === 'wave') {
+    ctx.save();
+    const top = 150;
+    const g = ctx.createLinearGradient(x - 300, 0, x, 0);
+    g.addColorStop(0, 'rgba(18,90,150,0.95)'); g.addColorStop(1, 'rgba(58,168,221,0.95)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(Math.min(camX - 20, x - 300), H);
+    ctx.lineTo(Math.min(camX - 20, x - 300), top + 20);
+    ctx.quadraticCurveTo(x - 60, top - 30 + Math.sin(gtime * 3) * 6, x + 30, top + 40);
+    ctx.quadraticCurveTo(x - 10, top + 30, x + 6, top + 90);
+    ctx.lineTo(x + 14, H); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#e8fbff'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x - 140, top + 2); ctx.quadraticCurveTo(x - 50, top - 26 + Math.sin(gtime * 3) * 6, x + 30, top + 40); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (let i = 0; i < 9; i++) { const yy = top + 60 + i * 34, xx = x + 10 + Math.sin(gtime * 6 + i * 1.7) * 6; circle(ctx, xx, yy, 6 + (i % 3) * 2); ctx.fill(); }
+    ctx.restore();
+  } else {
+    // A greedy gull, wings beating hard, beak first.
+    const y = Math.max(120, Math.min(400, py));
+    const wf = Math.sin(gtime * 13) * 22;
+    ctx.save(); ctx.translate(x + 10, y);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-90 - i * 14, -20 + i * 20); ctx.lineTo(-40 - i * 10, -20 + i * 20); ctx.stroke(); }
+    ctx.fillStyle = '#f8f9fa'; ellipse(ctx, 0, 0, 40, 20, 0); ctx.fill();
+    ctx.fillStyle = '#5c7d99';
+    ctx.beginPath(); ctx.moveTo(-14, -6); ctx.quadraticCurveTo(-30, -60 - wf, -70, -30 - wf); ctx.lineTo(10, 0); ctx.fill();
+    ctx.fillStyle = '#ffb703'; ctx.beginPath(); ctx.moveTo(36, -4); ctx.lineTo(66, 4); ctx.lineTo(36, 10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#e63946'; circle(ctx, 58, 5, 3); ctx.fill();
+    ctx.fillStyle = '#111'; circle(ctx, 24, -6, 4); ctx.fill();
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(16, -14); ctx.lineTo(30, -10); ctx.stroke();
+    ctx.restore();
+  }
 }

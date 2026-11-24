@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pelicanBike } from '../src/games/pelican-bike';
 import { LEVELS } from '../src/games/pelican-bike/levels';
-import { cloneSim, createSim, medalsFor, mergeBest, noInput, respawn, STEP, stepSim } from '../src/games/pelican-bike/sim';
+import { CHASE_GAP, CHASE_GRACE, chaseX, cloneSim, createSim, medalsFor, mergeBest, noInput, respawn, STEP, stepSim } from '../src/games/pelican-bike/sim';
 import type { Input, Sim } from '../src/games/pelican-bike/sim';
-import { PH } from '../src/games/pelican-bike/theme';
+import { PH, PW } from '../src/games/pelican-bike/theme';
 import type { GameServices } from '../src/core/game-types';
 
 const services = (stored: Record<string, unknown> = {}): GameServices => ({
@@ -262,5 +262,37 @@ describe('pelican-bike simulation', () => {
     const frozen = s.time;
     run(s, 0.5, { right: true });
     expect(s.time).toBe(frozen);
+  });
+});
+
+const findStage = (pred: (s: Sim) => boolean) => LEVELS.findIndex((_l, i) => pred(createSim(i)));
+
+describe('pelican-bike coast hazards', () => {
+  it('rising air lifts a rider holding the button and only slows one who lets go', () => {
+    const lv = findStage((s) => s.vents.length > 0);
+    const make = () => { const s = createSim(lv); const v = s.vents.find((vv) => vv.y === 440)!; s.P.x = v.x + v.w / 2 - PW / 2; s.P.y = v.y - PH - 30; s.P.vy = 0; s.P.ground = false; s.P.jumps = 2; return s; };
+    const hold = make(), drop = make(), y0 = hold.P.y;
+    run(hold, 1, { jump: true });
+    run(drop, 0.3, {});
+    expect(hold.P.y).toBeLessThan(y0 - 150);
+    expect(hold.P.y + PH / 2).toBeGreaterThan(140 - 40); // rides to the top of the column, not beyond
+    expect(drop.P.vy).toBeGreaterThan(0);
+  });
+
+  it('a chase pursuer waits, then sweeps forward; it wipes out a rider it catches and restarts behind the checkpoint', () => {
+    const lv = LEVELS.findIndex((l) => l.chase);
+    const s = createSim(lv);
+    settle(s);
+    expect(chaseX(s)).toBe(s.spawnX - CHASE_GAP);
+    run(s, CHASE_GRACE + 1, {});
+    expect(chaseX(s)).toBeCloseTo(s.spawnX - CHASE_GAP + s.chaseSpeed * (s.time - CHASE_GRACE), 3);
+    while (!s.deaths && s.time < 10) run(s, STEP, {});
+    expect(s.deaths).toBe(1);
+    expect(chaseX(s)).toBeGreaterThan(s.P.x);
+    while (s.P.dead) run(s, STEP, {});
+    expect(chaseX(s)).toBe(s.spawnX - CHASE_GAP);
+    run(s, CHASE_GRACE - 0.1, {});
+    expect(chaseX(s)).toBe(s.spawnX - CHASE_GAP);
+    expect(createSim(0).chaseSpeed).toBe(0);
   });
 });

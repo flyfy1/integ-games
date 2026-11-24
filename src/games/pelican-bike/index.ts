@@ -1,14 +1,32 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createPelicanAudio } from './audio';
-import { LEVELS, ROWS } from './levels';
-import { drawBackground, drawEntities, drawHUD, drawOverlay, drawPelican, drawTile, drawWater, setView } from './render';
+import { COASTS, coastOf, LEVELS, ORDER, ROWS, stageLabel } from './levels';
+import { drawBackground, drawEntities, drawHazards, drawHUD, drawOverlay, drawPelican, drawPursuer, drawTile, drawWater, setView } from './render';
 import type { Hit, UiResult } from './render';
-import { createSim, medalsFor, mergeBest, noInput, respawn, STEP, stepSim } from './sim';
+import { chaseX, createSim, medalsFor, mergeBest, noInput, respawn, STEP, stepSim } from './sim';
 import type { Sim, SimEvent, StageBest } from './sim';
 import { H, PH, PW, T, THEMES, W } from './theme';
 import type { Particle, Popup } from './types';
 
 const ACCENT = '#ff9f1c';
+
+/**
+ * A stage is open once it has been ridden, or the stage before it in play order has. The original four stages also
+ * open from the old straight 1-2-3-4 chain, so a save from before the coasts loses nothing.
+ */
+export function stageOpen(id: number, bests: readonly (StageBest | null | undefined)[]): boolean {
+  if (bests[id]) return true;
+  const pos = ORDER.indexOf(id);
+  if (pos === 0) return true;
+  if (pos > 0 && bests[ORDER[pos - 1]]) return true;
+  return id > 0 && id <= 3 && !!bests[id - 1];
+}
+/** The next stage on the same coast, or -1 after its finale. */
+export function nextInCoast(id: number): number {
+  const st = COASTS[coastOf(id)]?.stages ?? [];
+  const i = st.indexOf(id);
+  return i >= 0 && i + 1 < st.length ? st[i + 1] : -1;
+}
 const zh = () => /^zh\b/i.test(navigator.language || '');
 
 function clamp(v: number, a: number, b: number) { return v < a ? a : v > b ? b : v; }
@@ -135,11 +153,13 @@ export const pelicanBike: GameModule = {
       const b = Array.isArray(storedBests) ? storedBests[i] : null;
       return b && typeof b.time === 'number' ? b : null;
     });
-    const unlocked = () => { let n = 0; while (n < LEVELS.length - 1 && bests[n]) n++; return n; };
+    const isOpen = (id: number) => stageOpen(id, bests);
+    const coastOpen = (ci: number) => isOpen(COASTS[ci].stages[0]);
+    const firstFresh = () => ORDER.find((id) => isOpen(id) && !bests[id]) ?? ORDER.filter(isOpen).pop() ?? 0;
 
     let state: State = 'title';
     let paused = false, userPaused = false, stateT = 0;
-    let sel = Math.min(unlocked(), LEVELS.length - 1);
+    let sel = firstFresh();
     let sim: Sim = createSim(0);
     let baseScore = 0, result: UiResult | null = null;
     let particles: Particle[] = [], popups: Popup[] = [];
@@ -185,7 +205,7 @@ export const pelicanBike: GameModule = {
       particles = []; popups = []; camX = 0;
     }
     function pickStage(i: number) {
-      if (i < 0 || i > unlocked() || i === sel) return;
+      if (i < 0 || i >= LEVELS.length || !isOpen(i) || i === sel) return;
       sel = i; audio.click();
       sim = createSim(sel); audio.setTheme(LEVELS[sel].theme); camX = 0;
     }
@@ -204,7 +224,7 @@ export const pelicanBike: GameModule = {
       result = { medals, newBest, timeBonus: sim.timeBonus };
       state = 'levelclear'; stateT = 0;
       releaseAll();
-      services.reportComplete(sim.lv + 1);
+      services.reportComplete(ORDER.indexOf(sim.lv) + 1);
     }
 
     function onEvent(e: SimEvent) {
@@ -251,7 +271,11 @@ export const pelicanBike: GameModule = {
           break;
         case 'die':
           shake(10, 0.3);
-          if (e.s === 'water') {
+          if (e.s === 'wave' || e.s === 'gull') {
+            audio.splash();
+            addPopup(e.x, e.y - 40, e.s === 'wave' ? (isZh ? '被浪卷走！' : 'SWEPT AWAY!') : (isZh ? '被海鸥抓住！' : 'SNATCHED!'), '#bfe9ff', 21);
+            emit(e.x, e.y, 22, { col: e.s === 'wave' ? ['#9fe6ff', '#ffffff', '#3aa8dd'] : ['#ffffff', '#cfd8e6', '#ffd166'], v0: 90, v1: 260 });
+          } else if (e.s === 'water') {
             audio.splash();
             addPopup(e.x, e.y - 40, isZh ? '落水啦！' : 'SPLASH!', '#bfe9ff', 21);
             emit(e.x, e.y, 26, { col: ['#9fe6ff', '#ffffff', '#3aa8dd'], ang: -Math.PI / 2, sp: 0.9, v0: 120, v1: 320, g: 520 });
@@ -269,7 +293,11 @@ export const pelicanBike: GameModule = {
         case 'oneup':
           audio.oneup(); addPopup(e.x, e.y, isZh ? '生命 +1' : 'HP +1', '#ff8a8a', 20);
           break;
+        case 'creak':
+          audio.crumble();
+          break;
         case 'crumble':
+          if (e.s === 'pier' && (e.x < camX - 40 || e.x > camX + VW + 40)) break;
           audio.crumble();
           emit(e.x, e.y, 12, { col: ['#c9935b', '#9e6b3b', '#e5bb7b'], v0: 40, v1: 150 });
           break;
@@ -296,11 +324,16 @@ export const pelicanBike: GameModule = {
       else if (state === 'levelclear') {
         if (stateT < 0.7) return; // a hop mashed at the finish line must not skip the results
         audio.click();
-        if (sim.lv + 1 < LEVELS.length) { sel = sim.lv + 1; startStage(sim.lv + 1, sim.score); }
+        // The score carries along a coast; each coast is a fresh run, so a single score stays on the old scale.
+        const next = nextInCoast(sim.lv);
+        if (next >= 0) { sel = next; startStage(next, sim.score); }
         else { state = 'victory'; stateT = 0; audio.win(); }
       } else if (state === 'victory') {
         if (stateT < 0.7) return;
-        audio.click(); toTitle();
+        audio.click();
+        const after = ORDER[ORDER.indexOf(sim.lv) + 1];
+        if (after !== undefined && isOpen(after)) sel = after;
+        toTitle();
       }
     }
     function retryAction() {
@@ -343,9 +376,9 @@ export const pelicanBike: GameModule = {
       if (isLeft || isRight || isDown || isJump) e.preventDefault();
       if (!down || e.repeat) return;
       if (state === 'title' && !paused) {
-        if (isLeft) pickStage(sel - 1);
-        if (isRight) pickStage(sel + 1);
-        if (/^Digit[1-9]$/.test(c)) pickStage(Number(c.slice(5)) - 1);
+        if (isLeft) stepStage(-1);
+        if (isRight) stepStage(1);
+        if (/^Digit[1-9]$/.test(c)) pickCoast(Number(c.slice(5)) - 1);
       }
       if (c === 'KeyR' || k === 'r' || k === 'R') retryAction();
       if (c === 'KeyP') togglePause();
@@ -378,7 +411,7 @@ export const pelicanBike: GameModule = {
         try { pad.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
         if (state === 'title' && !paused) {
           const r = pad.getBoundingClientRect();
-          pickStage(sel + (e.clientX < r.left + r.width / 2 ? -1 : 1));
+          stepStage(e.clientX < r.left + r.width / 2 ? -1 : 1);
           return;
         }
         padMove(e);
@@ -427,7 +460,8 @@ export const pelicanBike: GameModule = {
       if (hit?.act.startsWith('stage:')) {
         const i = Number(hit.act.slice(6));
         if (i === sel) primaryAction(); else pickStage(i);
-      } else if (hit?.act === 'retry') retryAction();
+      } else if (hit?.act.startsWith('coast:')) pickCoast(Number(hit.act.slice(6)));
+      else if (hit?.act === 'retry') retryAction();
       else if (hit || state === 'title' || userPaused) primaryAction();
     };
     canvas.addEventListener('pointerdown', pointerHandler);
@@ -483,6 +517,9 @@ export const pelicanBike: GameModule = {
         lookDir = lerp(lookDir, P.dir, 1 - Math.exp(-dt * 3.2));
         camX = lerp(camX, camTarget(), 1 - Math.exp(-dt * 7));
       }
+      // In a chase the view never drifts behind the pursuer: it keeps the front just in frame, so the screen rolls on.
+      const cx = chaseX(sim);
+      if (cx > -1e9) camX = Math.min(Math.max(0, sim.worldW - VW), Math.max(camX, cx - VW * 0.12));
     }
 
     function render() {
@@ -508,8 +545,10 @@ export const pelicanBike: GameModule = {
         }
       }
 
+      drawHazards(ctx, sim, camX, gtime, services.isReducedMotion);
       drawEntities(ctx, sim.goal, sim.checks, sim.springs, sim.movers, sim.crumbles, sim.items, sim.enemies, camX, gtime, isZh);
       if (state !== 'title') drawPelican(ctx, sim.P, gtime);
+      if (sim.chaseSpeed && state !== 'title') drawPursuer(ctx, sim.chaseKind, chaseX(sim), sim.P.y, camX, gtime);
 
       for (const p of particles) {
         ctx.globalAlpha = 1 - p.t / p.d;
@@ -542,10 +581,11 @@ export const pelicanBike: GameModule = {
       const ui = {
         uw, uh, padL, touch: isTouchDevice, isZh, gtime,
         state: (state === 'playing' && userPaused ? 'paused' : state) as 'title' | 'playing' | 'paused' | 'levelclear' | 'victory',
-        P: sim.P, lv: state === 'title' ? sel : sim.lv,
+        P: sim.P, lv: state === 'title' ? sel : sim.lv, label: stageLabel(state === 'title' ? sel : sim.lv), par: state === 'title' ? LEVELS[sel].par : sim.par,
+        chaseGap: sim.chaseSpeed ? sim.P.x - chaseX(sim) : Infinity, coast: coastOf(state === 'title' ? sel : sim.lv), coastOpen: COASTS.map((_c, i) => coastOpen(i)),
         progress: sim.P.x / Math.max(1, sim.goal.x), time: sim.time, deaths: sim.deaths, bannerT,
         fishGot: sim.fishGot, fishTot: sim.fishTot, starGot: sim.starGot, starTot: sim.starTot,
-        score: sim.score, hiScore, sel, unlocked: unlocked(), bests, result
+        score: sim.score, hiScore, sel, open: LEVELS.map((_l, i) => isOpen(i)), bests, result
       };
       if (state !== 'title') drawHUD(ctx, ui);
       hits = drawOverlay(ctx, ui);
@@ -555,6 +595,16 @@ export const pelicanBike: GameModule = {
         if (pauseBtn) pauseBtn.style.visibility = ui.state === 'playing' ? 'visible' : 'hidden';
       }
       root.dataset.pelicanStage = String(sim.lv + 1);
+    }
+
+    function stepStage(d: number) {
+      const pos = ORDER.indexOf(sel) + d;
+      if (pos >= 0 && pos < ORDER.length) pickStage(ORDER[pos]);
+    }
+    function pickCoast(ci: number) {
+      if (ci < 0 || ci >= COASTS.length || !coastOpen(ci)) return;
+      const st = COASTS[ci].stages;
+      pickStage(st.find((id) => isOpen(id) && !bests[id]) ?? st.filter(isOpen).pop() ?? st[0]);
     }
 
     // Read-only handle for automated play-tests.
