@@ -6,7 +6,7 @@ import { LESSONS, PUZZLES, buildScenario, scenarioPlans, scenarioWon, type Scena
 import { createOnline, type OnlineLink } from './net';
 import { PALETTE, createRenderer, type Emote, type Look } from './render';
 import {
-  BRACE, DOWN, LEFT, RIGHT, SIT, UP, createMatch, crownOf, moveOrder, normalizePlan, planFromString, resolveRound, type Plan, type RoundResult, type State
+  BRACE, DOWN, LEFT, RIGHT, SIT, UP, createMatch, crownOf, moveOrder, normalizePlan, planFromString, resolveRound, stateHash, type Plan, type RoundResult, type State
 } from './sim';
 import { STYLES } from './styles';
 
@@ -94,7 +94,6 @@ export const shovePond: GameModule = {
     let deadline = 0;          // renderer clock seconds; 0 = no timer
     let lastTick = -1;
     let panel: HTMLElement | null = null;
-    let lobby: HTMLElement | null = null;
     let emotes: Emote[] = [];
     let destroyed = false, paused = false, raf = 0, last = 0;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -103,7 +102,7 @@ export const shovePond: GameModule = {
     let awaySeats = new Set<number>();
     let pendingPlans: Plan[] | null = null;
     const online = createOnline({
-      t, name: () => save.name || FROG_NAMES[0][i18n.lang],
+      t, name: () => myName(),
       onState: () => { refreshHud(); },
       onStart: (state, seats, me) => startOnlineMatch(state, seats, me),
       onSeats: (seats) => {
@@ -123,6 +122,11 @@ export const shovePond: GameModule = {
       currentState: () => (scene?.kind === 'match' ? scene.state : null)
     });
 
+    /** A player without a chosen name gets a random pond name once (so two guests are not both "Lily"). */
+    function myName(): string {
+      if (!save.name) { save.name = `${FROG_NAMES[Math.floor(services.random() * FROG_NAMES.length)][i18n.lang]}${Math.floor(services.random() * 90 + 10)}`; persist(); }
+      return save.name;
+    }
     const say = (text: string, ms = 1400) => {
       toast.textContent = text; toast.style.opacity = '1';
       if (toastTimer) clearTimeout(toastTimer);
@@ -186,6 +190,7 @@ export const shovePond: GameModule = {
     function refreshHud() {
       // Phase and round are mirrored on the root for playtest scripts.
       root.dataset.phase = phase;
+      root.dataset.hash = scene?.kind === 'match' ? String(stateHash(scene.state)) : '';
       root.dataset.scene = !scene ? '' : scene.kind === 'scenario' ? `${scene.list}-${scene.index + 1}` : `${scene.mode}-r${scene.state.round}${scene.state.over ? '-over' : ''}`;
       top.replaceChildren(); bottom.replaceChildren();
       timerBar = null; timerBox = null; readyBtn = null; braceBtn = null; slotEls = [];
@@ -195,6 +200,7 @@ export const shovePond: GameModule = {
         h('div', { class: 'sp-title' }, titleText(), h('div', { class: 'sp-sub', text: subText() })),
         h('button', { class: 'sp-menu-btn', onclick: () => openMenu(), 'aria-label': t('hud.menu') }, `☰ ${t('hud.menu')}`));
       top.append(row);
+      if (online.code && !online.inMatch && scene.kind === 'scenario') top.append(lobbyCard());
       if (scene.kind === 'match') {
         const chips = h('div', { class: 'sp-scores' });
         const ms = scene;
@@ -529,23 +535,28 @@ export const shovePond: GameModule = {
       showEmote(scene.me, e);
       if (scene.mode === 'online') online.emote(e);
     }
-    function removeLobby() { lobby?.remove(); lobby = null; }
+    function removeLobby() { /* the room card is part of the top HUD and goes with the next refresh */ }
     function renderLobby() {
-      if (!online.code || online.inMatch) { removeLobby(); return; }
-      if (!scene || scene.kind !== 'scenario') startPractice();
-      removeLobby();
-      lobby = h('div', { class: 'sp-lobby' });
+      if (!online.code || online.inMatch) { refreshHud(); return; }
+      if (!scene || scene.kind !== 'scenario') startPractice(); else refreshHud();
+    }
+    /** The room card sits in the top HUD, so the practice pond is laid out below it. */
+    function lobbyCard(): HTMLElement {
       const link = online.shareUrl();
-      const board = h('div', { class: 'sp-board' });
-      online.roster().forEach(p => board.append(h('div', null, h('i', { style: `background:${PALETTE[p.seat % 6].body}` }), h('span', { text: `${p.name}${p.seat === online.seat ? ` (${t('room.you')})` : ''}${p.seat === 0 ? ` · ${t('room.host')}` : ''}` }), p.online ? '' : '…')));
-      lobby.append(
-        h('div', { class: 'sp-row' }, h('div', { class: 'sp-title' }, t('room.title', { code: online.code }), h('div', { class: 'sp-sub', text: t('room.players', { n: online.roster().length }) })),
-          h('button', { class: 'sp-small', onclick: () => shareLink(link) }, `🔗 ${t('room.share')}`)),
-        board,
-        online.isHost ? h('button', { class: 'sp-small primary', onclick: () => online.start() }, `▶ ${t('room.start')}`) : h('div', { class: 'sp-sub', text: `${t('room.wait')} · ${t('room.practice')}` }));
-      root.append(lobby);
+      const roster = h('div', { class: 'sp-scores' });
+      const host = online.hostSeat;
+      online.roster().forEach(p => roster.append(h('div', { class: `sp-chip${p.seat === online.seat ? ' me' : ''}${p.online ? '' : ' away'}` },
+        h('i', { style: `background:${PALETTE[p.seat % 6].body}` }), `${p.name}${p.seat === online.seat ? ` (${t('room.you')})` : ''}${p.seat === host ? ` · ${t('room.host')}` : ''}`)));
+      const card = h('div', { class: 'sp-lobby' },
+        h('div', { class: 'sp-row' },
+          h('div', { class: 'sp-title' }, t('room.title', { code: online.code }), h('div', { class: 'sp-sub', text: online.isHost ? t('room.players', { n: online.roster().length }) : `${t('room.wait')} · ${t('room.practice')}` })),
+          h('button', { class: 'sp-small', onclick: () => void shareLink(link) }, `🔗 ${t('room.share')}`),
+          online.isHost ? h('button', { class: 'sp-small primary', onclick: () => online.start() }, `▶ ${t('room.start')}`) : null),
+        roster);
+      return card;
     }
     function startPractice() {
+      closePanel();
       const i = save.school < LESSONS.length ? save.school : (Math.floor(services.random() * PUZZLES.length));
       const list = save.school < LESSONS.length ? 'lesson' : 'puzzle';
       const sc = (list === 'lesson' ? LESSONS : PUZZLES)[i];
@@ -608,7 +619,7 @@ export const shovePond: GameModule = {
     }
     function openOnline(error?: string) {
       phase = 'card';
-      const name = h('input', { class: 'name', value: save.name || FROG_NAMES[0][i18n.lang], maxlength: '14', 'aria-label': t('menu.name') }) as HTMLInputElement;
+      const name = h('input', { class: 'name', value: myName(), maxlength: '14', 'aria-label': t('menu.name') }) as HTMLInputElement;
       const code = h('input', { maxlength: '4', placeholder: 'ABCD', 'aria-label': t('menu.code'), autocapitalize: 'characters' }) as HTMLInputElement;
       const saveName = () => { save.name = name.value.trim().slice(0, 14) || undefined; persist(); };
       const extra = h('div', { class: 'sp-board' },
@@ -719,7 +730,7 @@ export const shovePond: GameModule = {
     if (roomParam && /^[A-Za-z]{4}$/.test(roomParam)) {
       startPractice();
       say(t('room.joining'), 1500);
-      void online.join(roomParam.toUpperCase()).then(res => { if (res !== 'ok') { say(res === 'full' ? t('room.full') : res === 'missing' ? t('room.missing') : t('room.error'), 2600); } });
+      void online.join(roomParam.toUpperCase()).then(res => { if (res === 'ok') toast.style.opacity = '0'; else { say(res === 'full' ? t('room.full') : res === 'missing' ? t('room.missing') : t('room.error'), 2600); } });
     } else if (save.school < LESSONS.length) startScenario('lesson', save.school);
     else { startPractice(); openMenu(); }
     void online.checkRelay();

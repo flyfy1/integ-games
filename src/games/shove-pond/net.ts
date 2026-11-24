@@ -150,19 +150,20 @@ export function createOnline(cb: OnlineCallbacks) {
     get inMatch() { return !!match && !match.state.over; },
     /** True when this client controls a frog in the running match. */
     get playing() { return !!match && !!room && frogOfSeat(room.seat) >= 0; },
-    get isHost() {
-      if (!room) return false;
-      const online = [...room.online].sort((a, b) => a - b);
-      return (online[0] ?? 0) === room.seat || (online.length === 0 && room.seat === 0);
-    },
+    /** The lowest connected seat runs the lobby's Start button (seat 0 until anyone is connected). */
+    get hostSeat() { const online = room ? [...room.online].sort((a, b) => a - b) : []; return online[0] ?? 0; },
+    get isHost() { return !!room && link.hostSeat === room.seat; },
     relayState: () => relay,
     async checkRelay() { relay = (await relayAvailable()) ? 'up' : 'down'; cb.onState(); },
     async create(): Promise<boolean> {
+      if (!(await relayAvailable())) { relay = 'down'; return false; }
       const r = await createRoom(cb.name());
       if (typeof r === 'string') return false;
       attach(r); return true;
     },
     async join(code: string): Promise<'ok' | JoinFailure> {
+      // The probe answers within 2.5 s even when the backend hangs, so a dead relay is reported quickly.
+      if (!(await relayAvailable())) { relay = 'down'; cb.onState(); return 'down'; }
       const r = await joinRoom(code, cb.name());
       if (typeof r === 'string') return r;
       attach(r); return 'ok';

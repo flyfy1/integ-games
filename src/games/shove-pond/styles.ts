@@ -64,7 +64,8 @@ export const STYLES = `
 .sp-board div{display:flex;align-items:center;gap:8px;font-weight:800}
 .sp-board i{width:14px;height:14px;border-radius:50%}
 .sp-board span{flex:1}
-.sp-lobby{position:absolute;left:10px;right:10px;top:48px;z-index:4;background:rgba(18,63,78,.95);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 10px 24px rgba(0,0,0,.35)}
+.sp-lobby .sp-title{white-space:normal}
+.sp-lobby{background:rgba(18,63,78,.95);border-radius:16px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;box-shadow:0 10px 24px rgba(0,0,0,.35)}
 .sp-lobby .sp-board{font-size:14px}
 .sp-toast{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);background:#fff;color:#10303a;font-weight:900;font-size:20px;border-radius:16px;padding:10px 18px;pointer-events:none;transition:opacity .2s;z-index:6;text-align:center;max-width:90%}
 .sp-status{position:absolute;right:10px;top:48px;font-size:12px;font-weight:700;background:rgba(6,20,26,.7);border-radius:10px;padding:4px 8px;z-index:3}
