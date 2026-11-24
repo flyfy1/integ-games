@@ -36,7 +36,27 @@ export const EN = {
   'result.perfect': 'A perfect round — no misses!', 'result.recap': 'Worth remembering', 'result.totalAria': 'Total score {n}',
   'result.correct': 'Correct', 'result.bestStreak': 'Best streak', 'result.base': 'Base points', 'result.timeLoss': 'Time penalty', 'result.bonus': 'Streak bonus',
   'vs.first': '🏆 First {mode} best: {score}', 'vs.none': 'No best yet — every round is practice', 'vs.new': '🏆 New best! +{gain} over {prior}',
-  'vs.match': 'Matched your best of {prior}', 'vs.behind': 'Best {prior} · {gap} to beat it'
+  'vs.match': 'Matched your best of {prior}', 'vs.behind': 'Best {prior} · {gap} to beat it',
+  'menu.classic': 'Classic rounds', 'menu.challenges': 'Challenges',
+  'daily.name': 'Daily Ten', 'daily.blurb': 'The same ten for everyone today, borders included', 'daily.streak': '🔥 {n}-day streak', 'daily.done': 'Today {score} · {correct}/10',
+  'daily.new': 'New today', 'daily.pause': 'Miss a day and your streak just waits.', 'daily.title': 'Geo Quiz Daily Ten',
+  'share.btn': 'Copy result', 'share.copied': 'Copied!', 'share.manual': 'Select and copy:',
+  'journey.name': 'Journey', 'journey.blurb': 'Continent by continent: collect passport stamps', 'journey.stamps': 'Stamps {n}/{total}',
+  'journey.title': 'Passport', 'journey.sub': 'Two stops on each continent, then an exam. {pass} of 10 right earns the stamp and opens the next continent.',
+  'journey.stop0': 'Stop 1 · Arrive', 'journey.stop1': 'Stop 2 · Explore', 'journey.stop2': 'Exam', 'journey.locked': 'Stamp {name} first',
+  'journey.examBest': 'Best exam {n}/10', 'journey.stamped': 'Stamped', 'journey.replay': 'Retake exam', 'journey.back': 'Back',
+  'result.passed': '🛂 Stamp earned: {name}!', 'result.failed': 'The exam needs {pass}/10. One more go!', 'result.stopDone': '✔ {stop} done', 'result.examAgain': 'Exam passed again',
+  'result.allStamps': 'All six continents stamped. A true world traveller!', 'btn.passport': 'Passport', 'btn.continue': 'Continue',
+  'ch.blitz.name': 'Blitz 60', 'ch.blitz.blurb': 'As many as you can in 60 seconds · a miss costs 3s', 'ch.blitz.short': 'Blitz',
+  'ch.survival.name': 'Survival', 'ch.survival.blurb': 'Endless and getting harder · three lives', 'ch.survival.short': 'Survival',
+  'ch.type.name': 'Type the capital', 'ch.type.blurb': 'Hard mode: no options, type it in (accents optional)', 'ch.type.short': 'type-in',
+  'ch.daily.name': 'Daily Ten', 'ch.journey.name': 'Journey',
+  'type.placeholder': 'Type the capital…', 'type.check': 'Check', 'type.pass': "Don't know", 'type.close': 'Accepted: it is spelled {name}', 'type.yours': 'You typed “{text}”',
+  'type.label': 'Your answer',
+  'prompt.type': 'Type its capital', 'prompt.border': 'Which of these borders it?', 'reveal.border': '{a} borders {b}', 'mode.border.choices': 'Country choices',
+  'hud.lives': 'Lives', 'hud.right': 'Right', 'hud.time': 'Time',
+  'timer.blitz': 'Blitz clock', 'fb.penalty': '−3s on the clock', 'fb.lifeLost': 'A life lost · {n} left',
+  'result.timeUp': "Time's up!", 'result.outOfLives': 'Out of lives!', 'result.endless': '{n} right · {asked} asked', 'result.noBoard': 'Endless modes keep their own best here.'
 } as const;
 export type Key = keyof typeof EN;
 
@@ -68,7 +88,27 @@ export const ZH: Record<Key, string> = {
   'result.perfect': '满分一局——全部答对！', 'result.recap': '值得记住', 'result.totalAria': '总分 {n}',
   'result.correct': '答对', 'result.bestStreak': '最长连对', 'result.base': '基础分', 'result.timeLoss': '用时折损', 'result.bonus': '连对奖励',
   'vs.first': '🏆 首个{mode}模式最佳：{score}', 'vs.none': '还没有最佳成绩——每一局都是练习', 'vs.new': '🏆 新纪录！比 {prior} 高 {gain}',
-  'vs.match': '与你的最佳 {prior} 持平', 'vs.behind': '最佳 {prior} · 还差 {gap} 分超越'
+  'vs.match': '与你的最佳 {prior} 持平', 'vs.behind': '最佳 {prior} · 还差 {gap} 分超越',
+  'menu.classic': '经典模式', 'menu.challenges': '挑战',
+  'daily.name': '每日十题', 'daily.blurb': '今天所有人同一套十题，含邻国题', 'daily.streak': '🔥 连续 {n} 天', 'daily.done': '今日 {score} · 答对 {correct}/10',
+  'daily.new': '今日未玩', 'daily.pause': '漏玩一天也没关系，连续天数会等你。', 'daily.title': 'Geo Quiz 每日十题',
+  'share.btn': '复制成绩', 'share.copied': '已复制！', 'share.manual': '请选中复制：',
+  'journey.name': '护照之旅', 'journey.blurb': '一个大洲一个大洲地走，收集护照印章', 'journey.stamps': '印章 {n}/{total}',
+  'journey.title': '护照', 'journey.sub': '每个大洲先走两站，再参加考试。答对 {pass}/10 即可盖章，并解锁下一个大洲。',
+  'journey.stop0': '第一站 · 抵达', 'journey.stop1': '第二站 · 探索', 'journey.stop2': '考试', 'journey.locked': '先拿到{name}的印章',
+  'journey.examBest': '考试最佳 {n}/10', 'journey.stamped': '已盖章', 'journey.replay': '重考', 'journey.back': '返回',
+  'result.passed': '🛂 获得印章：{name}！', 'result.failed': '考试需要答对 {pass}/10，再来一次！', 'result.stopDone': '✔ {stop} 完成', 'result.examAgain': '再次通过考试',
+  'result.allStamps': '六个大洲全部盖章，真正的环球旅行家！', 'btn.passport': '护照', 'btn.continue': '继续',
+  'ch.blitz.name': '六十秒快答', 'ch.blitz.blurb': '60 秒内能答多少答多少 · 答错扣 3 秒', 'ch.blitz.short': '快答',
+  'ch.survival.name': '三条命', 'ch.survival.blurb': '无尽模式，越来越难 · 共三条命', 'ch.survival.short': '三条命',
+  'ch.type.name': '拼写首都', 'ch.type.blurb': '困难模式：没有选项，直接输入（可不写重音符号）', 'ch.type.short': '拼写',
+  'ch.daily.name': '每日十题', 'ch.journey.name': '护照之旅',
+  'type.placeholder': '输入首都名称…', 'type.check': '确定', 'type.pass': '不知道', 'type.close': '算你对：正确写法是{name}', 'type.yours': '你输入的是“{text}”',
+  'type.label': '你的答案',
+  'prompt.type': '输入它的首都', 'prompt.border': '下面哪个国家与它接壤？', 'reveal.border': '{a}与{b}接壤', 'mode.border.choices': '国家选项',
+  'hud.lives': '生命', 'hud.right': '答对', 'hud.time': '时间',
+  'timer.blitz': '快答计时', 'fb.penalty': '计时扣 3 秒', 'fb.lifeLost': '失去一条命 · 还剩 {n} 条',
+  'result.timeUp': '时间到！', 'result.outOfLives': '生命用完了！', 'result.endless': '答对 {n} 题 · 共 {asked} 题', 'result.noBoard': '无尽模式的最佳成绩单独记录。'
 };
 
 const DICTS: Record<Lang, Record<Key, string>> = { en: EN, zh: ZH };

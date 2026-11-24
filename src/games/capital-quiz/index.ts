@@ -1,8 +1,16 @@
 import type { GameController, GameModule } from '../../core/game-types';
-import { COUNTRIES, REGION_COLORS, flagEmoji, type CountryEntry, type Difficulty, type ShapeEntry } from './data';
+import { COUNTRIES, REGION_COLORS, flagEmoji, type CountryEntry, type Difficulty, type Region, type ShapeEntry } from './data';
+import { dailyKey, dailyRandom, dailyShareText, playedToday, readDaily, recordDaily } from '../_shared/daily';
+import { BLITZ_MS, BLITZ_PENALTY_MS, EXAM_PASS, JOURNEY, STOPS, SURVIVAL_LIVES, TYPE_LIMIT_MS, buildDailyRound, buildJourneyRound, cleanJourney, continentOpen, isExam, matchCapital, nextEndless, nextStop, recordStop, stampCount } from './modes';
 import { SHAPE_VIEWBOX } from './shapes';
 import { LANGS, capitalLabel, capitalName, countryLabel, countryName, defaultLang, isLang, regionName, t, type Key, type Lang } from './i18n';
-import { BASE_POINTS, MODES, PLAYS, QuestionClock, ROUND_LENGTH, TIME_LIMIT_MS, answerOf, atlasTotal, buildMixRound, buildRound, cleanAtlas, isMode, isPlay, poolFor, pointsFor, timedBase, timedPointsFor, weigher, type Mode, type Play, type Question } from './logic';
+import { BASE_POINTS, MODES, PLAYS, QuestionClock, ROUND_LENGTH, TIME_LIMIT_MS, answerOf, atlasTotal, buildMixRound, buildRound, cleanAtlas, isMode, isPlay, poolFor, pointsFor, timedBase, timedPointsFor, weigher, type Kind, type Mode, type Play, type Question } from './logic';
+
+/** The challenge modes next to the classic rounds. Daily, Journey and Type are ten-question rounds; Blitz and Survival run until time or lives run out. */
+type Challenge = 'daily' | 'journey' | 'blitz' | 'survival' | 'type';
+const CHALLENGES: readonly Challenge[] = ['daily', 'journey', 'blitz', 'survival', 'type'];
+const isChallenge = (c: unknown): c is Challenge => CHALLENGES.includes(c as Challenge);
+type Run = { c: Challenge; region?: Region; stop?: number; day?: string };
 
 /** `results[i]` is whether question i was answered correctly; null when unknown (saves from before results were kept). */
 type Result = boolean | null;
@@ -143,6 +151,60 @@ const CSS = `
 .cq.is-motion .cq-segs i.is-now{animation:cq-blink 1.4s ease-in-out infinite}
 .cq.is-motion .cq-vs.is-best{animation:cq-pop .5s ease .6s both}
 .cq:not(.is-motion) .cq-float{display:none}
+.cq-section{margin:6px 0 -2px;color:var(--muted);font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.14em}
+.cq-featured{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.cq-feature{--accent:#FFDA74;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:10px;min-height:110px;padding:12px;border:1px solid color-mix(in srgb,var(--accent) 55%,#52617f);border-radius:18px;background:linear-gradient(140deg,color-mix(in srgb,var(--accent) 22%,#182039),#121a2e);color:var(--ink);text-align:left;touch-action:manipulation;min-width:0}
+.cq-feature.is-journey{--accent:#B18CFF}
+.cq-feature .cq-mode-icon{width:44px;height:44px;font-size:1.5rem}
+.cq-feature strong{font-size:1.02rem}
+.cq-feature-meta{display:flex;flex-wrap:wrap;gap:4px 8px;margin-top:4px;font-size:.74rem}
+.cq-feature-meta b{color:var(--accent)}
+.cq-feature.is-daily:not(.is-done){box-shadow:0 0 0 2px color-mix(in srgb,#FFDA74 35%,transparent)}
+.cq-fire{color:#FFB06B!important}
+.cq-stamps{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:5px}
+.cq-stamps i{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--region);opacity:.55}
+.cq-stamps i.is-on{background:var(--region);opacity:1;box-shadow:0 0 6px var(--region)}
+.cq-stamps small{margin-left:4px;color:var(--muted);font-size:.72rem;white-space:nowrap}
+.cq-challenges{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.cq-chal{--accent:#FF8A5C;display:grid;justify-items:center;align-content:start;gap:3px;min-height:118px;padding:10px 6px;border:1px solid color-mix(in srgb,var(--accent) 45%,#52617f);border-radius:16px;background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 18%,#182039),#121a2e);color:var(--ink);text-align:center;touch-action:manipulation;min-width:0}
+.cq-chal>span{font-size:1.5rem;line-height:1.1}
+.cq-chal strong{font-size:.9rem;line-height:1.15}
+.cq-chal small{color:var(--muted);font-size:.68rem;line-height:1.25;overflow-wrap:anywhere}
+.cq-chal b{margin-top:auto;color:var(--accent);font-size:.74rem;font-variant-numeric:tabular-nums}
+.cq-feature:focus-visible,.cq-chal:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.cq-feature:active,.cq-chal:active{transform:scale(.985)}
+.cq-passport{display:grid;gap:10px}
+.cq-route{margin:0;padding:0;list-style:none;display:grid;gap:8px;counter-reset:leg}
+.cq-leg{--region:#59C9FF;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;min-height:72px;padding:8px 12px;border-radius:16px;border:1px solid color-mix(in srgb,var(--region) 45%,#273149);background:linear-gradient(100deg,color-mix(in srgb,var(--region) 16%,#182039),#12192A)}
+.cq-leg.is-locked{opacity:.55;filter:saturate(.4)}
+.cq-stamp{display:grid;place-items:center;width:50px;height:50px;border-radius:50%;border:2px dashed color-mix(in srgb,var(--region) 70%,transparent);font-size:1.6rem}
+.cq-leg.is-stamped .cq-stamp{border-style:solid;background:color-mix(in srgb,var(--region) 28%,#0f1628);transform:rotate(-8deg);box-shadow:0 0 12px color-mix(in srgb,var(--region) 45%,transparent)}
+.cq-leg-text{display:grid;gap:3px;min-width:0}
+.cq-leg-text small{color:var(--muted);font-size:.74rem}
+.cq-stops{display:flex;gap:5px}
+.cq-stops i{width:22px;height:7px;border-radius:99px;background:#273149}
+.cq-stops i.is-exam{width:30px}
+.cq-stops i.is-on{background:var(--region)}
+.cq-stops i.is-now{background:#F7F9FF80}
+.cq-leg .cq-action{min-height:44px;padding:8px 12px;font-size:.84rem;white-space:nowrap}
+.cq-leg-lock{max-width:8.5em;color:var(--muted);font-size:.72rem;text-align:right}
+.cq-bigstamp{display:grid;place-items:center;width:112px;height:112px;border-radius:50%;border:4px double var(--region);color:var(--region);transform:rotate(-10deg);background:color-mix(in srgb,var(--region) 14%,transparent)}
+.cq-bigstamp span{font-size:2.6rem;line-height:1}
+.cq-bigstamp small{margin-top:-14px;font-size:.7rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.cq.is-motion .cq-bigstamp.is-fresh{animation:cq-stamp .55s cubic-bezier(.2,1.6,.4,1) .2s both}
+@keyframes cq-stamp{0%{opacity:0;transform:scale(2.2) rotate(-25deg)}100%{opacity:1;transform:scale(1) rotate(-10deg)}}
+.cq-share{display:grid;justify-items:center;gap:6px;width:100%}
+.cq-share p{margin:0;font-size:.86rem}
+.cq-share small{color:var(--muted)}
+.cq-share-line{max-width:100%;padding:6px 10px;border-radius:10px;background:#0f1628;border:1px solid var(--line);font-size:.8rem!important;color:var(--ink);overflow-wrap:anywhere;user-select:all}
+.cq-note{margin:0;color:var(--muted);font-size:.76rem}
+.cq-type{display:grid;gap:8px}
+.cq-type-input{width:100%;min-height:56px;padding:10px 14px;border:2px solid #52617f;border-radius:14px;background:#0f1628;color:var(--ink);font:inherit;font-size:1.2rem;font-weight:800;text-align:center}
+.cq-type-input:focus{outline:none;border-color:var(--ok)}
+.cq-type-input.is-right{border-color:var(--ok);color:var(--ok)}.cq-type-input.is-wrong{border-color:var(--bad);color:#FF9BAA}
+.cq-type-actions{position:relative;display:grid;grid-template-columns:2fr 1fr;gap:8px}
+.cq-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media(max-width:380px){.cq-featured{grid-template-columns:1fr}.cq-feature{min-height:0}}
 @keyframes cq-stream{to{stroke-dashoffset:-5}}
 @keyframes cq-alarm{50%{box-shadow:0 0 0 3px color-mix(in srgb,#FF6B7A 40%,transparent)}}
 @keyframes cq-pop{50%{transform:scale(1.06)}}
@@ -190,8 +252,24 @@ const game: GameModule = {
     let clock: QuestionClock | null = null;
     /** What the player just did on the question on screen, kept so a language switch can repaint the feedback. */
     let last: { picked: number; right: boolean; gained: number; lostStreak: number; left: number; fresh: boolean } | null = null;
-    let view: 'menu' | 'question' | 'result' = 'menu';
+    let view: 'menu' | 'question' | 'result' | 'journey' = 'menu';
     let resultInfo = { prior: 0, newBest: false };
+    /** The challenge being played, or null for a classic round. Challenge rounds are not resumed after a reload. */
+    let run: Run | null = null;
+    /** Survival lives left; the Blitz clock is one QuestionClock shared by every question of the run. */
+    let lives = 0, blitz: QuestionClock | null = null, over = false;
+    const asked = new Set<string>();
+    let journey = cleanJourney(services.storage.get<unknown>('journey', null));
+    /** What the end of a challenge round produced (journey stamp, daily streak), for the result screen. */
+    let outcome: { passed?: boolean; stamped?: boolean; streak?: number; share?: string } = {};
+    /** Typed answer of the question on screen (type-in mode), kept for the feedback line. */
+    let typedText = '', typedMatch: 'exact' | 'close' | null = null;
+    const endless = () => run?.c === 'blitz' || run?.c === 'survival';
+    /** The run is over: ten questions answered, or time / lives gone in an endless mode. */
+    const done = () => (endless() ? over : index >= ROUND_LENGTH);
+    const limitFor = (d: Difficulty) => (run?.c === 'type' ? TYPE_LIMIT_MS[d] : TIME_LIMIT_MS[d]);
+    const lastDaily = (day: string) => { const raw = services.storage.get<{ day?: string; correct?: number } | null>('daily-ten-last', null); return raw?.day === day && typeof raw.correct === 'number' ? raw.correct : 0; };
+    const bestKeyRun = (c: Challenge) => `capital-quiz-best-${c}`;
 
     const saved = restore(services.storage.get<Saved | null>('save', null));
     if (saved) ({ mode, round, index, score, streak, correct, missed, results, timeLost, fresh: newInAtlas } = saved);
@@ -207,7 +285,7 @@ const game: GameModule = {
       bar.innerHTML = LANGS.map((l) => `<button type="button" data-lang="${l}" lang="${l}" aria-pressed="${l === lang}">${t(l, `lang.${l}`)}</button>`).join('');
     };
 
-    const persist = () => services.storage.set<Saved | null>('save', !mode || index >= ROUND_LENGTH ? null : { mode, round: round.map((q) => ({ country: q.entry.country, options: q.options, ...(q.kind ? { kind: q.kind } : {}) })), index, score, streak, correct, missed, results, timeLost, fresh: newInAtlas });
+    const persist = () => services.storage.set<Saved | null>('save', !mode || run || index >= ROUND_LENGTH ? null : { mode, round: round.map((q) => ({ country: q.entry.country, options: q.options, ...(q.kind ? { kind: q.kind as Mode } : {}) })), index, score, streak, correct, missed, results, timeLost, fresh: newInAtlas });
     const clearTimer = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
     const stopTick = () => { if (tick !== undefined) { clearInterval(tick); tick = undefined; } };
     const stopRoll = () => { if (raf !== undefined) { cancelAnimationFrame(raf); raf = undefined; } };
@@ -234,13 +312,18 @@ const game: GameModule = {
       const label = reset ? tr('streak.fresh') : tier === 4 ? tr('streak.max') : tier > 0 ? tr('streak.bonus', { n: 25 * tier }) : tr('streak.none');
       return `<span class="cq-streak${reset ? ' is-reset' : tier ? ` t${tier}` : ''}" data-streak aria-label="${tr('streak.aria', { n: s })}"><b>${s >= 2 ? `🔥 ${s}` : s}</b><small>${label}</small></span>`;
     };
-    const hud = () => `<div data-hud><div class="cq-hud"><span class="cq-hud-q"><small>${tr('hud.question')}</small><strong data-q>${answered ? index : Math.min(index + 1, ROUND_LENGTH)}/${ROUND_LENGTH}</strong></span><span class="cq-hud-score" data-score-box><small>${tr('hud.score')}</small><strong data-score aria-label="${tr('hud.score')}">${fmt(score)}</strong></span>${streakChip(streak, view === 'question' && !!last && !last.right && last.lostStreak >= 2)}</div><div class="cq-segs" role="progressbar" aria-label="${tr('hud.progress')}" aria-valuemin="0" aria-valuemax="${ROUND_LENGTH}" aria-valuenow="${index}" data-segs>${segs()}</div></div>`;
+    const hearts = () => Array.from({ length: SURVIVAL_LIVES }, (_, i) => (i < lives ? '❤️' : '🤍')).join('');
+    const qLabel = () => (run?.c === 'survival' ? tr('hud.lives') : run?.c === 'blitz' ? tr('hud.right') : tr('hud.question'));
+    const qText = () => (run?.c === 'survival' ? hearts() : run?.c === 'blitz' ? String(correct) : `${answered ? index : Math.min(index + 1, ROUND_LENGTH)}/${ROUND_LENGTH}`);
+    const hud = () => `<div data-hud><div class="cq-hud"><span class="cq-hud-q"><small>${qLabel()}</small><strong data-q>${qText()}</strong></span><span class="cq-hud-score" data-score-box><small>${tr('hud.score')}</small><strong data-score aria-label="${tr('hud.score')}">${fmt(score)}</strong></span>${streakChip(streak, view === 'question' && !!last && !last.right && last.lostStreak >= 2)}</div><div class="cq-segs" role="progressbar" aria-label="${tr('hud.progress')}" aria-valuemin="0" aria-valuemax="${ROUND_LENGTH}" aria-valuenow="${index}" data-segs${endless() ? ' hidden' : ''}>${segs()}</div></div>`;
 
     const MODE_ACCENT: Record<Play, string> = { capital: '#59C9FF', flag: '#FFB06B', shape: '#70F0C2', mix: '#FF8FDD' };
     const MODE_ICON: Record<Play, string> = { capital: '🏛️', flag: '🚩', shape: '🗺️', mix: '🧭' };
+    const CH_ACCENT: Record<Challenge, string> = { daily: '#FFDA74', journey: '#B18CFF', blitz: '#FF8A5C', survival: '#FF6B7A', type: '#59C9FF' };
+    const CH_ICON: Record<Challenge, string> = { daily: '📅', journey: '🛂', blitz: '⚡', survival: '❤️', type: '⌨️' };
     /** The kind of one question: its own in a mixed round, otherwise the round's mode. */
-    const kindOf = (q: Question): Mode => q.kind ?? (mode as Mode);
-    const optionLabel = (o: string, m: Mode) => (m === 'capital' ? capitalLabel(o, lang) : countryLabel(o, lang));
+    const kindOf = (q: Question): Kind => q.kind ?? (mode as Mode);
+    const optionLabel = (o: string, m: Kind) => (m === 'capital' ? capitalLabel(o, lang) : countryLabel(o, lang));
     /** The question on screen: after an answer `index` has already advanced. */
     const current = () => round[answered ? index - 1 : index];
 
@@ -256,7 +339,7 @@ const game: GameModule = {
       if (!clock) return;
       clock.tick(performance.now());
       paintTimer();
-      if (clock.expired) resolve(-1);
+      if (clock.expired) { if (run?.c === 'blitz') { over = true; answered = true; syncClock(); finish(); } else resolve(-1); }
     }
     const GLASS = '<svg class="cq-glass" viewBox="0 0 40 56" aria-hidden="true"><defs><clipPath id="cq-gt"><path d="M6 6H34L22 28H18Z"/></clipPath><clipPath id="cq-gb"><path d="M18 28H22L34 50H6Z"/></clipPath></defs><path d="M6 6H34L22 28L34 50H6L18 28Z" fill="#ffffff12"/><rect class="g-sand" data-sand-top x="0" width="40" clip-path="url(#cq-gt)"/><rect class="g-sand" data-sand-bot x="0" width="40" clip-path="url(#cq-gb)"/><line class="g-stream" data-stream x1="20" x2="20" y1="28"/><path class="g-frame" fill="none" d="M6 6H34L22 28L34 50H6L18 28Z"/><path class="g-cap" d="M4 4H36M4 52H36"/></svg>';
     const timerHtml = () => `<div class="cq-timer" role="timer" data-timer>${GLASS}<span class="cq-clock"><small data-clock-label></small><b data-clock></b></span><span class="cq-worth"><small data-worth-label></small><b data-worth></b></span></div>`;
@@ -266,8 +349,8 @@ const game: GameModule = {
       const box = root.querySelector<HTMLElement>('[data-timer]');
       if (!box || !clock || !mode) return;
       const q = current(), d = q.entry.difficulty, rem = clock.remainingMs, frac = rem / clock.limitMs;
-      const timedOut = answered && !!last && last.picked < 0;
-      const worth = answered ? (last?.right ? last.gained : 0) : timedPointsFor(d, streak + 1, rem);
+      const timedOut = answered && (run?.c === 'blitz' ? over : !!last && last.picked === -1);
+      const worth = answered ? (last?.right ? last.gained : 0) : run?.c === 'blitz' ? pointsFor(d, streak + 1) : timedPointsFor(d, streak + 1, rem, limitFor(d));
       const cls = `cq-timer${answered ? ' is-done' : frac <= 0.25 ? ' is-low' : frac <= 0.5 ? ' is-warn' : ''}`;
       if (box.className !== cls) box.className = cls;
       const top = 22 * frac, bottom = 22 - top;
@@ -276,7 +359,7 @@ const game: GameModule = {
       const stream = root.querySelector<SVGElement>('[data-stream]') as SVGElement;
       stream.setAttribute('y2', (50 - bottom).toFixed(2)); stream.style.display = !answered && rem > 0 ? '' : 'none';
       const secs = answered ? (rem / 1000).toFixed(1) : String(Math.ceil(rem / 1000));
-      setText('[data-clock-label]', tr('timer.label'));
+      setText('[data-clock-label]', tr(run?.c === 'blitz' ? 'timer.blitz' : 'timer.label'));
       setText('[data-clock]', timedOut ? tr('timer.expired') : tr('timer.secs', { n: secs }));
       setText('[data-worth-label]', tr(answered ? 'timer.earned' : 'timer.worth'));
       setText('[data-worth]', answered ? (worth ? `+${worth}` : '0') : `+${worth}`);
@@ -285,29 +368,73 @@ const game: GameModule = {
     }
 
     function showMenu() {
-      clearTimer(); stopRoll(); answered = false; mode = null; last = null; view = 'menu'; persist(); syncClock();
-      body.innerHTML = `<div class="cq-menu"><div class="cq-menu-head"><span aria-hidden="true">🌍</span><h2>${tr('menu.title')}</h2><p>${tr('menu.sub')}</p></div>${PLAYS.map((m) => {
+      clearTimer(); stopRoll(); answered = false; mode = null; run = null; last = null; view = 'menu'; persist(); syncClock();
+      const day = readDaily(services.storage, 'ten'), today = dailyKey(), doneToday = playedToday(services.storage, 'ten', today);
+      const dailyStatus = doneToday ? tr('daily.done', { score: fmt(day.scores[today] ?? 0), correct: lastDaily(today) }) : tr('daily.new');
+      const stamps = stampCount(journey);
+      const featured = `<div class="cq-featured">
+        <button type="button" class="cq-feature is-daily${doneToday ? ' is-done' : ''}" data-challenge="daily"><span class="cq-mode-icon" aria-hidden="true">📅</span><span class="cq-mode-text"><strong>${tr('daily.name')}</strong><span>${tr('daily.blurb')}</span><span class="cq-feature-meta"><b>${dailyStatus}</b>${day.streak ? `<b class="cq-fire">${tr('daily.streak', { n: day.streak })}</b>` : ''}</span></span></button>
+        <button type="button" class="cq-feature is-journey" data-challenge="journey"><span class="cq-mode-icon" aria-hidden="true">🛂</span><span class="cq-mode-text"><strong>${tr('journey.name')}</strong><span>${tr('journey.blurb')}</span><span class="cq-stamps" aria-label="${tr('journey.stamps', { n: stamps, total: JOURNEY.length })}">${JOURNEY.map((r) => `<i class="${(journey.cleared[r] ?? 0) >= STOPS ? 'is-on' : ''}" style="--region:${REGION_COLORS[r]}" title="${regionName(r, lang)}"></i>`).join('')}<small>${tr('journey.stamps', { n: stamps, total: JOURNEY.length })}</small></span></span></button>
+      </div>`;
+      const challenges = `<p class="cq-section">${tr('menu.challenges')}</p><div class="cq-challenges">${(['blitz', 'survival', 'type'] as const).map((c) => {
+        const best = services.storage.get<number>(bestKeyRun(c), 0);
+        return `<button type="button" class="cq-chal" data-challenge="${c}" style="--accent:${CH_ACCENT[c]}"><span aria-hidden="true">${CH_ICON[c]}</span><strong>${tr(`ch.${c}.name`)}</strong><small>${tr(`ch.${c}.blurb`)}</small><b>${best ? `${tr('menu.best')} ${fmt(best)}` : tr('menu.notYet')}</b></button>`;
+      }).join('')}</div>`;
+      body.innerHTML = `<div class="cq-menu"><div class="cq-menu-head"><span aria-hidden="true">🌍</span><h2>${tr('menu.title')}</h2><p>${tr('menu.sub')}</p></div>${featured}<p class="cq-section">${tr('menu.classic')}</p>${PLAYS.map((m) => {
         const best = services.storage.get<number>(bestKey(m), 0), { n, total } = atlasOf(m);
         return `<button type="button" class="cq-mode" data-mode="${m}" style="--accent:${MODE_ACCENT[m]}"><span class="cq-mode-icon" aria-hidden="true">${MODE_ICON[m]}</span><span class="cq-mode-text"><strong>${tr(`mode.${m}.name`)}</strong><span>${tr(`mode.${m}.blurb`)}</span><span class="cq-atlas" role="img" aria-label="${tr('atlas.aria', { n, total })}"><i><b style="width:${(100 * n / total).toFixed(1)}%"></b></i><small>${tr('atlas.count', { n, total })}</small></span></span><span class="cq-best${best ? '' : ' is-new'}"><small>${tr('menu.best')}</small><b>${best ? fmt(best) : tr('menu.notYet')}</b></span></button>`;
-      }).join('')}<details class="cq-how"><summary>${tr('menu.how')}</summary><p class="cq-rules">${tr('menu.rules', { a: BASE_POINTS[1], b: BASE_POINTS[2], c: BASE_POINTS[3] })}</p><p class="cq-rules">${tr('menu.timer', { a: TIME_LIMIT_MS[1] / 1000, b: TIME_LIMIT_MS[2] / 1000, c: TIME_LIMIT_MS[3] / 1000 })}</p></details></div>`;
+      }).join('')}${challenges}<details class="cq-how"><summary>${tr('menu.how')}</summary><p class="cq-rules">${tr('menu.rules', { a: BASE_POINTS[1], b: BASE_POINTS[2], c: BASE_POINTS[3] })}</p><p class="cq-rules">${tr('menu.timer', { a: TIME_LIMIT_MS[1] / 1000, b: TIME_LIMIT_MS[2] / 1000, c: TIME_LIMIT_MS[3] / 1000 })}</p></details></div>`;
     }
 
     function start(m: Play) {
       const weigh = weigher(atlas, review);
-      clearTimer(); stopRoll(); mode = m; round = m === 'mix' ? buildMixRound(services.random, weigh) : buildRound(services.random, poolFor(m), m, COUNTRIES, weigh);
+      clearTimer(); stopRoll(); run = null; mode = m; round = m === 'mix' ? buildMixRound(services.random, weigh) : buildRound(services.random, poolFor(m), m, COUNTRIES, weigh);
       index = 0; score = 0; streak = 0; correct = 0; missed = []; results = []; timeLost = 0; newInAtlas = 0; paused = false; last = null;
       services.reportScore(0); persist(); showQuestion();
+      scrollIn();
+    }
+    function scrollIn() {
       // On a short desktop window the answers can sit below the fold; bring the whole question into view once per round.
       if (typeof root.scrollIntoView === 'function' && !host.classList.contains('is-immersive')) root.scrollIntoView({ block: 'nearest', behavior: motion ? 'smooth' : 'auto' });
     }
 
-    function card(q: Question, m: Mode, pop: boolean) {
+    function startChallenge(c: Challenge, region?: Region) {
+      clearTimer(); stopRoll();
+      if (c === 'journey' && (!region || !continentOpen(journey, region))) { showJourney(); return; }
+      run = { c }; mode = 'mix'; over = false; asked.clear(); outcome = {};
+      if (c === 'daily') { run.day = dailyKey(); round = buildDailyRound(dailyRandom('capital-quiz', run.day)); }
+      else if (c === 'journey' && region) { run.region = region; run.stop = nextStop(journey, region); round = buildJourneyRound(services.random, region, run.stop); }
+      else if (c === 'type') round = buildRound(services.random, COUNTRIES, 'capital', COUNTRIES, weigher(atlas, review)).map((q) => ({ ...q, kind: 'capital' as const }));
+      else round = [nextEndless(services.random, 0, asked)];
+      lives = c === 'survival' ? SURVIVAL_LIVES : 0;
+      blitz = c === 'blitz' ? new QuestionClock(BLITZ_MS) : null;
+      index = 0; score = 0; streak = 0; correct = 0; missed = []; results = []; timeLost = 0; newInAtlas = 0; paused = false; last = null;
+      if (!endless()) services.reportScore(0);
+      persist(); showQuestion(); scrollIn();
+    }
+
+    const STAMP_ICON: Record<Region, string> = { Europe: '🏰', 'North America': '🗽', 'South America': '🦙', Asia: '🏯', Africa: '🦁', Oceania: '🐨' };
+    const stopName = (s: number) => tr(`journey.stop${Math.max(0, Math.min(STOPS - 1, s))}` as Key);
+    /** The passport: six continents in order, each with two stops and an exam; a passed exam stamps it and opens the next. */
+    function showJourney() {
+      clearTimer(); stopRoll(); answered = false; mode = null; run = null; last = null; view = 'journey'; persist(); syncClock();
+      body.innerHTML = `<div class="cq-passport"><div class="cq-menu-head"><span aria-hidden="true">🛂</span><h2>${tr('journey.title')}</h2><p>${tr('journey.sub', { pass: EXAM_PASS })}</p></div>
+        <ol class="cq-route">${JOURNEY.map((r, i) => {
+          const open = continentOpen(journey, r), cleared = journey.cleared[r] ?? 0, stamped = cleared >= STOPS, best = journey.bestExam[r];
+          const dots = Array.from({ length: STOPS }, (_, s) => `<i class="${s < cleared ? 'is-on' : s === cleared && open ? 'is-now' : ''}${isExam(s) ? ' is-exam' : ''}" title="${stopName(s)}"></i>`).join('');
+          const action = !open ? `<small class="cq-leg-lock">${tr('journey.locked', { name: regionName(JOURNEY[i - 1], lang) })}</small>` : `<button type="button" class="cq-action${stamped ? ' cq-secondary' : ''}" data-region="${r}">${stamped ? tr('journey.replay') : stopName(nextStop(journey, r))}</button>`;
+          return `<li class="cq-leg${open ? '' : ' is-locked'}${stamped ? ' is-stamped' : ''}" style="--region:${REGION_COLORS[r]}"><span class="cq-stamp" aria-hidden="true">${stamped ? STAMP_ICON[r] : open ? '🧳' : '🔒'}</span><span class="cq-leg-text"><strong>${regionName(r, lang)}</strong><span class="cq-stops" aria-hidden="true">${dots}</span><small>${stamped ? `${tr('journey.stamped')} · ` : ''}${best !== undefined ? tr('journey.examBest', { n: best }) : ''}</small></span>${action}</li>`;
+        }).join('')}</ol>
+        <div class="cq-result-actions"><button type="button" class="cq-action cq-secondary" data-menu>${tr('journey.back')}</button></div></div>`;
+    }
+
+    function card(q: Question, m: Kind, pop: boolean) {
       const e = q.entry, pts = BASE_POINTS[e.difficulty], cls = `cq-card${pop ? ' pop' : ''}`;
-      const retry = !answered && review[m].includes(e.iso) ? `<span class="cq-tag" data-tag>${tr('atlas.retry')}</span>` : '';
+      const retry = !answered && m !== 'border' && review[m].includes(e.iso) ? `<span class="cq-tag" data-tag>${tr('atlas.retry')}</span>` : '';
       const diff = `<span class="cq-diff" aria-label="${tr('diff.aria', { name: tr(`diff.${e.difficulty}`), pts })}">${STARS[e.difficulty]} <span>${tr('diff.pts', { pts })}</span></span>${retry}`;
       if (m === 'flag') return `<div class="${cls}" style="--region:${MODE_ACCENT.flag}">${diff}<span class="cq-flag is-hero" role="img" aria-label="${tr('card.flagAria')}">${flagEmoji(e.iso)}</span><p data-prompt>${tr('prompt.flag')}</p></div>`;
       if (m === 'shape') return `<div class="${cls}" style="--region:${MODE_ACCENT.shape}">${diff}<span class="cq-globe"><svg class="cq-shape" viewBox="0 0 ${SHAPE_VIEWBOX} ${SHAPE_VIEWBOX}" role="img" aria-label="${tr('card.shapeAria')}"><defs><linearGradient id="cq-land" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BFFD9"/><stop offset="1" stop-color="#3FBF9A"/></linearGradient></defs><path d="${(e as ShapeEntry).path}" fill="url(#cq-land)" stroke="#071712" stroke-width="1" stroke-linejoin="round"/></svg></span><p data-prompt>${tr('prompt.shape')}</p></div>`;
-      return `<div class="${cls}" style="--region:${REGION_COLORS[e.region]}">${diff}<span class="cq-flag" aria-hidden="true">${flagEmoji(e.iso)}</span><h2>${countryName(e, lang)}</h2><p data-prompt>${tr('prompt.capital')}</p><span class="cq-chip">${regionName(e.region, lang)}</span></div>`;
+      return `<div class="${cls}" style="--region:${REGION_COLORS[e.region]}">${diff}<span class="cq-flag" aria-hidden="true">${flagEmoji(e.iso)}</span><h2>${countryName(e, lang)}</h2><p data-prompt>${tr(m === 'border' ? 'prompt.border' : run?.c === 'type' ? 'prompt.type' : 'prompt.capital')}</p><span class="cq-chip">${regionName(e.region, lang)}</span></div>`;
     }
 
     /** Draws the current question; when it was already answered (language switch) the feedback is repainted without animation. */
@@ -315,12 +442,18 @@ const game: GameModule = {
       clearTimer(); stopRoll(); view = 'question';
       if (pop) { answered = false; last = null; }
       const q = current(), m = kindOf(q);
-      if (pop) clock = new QuestionClock(TIME_LIMIT_MS[q.entry.difficulty]);
+      if (pop) { clock = run?.c === 'blitz' ? blitz : new QuestionClock(limitFor(q.entry.difficulty)); typedText = ''; typedMatch = null; }
+      const typing = run?.c === 'type';
+      const answers = typing
+        ? `<form class="cq-type" data-type-form autocomplete="off"><label class="cq-sr" for="cq-type-in">${tr('type.label')}</label><input id="cq-type-in" class="cq-type-input" data-type-input type="text" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="go" maxlength="60" placeholder="${tr('type.placeholder')}"><span class="cq-type-actions"><button type="submit" class="cq-action" data-type-check>${tr('type.check')}</button><button type="button" class="cq-action cq-secondary" data-pass>${tr('type.pass')}</button></span></form>`
+        : `<div class="cq-options" role="group" aria-label="${tr(`mode.${m}.choices`)}">${q.options.map((o, i) => `<button type="button" class="cq-option" data-i="${i}">${optionLabel(o, m)}</button>`).join('')}</div>`;
       body.innerHTML = `${hud()}
         ${timerHtml()}
         ${card(q, m, pop)}
-        <div class="cq-options" role="group" aria-label="${tr(`mode.${m}.choices`)}">${q.options.map((o, i) => `<button type="button" class="cq-option" data-i="${i}">${optionLabel(o, m)}</button>`).join('')}</div>
+        ${answers}
         <p class="cq-feedback" data-fb aria-live="polite"></p><div class="cq-next-slot" data-next></div>`;
+      const input = root.querySelector<HTMLInputElement>('[data-type-input]');
+      if (input) { input.value = typedText; if (!answered && !paused) input.focus({ preventScroll: true }); }
       if (!pop && answered && last) paintAnswer(q, false);
       paintTimer(); syncClock();
     }
@@ -329,36 +462,51 @@ const game: GameModule = {
     function paintAnswer(q: Question, fresh: boolean) {
       if (!last) return;
       const { picked, right, gained, lostStreak } = last, e = q.entry, m = kindOf(q);
-      const buttons = [...root.querySelectorAll<HTMLButtonElement>('.cq-option')];
+      const buttons = [...root.querySelectorAll<HTMLButtonElement>('.cq-option, [data-type-form] button')];
       buttons.forEach((b) => { b.disabled = true; });
-      buttons[q.answerIndex].classList.add('is-right');
-      if (picked >= 0) buttons[picked].classList.add('is-picked');
+      const optionButtons = buttons.filter((b) => b.classList.contains('cq-option'));
+      optionButtons[q.answerIndex]?.classList.add('is-right');
+      if (picked >= 0) optionButtons[picked]?.classList.add('is-picked');
+      const input = root.querySelector<HTMLInputElement>('[data-type-input]');
+      if (input) { input.disabled = true; input.classList.add(right ? 'is-right' : 'is-wrong'); }
       const fb = el<HTMLElement>('[data-fb]'), prompt = el<HTMLElement>('[data-prompt]');
+      const neighbour = m === 'border' ? countryLabel(q.options[q.answerIndex], lang) : '';
       prompt.className = `is-reveal${right ? ' is-ok' : ''}`;
-      prompt.textContent = m === 'capital' ? tr('reveal.capital', { name: capitalName(e, lang) }) : m === 'flag' ? countryName(e, lang) : `${flagEmoji(e.iso)} ${countryName(e, lang)}`;
+      prompt.textContent = m === 'capital' ? tr('reveal.capital', { name: capitalName(e, lang) }) : m === 'border' ? tr('reveal.border', { a: neighbour, b: countryName(e, lang) }) : m === 'flag' ? countryName(e, lang) : `${flagEmoji(e.iso)} ${countryName(e, lang)}`;
       root.querySelector('[data-tag]')?.remove();
-      if (last.fresh) { const { n, total } = atlasOf(m); root.querySelector('.cq-card')?.insertAdjacentHTML('beforeend', `<span class="cq-tag is-new${fresh ? ' is-fresh' : ''}" data-tag>${tr('atlas.new', { n, total })}</span>`); }
+      if (last.fresh && m !== 'border') { const { n, total } = atlasOf(m); root.querySelector('.cq-card')?.insertAdjacentHTML('beforeend', `<span class="cq-tag is-new${fresh ? ' is-fresh' : ''}" data-tag>${tr('atlas.new', { n, total })}</span>`); }
       if (right) {
-        const base = BASE_POINTS[e.difficulty], timed = timedBase(e.difficulty, last.left), bonus = gained - timed, left = (last.left / 1000).toFixed(1);
+        const base = BASE_POINTS[e.difficulty], timed = run?.c === 'blitz' ? base : timedBase(e.difficulty, last.left, limitFor(e.difficulty)), bonus = gained - timed, left = (last.left / 1000).toFixed(1);
+        const close = typedMatch === 'close' ? `<small>${tr('type.close', { name: capitalName(e, lang) })}</small>` : '';
         fb.className = 'cq-feedback is-right';
-        fb.innerHTML = `<strong>${tr('fb.correct', { n: gained })}</strong><small>${bonus ? tr('fb.bonus', { base, timed, left, bonus, streak }) : tr('fb.plain', { diff: tr(`diff.${e.difficulty}`), base, timed, left })}</small>`;
-        if (fresh) { const float = document.createElement('span'); float.className = 'cq-float'; float.setAttribute('aria-hidden', 'true'); float.textContent = `+${gained}`; buttons[picked].append(float); }
+        fb.innerHTML = `<strong>${tr('fb.correct', { n: gained })}</strong>${close}${run?.c === 'blitz' ? '' : `<small>${bonus ? tr('fb.bonus', { base, timed, left, bonus, streak }) : tr('fb.plain', { diff: tr(`diff.${e.difficulty}`), base, timed, left })}</small>`}`;
+        const anchor = optionButtons[picked] ?? root.querySelector<HTMLElement>('.cq-type-actions');
+        if (fresh && anchor) { const float = document.createElement('span'); float.className = 'cq-float'; float.setAttribute('aria-hidden', 'true'); float.textContent = `+${gained}`; anchor.append(float); }
       } else {
-        const timedOut = picked < 0, name = m === 'capital' ? capitalName(e, lang) : countryName(e, lang);
-        if (!timedOut) buttons[picked].classList.add('is-wrong');
+        const timedOut = picked === -1, name = m === 'capital' ? capitalName(e, lang) : m === 'border' ? neighbour : countryName(e, lang);
+        if (picked >= 0) optionButtons[picked]?.classList.add('is-wrong');
         fb.className = 'cq-feedback is-wrong';
-        fb.innerHTML = `<strong>${tr(timedOut ? (m === 'capital' ? 'fb.timeoutCapital' : 'fb.timeoutCountry') : m === 'capital' ? 'fb.wrongCapital' : 'fb.wrongCountry', { name })}</strong><small>${lostStreak >= 2 ? tr('fb.lostRun', { n: lostStreak }) : tr(timedOut ? 'fb.timeoutHint' : 'fb.hint')}</small>`;
+        fb.innerHTML = `<strong>${tr(timedOut ? (m === 'capital' ? 'fb.timeoutCapital' : 'fb.timeoutCountry') : m === 'capital' ? 'fb.wrongCapital' : 'fb.wrongCountry', { name })}</strong><small>${run?.c === 'survival' ? tr('fb.lifeLost', { n: lives }) : run?.c === 'blitz' ? tr('fb.penalty') : lostStreak >= 2 ? tr('fb.lostRun', { n: lostStreak }) : typedText ? tr('type.yours', { text: escapeHtml(typedText) }) : tr(timedOut ? 'fb.timeoutHint' : 'fb.hint')}</small>`;
       }
-      el<HTMLElement>('[data-next]').innerHTML = `<button type="button" class="cq-action" data-next-btn>${index >= ROUND_LENGTH ? tr('btn.results') : tr('btn.next')}</button>`;
+      el<HTMLElement>('[data-next]').innerHTML = `<button type="button" class="cq-action" data-next-btn>${done() ? tr('btn.results') : tr('btn.next')}</button>`;
+      // The typed answer's input is now disabled; keep the keyboard flow going (Enter = Next) by moving focus to Next.
+      if (input && fresh) el<HTMLElement>('[data-next-btn]').focus({ preventScroll: true });
     }
 
     function answer(i: number) {
-      if (answered || paused || destroyed || !mode) return;
+      if (answered || paused || destroyed || !mode || run?.c === 'type') return;
       if (i < 0 || i >= round[index].options.length) return;
       resolve(i);
     }
+    /** Type-in: check the typed text, forgiving accents, spacing, common spellings and small typos. Empty text is a pass. */
+    function answerTyped(text: string) {
+      if (answered || paused || destroyed || run?.c !== 'type') return;
+      const q = round[index];
+      typedText = text.trim(); typedMatch = typedText ? matchCapital(typedText, q.entry) : null;
+      resolve(typedMatch ? q.answerIndex : -2);
+    }
 
-    /** Settles the current question: option `i`, or -1 when the clock ran out (counted as a miss that scores nothing). */
+    /** Settles the current question: option `i`, -1 when the clock ran out, -2 for a pass or wrong typed answer (misses that score nothing). */
     function resolve(i: number) {
       if (answered || paused || destroyed || !mode || !clock) return;
       const q = round[index];
@@ -369,31 +517,37 @@ const game: GameModule = {
       let gained = 0, fresh = false;
       if (right) {
         streak++; correct++;
-        if (!atlas[kind].includes(e.iso)) { atlas[kind].push(e.iso); fresh = true; newInAtlas++; }
-        review[kind] = review[kind].filter((x) => x !== e.iso);
-        gained = timedPointsFor(e.difficulty, streak, left);
-        timeLost += BASE_POINTS[e.difficulty] - timedBase(e.difficulty, left);
+        if (kind !== 'border') {
+          if (!atlas[kind].includes(e.iso)) { atlas[kind].push(e.iso); fresh = true; newInAtlas++; }
+          review[kind] = review[kind].filter((x) => x !== e.iso);
+        }
+        const limit = limitFor(e.difficulty);
+        gained = run?.c === 'blitz' ? pointsFor(e.difficulty, streak) : timedPointsFor(e.difficulty, streak, left, limit);
+        if (run?.c !== 'blitz') timeLost += BASE_POINTS[e.difficulty] - timedBase(e.difficulty, left, limit);
         score += gained;
         // A new streak tier gets the brighter "upgrade" cue; plain correct answers keep "success".
         services.sound.play(tierOf(streak) > tierOf(streak - 1) ? 'upgrade' : 'success');
       } else {
         streak = 0; missed.push(e.iso);
-        if (!review[kind].includes(e.iso)) review[kind].push(e.iso);
+        if (kind !== 'border' && !review[kind].includes(e.iso)) review[kind].push(e.iso);
+        if (run?.c === 'survival') { lives = Math.max(0, lives - 1); if (!lives) over = true; }
+        if (run?.c === 'blitz' && blitz) { blitz.penalize(BLITZ_PENALTY_MS); if (blitz.expired) over = true; }
         services.sound.play('fail');
       }
       saveAtlas();
       last = { picked: i, right, gained, lostStreak, left, fresh };
       results.push(right);
-      services.reportScore(score); index++; persist();
+      if (!endless()) services.reportScore(score);
+      index++; persist();
       paintAnswer(q, true);
       paintTimer();
       updateHud(before, right, lostStreak);
-      if (right) scheduleNext();
+      if (right || run?.c === 'blitz') scheduleNext(run?.c === 'blitz' ? (right ? 650 : 1100) : 1150);
     }
 
     /** Update the HUD in place so the score roll and streak animations can play. */
     function updateHud(before: number, right: boolean, lostStreak: number) {
-      el<HTMLElement>('[data-q]').textContent = `${index}/${ROUND_LENGTH}`;
+      el<HTMLElement>('[data-q]').textContent = qText();
       const bar = el<HTMLElement>('[data-segs]'); bar.innerHTML = segs(); bar.setAttribute('aria-valuenow', String(index));
       const chip = el<HTMLElement>('[data-streak]');
       chip.outerHTML = streakChip(streak, !right && lostStreak >= 2);
@@ -406,19 +560,28 @@ const game: GameModule = {
     }
 
     // Long enough for the score roll and +points float to land before the next card.
-    function scheduleNext() { clearTimer(); if (!paused) timer = window.setTimeout(next, 1150); }
-    function next() { clearTimer(); if (!answered || destroyed) return; if (index >= ROUND_LENGTH) finish(); else showQuestion(); }
+    let nextDelay = 1150;
+    function scheduleNext(ms = nextDelay) { clearTimer(); nextDelay = ms; if (!paused) timer = window.setTimeout(next, ms); }
+    function next() {
+      clearTimer(); if (!answered || destroyed) return;
+      if (done()) { finish(); return; }
+      if (endless() && index >= round.length) round.push(nextEndless(services.random, index, asked));
+      showQuestion();
+    }
 
     /** A missed question is stored as its ISO code; anything else is a pre-i18n saved line shown as written. */
     const missedLine = (x: string) => {
       const e: CountryEntry | undefined = COUNTRIES.find((c) => c.iso === x);
       if (!e) return x;
-      const asked = round.find((q) => q.entry.iso === x), m = asked ? kindOf(asked) : mode === 'mix' || !mode ? 'capital' : mode;
+      const q = round.find((r) => r.entry.iso === x), m = q ? kindOf(q) : mode === 'mix' || !mode ? 'capital' : mode;
+      if (m === 'border' && q) return `${flagEmoji(e.iso)} ${countryName(e, lang)} ↔ ${countryLabel(q.options[q.answerIndex], lang)}`;
       return m === 'capital' ? `${flagEmoji(e.iso)} ${countryName(e, lang)} — ${capitalName(e, lang)}` : `${flagEmoji(e.iso)} ${countryName(e, lang)}`;
     };
 
     function finish() {
-      stopRoll();
+      stopRoll(); clearTimer();
+      if (view !== 'question') return;
+      if (run) { finishRun(run); return; }
       const m = mode as Play, prior = services.storage.get<number>(bestKey(m), 0), best = Math.max(prior, score);
       if (best !== prior) services.storage.set(bestKey(m), best);
       services.reportScore(score); services.reportComplete(1);
@@ -428,24 +591,74 @@ const game: GameModule = {
       showResult(true);
     }
 
+    /** End of a challenge: record the journey stop, the daily streak or the mode's own best. Endless modes stay off the site-wide best (their scores are not on the ten-question scale). */
+    function finishRun(r: Run) {
+      let prior = 0, newBest = false;
+      outcome = {};
+      if (r.c === 'journey' && r.region) {
+        const rec = recordStop(journey, r.region, r.stop ?? 0, correct);
+        journey = rec.journey; services.storage.set('journey', journey);
+        outcome = { passed: rec.passed, stamped: rec.stamped };
+      } else {
+        if (r.c === 'daily') {
+          const day = r.day ?? dailyKey(), before = readDaily(services.storage, 'ten').scores[day];
+          const rec = recordDaily(services.storage, score, 'ten', day);
+          if (before === undefined || score >= before) services.storage.set('daily-ten-last', { day, correct });
+          const grid = results.map((x) => (x ? '🟩' : '🟥')).join('');
+          outcome = { streak: rec.streak, share: dailyShareText(tr('menu.title'), `${correct}/10 ${grid} ${fmt(score)}`, rec.streak, day, lang === 'zh') };
+        }
+        prior = services.storage.get<number>(bestKeyRun(r.c), 0); newBest = score > prior;
+        if (newBest) services.storage.set(bestKeyRun(r.c), score);
+      }
+      if (!endless()) services.reportScore(score);
+      services.reportComplete(1);
+      resultInfo = { prior, newBest };
+      services.sound.play(outcome.stamped || newBest ? 'clear' : outcome.passed === false ? 'fail' : 'success');
+      answered = true;
+      showResult(true);
+    }
+
+    function runHeadline(r: Run): string {
+      if (r.c === 'blitz') return tr('result.timeUp');
+      if (r.c === 'survival') return tr('result.outOfLives');
+      if (r.c === 'journey' && r.region) {
+        if (outcome.stamped) return stampCount(journey) === JOURNEY.length ? tr('result.allStamps') : tr('result.passed', { name: regionName(r.region, lang) });
+        if (isExam(r.stop ?? 0)) return outcome.passed ? tr('result.examAgain') : tr('result.failed', { pass: EXAM_PASS });
+        return tr('result.stopDone', { stop: stopName(r.stop ?? 0) });
+      }
+      return correct >= 9 ? tr('mode.mix.again') : correct >= 6 ? tr('result.mid') : tr('result.low');
+    }
+    /** Where "Continue" goes after a journey stop: the next stop here, or the next continent once this one is stamped. */
+    function journeyNext(r: Run): Region | null {
+      if (!r.region) return null;
+      if ((journey.cleared[r.region] ?? 0) < STOPS) return r.region;
+      const after = JOURNEY[JOURNEY.indexOf(r.region) + 1];
+      return outcome.stamped && after && continentOpen(journey, after) ? after : null;
+    }
+
     function showResult(fresh: boolean) {
       view = 'result';
+      if (!mode) return;
       const m = mode as Play, { prior, newBest } = resultInfo;
       const known = results.every((r) => r !== null);
       syncClock();
       const base = results.reduce<number>((sum, r, i) => sum + (r ? BASE_POINTS[round[i].entry.difficulty] : 0), 0);
-      let run = 0, bestRun = 0;
-      for (const r of results) { run = r ? run + 1 : 0; bestRun = Math.max(bestRun, run); }
+      let rowRun = 0, bestRun = 0;
+      for (const r of results) { rowRun = r ? rowRun + 1 : 0; bestRun = Math.max(bestRun, rowRun); }
       const max = round.reduce((sum, q, i) => sum + pointsFor(q.entry.difficulty, i + 1), 0);
-      const vs = prior === 0 ? (score > 0 ? tr('vs.first', { mode: tr(`mode.${m}.short`), score: fmt(score) }) : tr('vs.none')) : newBest ? tr('vs.new', { gain: fmt(score - prior), prior: fmt(prior) }) : score === prior ? tr('vs.match', { prior: fmt(prior) }) : tr('vs.behind', { prior: fmt(prior), gap: fmt(prior - score) });
+      const shortName = run ? (run.c === 'blitz' || run.c === 'survival' || run.c === 'type' ? tr(`ch.${run.c}.short`) : tr(`ch.${run.c}.name`)) : tr(`mode.${m}.short`);
+      const vs = prior === 0 ? (score > 0 ? tr('vs.first', { mode: shortName, score: fmt(score) }) : tr('vs.none')) : newBest ? tr('vs.new', { gain: fmt(score - prior), prior: fmt(prior) }) : score === prior ? tr('vs.match', { prior: fmt(prior) }) : tr('vs.behind', { prior: fmt(prior), gap: fmt(prior - score) });
       const animate = fresh && motion;
       body.innerHTML = `${hud()}<div class="cq-result">
-        <h2>${correct >= 9 ? tr(`mode.${m}.again`) : correct >= 6 ? tr('result.mid') : tr('result.low')}</h2>
-        <p class="cq-result-mode">${MODE_ICON[m]} ${tr(`mode.${m}.name`)}</p>
-        <div class="cq-total"><strong data-total aria-label="${tr('result.totalAria', { n: score })}">${fmt(animate ? 0 : score)}</strong><small>/ ${fmt(max)}</small></div>
-        <p class="cq-vs${newBest && score > 0 ? ' is-best' : ''}">${vs}</p>
+        <h2>${run ? runHeadline(run) : correct >= 9 ? tr(`mode.${m}.again`) : correct >= 6 ? tr('result.mid') : tr('result.low')}</h2>
+        <p class="cq-result-mode">${run ? `${CH_ICON[run.c]} ${tr(`ch.${run.c}.name`)}${run.region ? ` · ${regionName(run.region, lang)} · ${stopName(run.stop ?? 0)}` : ''}` : `${MODE_ICON[m]} ${tr(`mode.${m}.name`)}`}</p>
+        ${run?.c === 'journey' && run.region && (outcome.stamped || (isExam(run.stop ?? 0) && outcome.passed)) ? `<div class="cq-bigstamp${animate ? ' is-fresh' : ''}" style="--region:${REGION_COLORS[run.region]}" aria-hidden="true"><span>${STAMP_ICON[run.region]}</span><small>${regionName(run.region, lang)}</small></div>` : ''}
+        <div class="cq-total"><strong data-total aria-label="${tr('result.totalAria', { n: score })}">${fmt(animate ? 0 : score)}</strong>${endless() ? '' : `<small>/ ${fmt(max)}</small>`}</div>
+        ${run?.c === 'journey' ? '' : `<p class="cq-vs${newBest && score > 0 ? ' is-best' : ''}">${vs}</p>`}
+        ${run?.c === 'daily' ? `<div class="cq-share"><p class="cq-fire">${tr('daily.streak', { n: outcome.streak ?? 1 })} · <small>${tr('daily.pause')}</small></p><p class="cq-share-line" data-share-line>${escapeHtml(outcome.share ?? '')}</p><button type="button" class="cq-action cq-secondary" data-share>📋 ${tr('share.btn')}</button></div>` : ''}
+        ${endless() ? `<p class="cq-note">${tr('result.noBoard')}</p>` : ''}
         <dl class="cq-break">
-          <div><dt>${tr('result.correct')}</dt><dd>${correct}/${ROUND_LENGTH}</dd></div>
+          <div><dt>${tr('result.correct')}</dt><dd>${correct}/${endless() ? results.length : ROUND_LENGTH}</dd></div>
           <div><dt>${tr('result.bestStreak')}</dt><dd>${known ? `${bestRun >= 2 ? '🔥 ' : ''}${bestRun}` : '—'}</dd></div>
           <div><dt>${tr('result.base')}</dt><dd>${known ? fmt(base) : '—'}</dd></div>
           <div><dt>${tr('result.timeLoss')}</dt><dd>${known ? `−${fmt(timeLost)}` : '—'}</dd></div>
@@ -453,8 +666,28 @@ const game: GameModule = {
           <div><dt>${tr('result.atlas')}</dt><dd>${newInAtlas ? '🌍 ' : ''}+${newInAtlas}</dd></div>
         </dl>
         ${missed.length ? `<div class="cq-recap"><p>${tr('result.recap')}</p><ul class="cq-missed${m === 'capital' || m === 'mix' ? ' is-wide' : ''}">${missed.map((x) => `<li>${missedLine(x)}</li>`).join('')}</ul><small>${tr('result.recapNote')}</small></div>` : `<p class="cq-perfect">${tr('result.perfect')}</p>`}
-        <div class="cq-result-actions"><button type="button" class="cq-action" data-again>${tr('btn.again')}</button><button type="button" class="cq-action cq-secondary" data-menu>${tr('btn.menu')}</button></div></div>`;
+        <div class="cq-result-actions">${resultActions()}</div></div>`;
       if (animate) roll(el<HTMLElement>('[data-total]'), 0, score, 900);
+    }
+
+    function resultActions(): string {
+      const menu = `<button type="button" class="cq-action cq-secondary" data-menu>${tr('btn.menu')}</button>`;
+      if (run?.c === 'journey') {
+        const go = journeyNext(run);
+        return `${go ? `<button type="button" class="cq-action" data-region="${go}">${tr('btn.continue')}</button>` : isExam(run.stop ?? 0) && !outcome.passed ? `<button type="button" class="cq-action" data-again>${tr('btn.again')}</button>` : ''}<button type="button" class="cq-action cq-secondary" data-passport>🛂 ${tr('btn.passport')}</button>`;
+      }
+      if (run?.c === 'daily') return menu;
+      return `<button type="button" class="cq-action" data-again>${tr('btn.again')}</button>${menu}`;
+    }
+
+    async function share(button: HTMLElement) {
+      const text = outcome.share ?? '';
+      try { await navigator.clipboard.writeText(text); button.textContent = `✅ ${tr('share.copied')}`; }
+      catch {
+        const line = root.querySelector<HTMLElement>('[data-share-line]');
+        if (line) { const range = document.createRange(); range.selectNodeContents(line); const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(range); }
+        button.textContent = tr('share.manual');
+      }
     }
 
     /** Switch language and repaint the current screen; round, score and streak are untouched. */
@@ -462,26 +695,40 @@ const game: GameModule = {
       if (l === lang) return;
       lang = l; services.storage.set(LANG_KEY, l); paintLangBar();
       if (view === 'menu') showMenu();
-      else if (view === 'question') showQuestion(false);
+      else if (view === 'journey') showJourney();
+      else if (view === 'question') { const input = root.querySelector<HTMLInputElement>('[data-type-input]'); if (input && !answered) typedText = input.value; showQuestion(false); }
       else showResult(false);
     }
 
     /** Replays the current mode, or returns to the menu when none is chosen. */
-    function restart() { paused = false; if (mode) start(mode); else showMenu(); }
+    function restart() { paused = false; if (run) startChallenge(run.c, run.region); else if (mode) start(mode); else showMenu(); }
 
     root.addEventListener('click', (ev) => {
       const t = (ev.target as HTMLElement).closest<HTMLElement>('button'); if (!t) return;
       if (t.dataset.lang !== undefined && isLang(t.dataset.lang)) { setLang(t.dataset.lang); return; }
       if (paused) return;
       if (t.dataset.mode !== undefined && isPlay(t.dataset.mode)) { services.sound.play('tap'); start(t.dataset.mode); }
+      else if (t.dataset.challenge !== undefined && isChallenge(t.dataset.challenge)) { services.sound.play('tap'); startChallenge(t.dataset.challenge); }
+      else if (t.dataset.region !== undefined && (JOURNEY as readonly string[]).includes(t.dataset.region)) { services.sound.play('tap'); startChallenge('journey', t.dataset.region as Region); }
+      else if (t.hasAttribute('data-passport')) showJourney();
+      else if (t.hasAttribute('data-share')) void share(t);
+      else if (t.hasAttribute('data-pass')) answerTyped('');
       else if (t.hasAttribute('data-menu')) showMenu();
       else if (t.dataset.i !== undefined) { services.sound.play('tap'); answer(Number(t.dataset.i)); }
       else if (t.hasAttribute('data-next-btn')) next();
       else if (t.hasAttribute('data-again')) restart();
     });
+    root.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const input = root.querySelector<HTMLInputElement>('[data-type-input]');
+      if (input && input.value.trim() && !paused) answerTyped(input.value);
+    });
+    // An Enter that confirms a pinyin / IME candidate must not submit the answer.
+    root.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.isComposing || ev.keyCode === 229) && (ev.target as HTMLElement).tagName === 'INPUT') ev.preventDefault(); }, true);
     const onKey = (ev: KeyboardEvent) => {
       if (paused || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-      if (!mode) { if (/^[1-4]$/.test(ev.key)) start(PLAYS[Number(ev.key) - 1]); }
+      if ((ev.target as HTMLElement | null)?.tagName === 'INPUT') return;
+      if (!mode) { if (view === 'menu' && /^[1-4]$/.test(ev.key)) start(PLAYS[Number(ev.key) - 1]); }
       else if (/^[1-4]$/.test(ev.key)) { answer(Number(ev.key) - 1); }
       else if ((ev.key === 'Enter' || ev.key === ' ') && answered && (ev.target as HTMLElement).tagName !== 'BUTTON') { ev.preventDefault(); if (root.querySelector('[data-again]')) restart(); else next(); }
     };
@@ -491,7 +738,7 @@ const game: GameModule = {
     if (mode) showQuestion(); else showMenu();
     return {
       pause() { paused = true; clearTimer(); syncClock(); },
-      resume() { paused = false; syncClock(); if (answered && index < ROUND_LENGTH && root.querySelector('.cq-feedback.is-right')) scheduleNext(); },
+      resume() { paused = false; syncClock(); if (answered && view === 'question' && ((!done() && root.querySelector('.cq-feedback.is-right')) || run?.c === 'blitz')) scheduleNext(); },
       restart,
       destroy() { destroyed = true; syncClock(); clearTimer(); stopRoll(); host.removeEventListener('keydown', onKey); host.replaceChildren(); }
     };
@@ -521,3 +768,7 @@ function restore(s: Saved | null): State | null {
 
 export { game };
 export default game;
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
