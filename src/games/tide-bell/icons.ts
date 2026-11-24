@@ -9,6 +9,7 @@ const CASTLE = (fill: string) => `<path d="M12 34V22h5v4h4v-8h6v8h4v-4h5v12z" fi
 
 const ICONS: Record<Icon, string> = {
   bell: BELL('#ffd56a') + WAVES,
+  settle: '<path d="M4 36q10-6 20-4t20 4v6H4z" fill="#ead6a6"/>' + LOG(13, 22) + '<path d="M24 6v10m-4-4 4 4 4-4" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/>',
   wood: LOG(13, 25) + WAVES,
   drift: LOG(6, 25) + '<path d="M32 29h10m-4-4 4 4-4 4" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/>' + WAVES,
   float: LOG(13, 22) + '<path d="M24 8v8m-4-4 4-4 4 4" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/>' + WAVES,

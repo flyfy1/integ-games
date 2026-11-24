@@ -5,9 +5,9 @@
 import { DIRS, initialState, parseBoard, solveLevel, stateKey, step, type Ablation, type State } from '../src/games/tide-bell/rules';
 import { analyze } from '../src/games/tide-bell/solver';
 
-export type Grade = { par: number; moves: string; states: number; deadRatio: number; traps: number; open: number; idle: number; need: Record<string, string>; idleLogs: number; idleBells: number };
+export type Grade = { rings: number; reversals: number; par: number; moves: string; states: number; deadRatio: number; traps: number; open: number; idle: number; need: Record<string, string>; idleLogs: number; idleBells: number };
 
-export function grade(rows: string[], tide: number, need: readonly Ablation[], o: { maxRafts?: number; strict?: boolean } = {}): Grade | null {
+export function grade(rows: string[], tide: number, need: readonly Ablation[], o: { maxRafts?: number; soft?: boolean } = {}): (Grade & { unmet: number }) | null {
   let b; try { b = parseBoard(rows, tide); } catch { return null; }
   if (o.maxRafts !== undefined && b.rafts.length > o.maxRafts) return null;
   // Castles must start dry, and currents must not loop.
@@ -18,9 +18,10 @@ export function grade(rows: string[], tide: number, need: readonly Ablation[], o
   if (!sol.moves) return null;
   const par = sol.moves.length;
   const needOut: Record<string, string> = {};
+  let unmet = 0;
   for (const ab of need) {
     const s = solveLevel(rows, tide, [ab]);
-    if (s.moves !== null && s.moves.length <= par) return null;
+    if (s.moves !== null && s.moves.length <= par) { if (!o.soft) return null; unmet++; needOut[ab] = 'NOT NEEDED'; continue; }
     needOut[ab] = s.moves === null ? 'unsolvable' : `longer (${s.moves.length})`;
   }
   // Logs and bells that do not matter (without them the level is as short or shorter). Obstacle logs count here too.
@@ -40,7 +41,10 @@ export function grade(rows: string[], tide: number, need: readonly Ablation[], o
   // Idle: open floor tiles the solution never visits and no log ever crosses (decoration the player must read).
   const used = new Set<number>(); s = initialState(b); used.add(s.pos); s.rafts.forEach(r => used.add(r));
   for (const m of sol.moves) { s = step(b, s, m as never)!; used.add(s.pos); s.rafts.forEach(r => used.add(r)); }
+  let rings = 0, reversals = 0;
+  { let q: State = initialState(b); for (const m of sol.moves) { q = step(b, q, m as never)!; if (b.kind[q.pos] === 5 || b.kind[q.pos] === 6 || b.kind[q.pos] === 7) rings++; } }
+  for (let i = 1; i < sol.moves.length; i++) if ('UD DU LR RL'.includes(sol.moves[i - 1] + sol.moves[i])) reversals++;
   let open = 0;
   for (let i = 0; i < b.kind.length; i++) if (b.kind[i] !== 4 /* cliff */) { open++; if (!used.has(i) && !'BUNTSDvo^<>CK'.includes(rows[Math.floor(i / b.w)][i % b.w])) idle++; }
-  return { par, moves: sol.moves, states: a.states, deadRatio: a.dead / a.states, traps, open, idle, need: needOut, idleLogs, idleBells };
+  return { rings, reversals, par, moves: sol.moves, states: a.states, deadRatio: a.dead / a.states, traps, open, idle, need: needOut, idleLogs, idleBells, unmet };
 }

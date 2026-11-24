@@ -12,7 +12,7 @@ import { parseBoard, solveLevel, type Ablation } from '../src/games/tide-bell/ru
 import { analyze } from '../src/games/tide-bell/solver';
 import { grade } from './tide-bell-grade';
 
-type Opts = { seed?: string[]; size?: [number, number]; tide: number; palette: string; need: Ablation[]; par: [number, number]; iters?: number; rng?: number; maxRafts?: number; lock?: [number, number][]; top?: number; obstacles?: number; w?: Partial<Record<'par' | 'open' | 'dead' | 'traps' | 'idle', number>> };
+type Opts = { seed?: string[]; size?: [number, number]; tide: number; palette: string; need: Ablation[]; par: [number, number]; iters?: number; rng?: number; maxRafts?: number; lock?: [number, number][]; top?: number; obstacles?: number; w?: Partial<Record<'par' | 'open' | 'dead' | 'traps' | 'idle' | 'rings' | 'rev', number>> };
 const opts = JSON.parse(process.argv.slice(2).find(a => a.trim().startsWith('{')) ?? '{}') as Opts;
 let seed = (opts.rng ?? 1) >>> 0;
 const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
@@ -32,14 +32,14 @@ function mutate(rows: string[]): string[] {
   return g.map(r => r.join(''));
 }
 
-function score(rows: string[]): { score: number; info: string } | null {
-  const g = grade(rows, opts.tide, opts.need, { maxRafts: opts.maxRafts });
+function score(rows: string[]): { score: number; ok: boolean; info: string } | null {
+  const g = grade(rows, opts.tide, opts.need, { maxRafts: opts.maxRafts, soft: true });
   if (!g) return null;
-  if (g.idleBells || (g.idleLogs > (opts.obstacles ?? 0))) return null;
-  if (g.par < opts.par[0] || g.par > opts.par[1]) return null;
-  const w = { par: 1, open: 0.7, dead: 18, traps: 1.2, idle: 6, ...opts.w };
-  const s = g.par * w.par - g.open * w.open + g.deadRatio * w.dead + Math.min(g.traps, 12) * w.traps - g.idle * w.idle;
-  return { score: s, info: `par ${g.par} open ${g.open} states ${g.states} dead ${(g.deadRatio * 100).toFixed(0)}% traps ${g.traps} idle ${g.idle} ${g.moves}` };
+  const idle = g.idleBells + Math.max(0, g.idleLogs - (opts.obstacles ?? 0));
+  const off = Math.max(0, opts.par[0] - g.par, g.par - opts.par[1]);
+  const w = { par: 1, open: 0.7, dead: 18, traps: 1.2, idle: 6, rings: 2, rev: 1, ...opts.w };
+  const s = -g.unmet * 15 - idle * 10 - off * 3 + Math.min(g.par, opts.par[1]) * w.par - g.open * w.open + g.deadRatio * w.dead + Math.min(g.traps, 12) * w.traps - g.idle * w.idle - Math.max(0, g.rings - 3) * w.rings - g.reversals * w.rev;
+  return { score: s, ok: g.unmet === 0 && idle === 0 && off === 0, info: `par ${g.par} open ${g.open} states ${g.states} dead ${(g.deadRatio * 100).toFixed(0)}% traps ${g.traps} idle ${g.idle} rings ${g.rings} rev ${g.reversals} ${g.moves}` };
 }
 
 if (!opts.seed) {
@@ -53,8 +53,8 @@ let cur = opts.seed, curScore = score(cur);
 // An unsolvable seed is a sketch: wander from it until something passes the filters.
 for (let i = 0; !curScore && i < 20000; i++) { const c = mutate(i % 50 === 0 ? opts.seed! : cur); cur = c; curScore = score(c); }
 if (!curScore) { console.log('no start');process.exit(1);console.log('seed fails the filters:', JSON.stringify(solveLevel(cur, opts.tide)), analyze(parseBoard(cur, opts.tide)).par); process.exit(1); }
-const best = new Map<string, { rows: string[]; score: number; info: string }>();
-best.set(cur.join('/'), { rows: cur, ...curScore });
+const best = new Map<string, { rows: string[]; score: number; ok: boolean; info: string }>();
+if (curScore.ok) best.set(cur.join('/'), { rows: cur, ...curScore });
 const iters = opts.iters ?? 3000;
 for (let i = 0; i < iters; i++) {
   const temp = 2.5 * (1 - i / iters) + 0.05;
@@ -62,7 +62,7 @@ for (let i = 0; i < iters; i++) {
   const sc = score(cand); if (!sc) continue;
   if (sc.score >= curScore.score || rand() < Math.exp((sc.score - curScore.score) / temp)) {
     cur = cand; curScore = sc;
-    best.set(cand.join('/'), { rows: cand, ...sc });
+    if (sc.ok) best.set(cand.join('/'), { rows: cand, ...sc });
   }
 }
 const top = [...best.values()].sort((a, b) => b.score - a.score).slice(0, opts.top ?? 6);

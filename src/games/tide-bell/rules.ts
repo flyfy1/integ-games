@@ -8,10 +8,12 @@
  *   r / s / t driftwood on rock / sand / high sand        o driftwood floating on deep water
  *   C sandcastle on sand, K sandcastle on high sand: a wall until the tide first covers it, then plain sand for good
  *   ^ v < > current (deep water that carries floating wood, and you on it, in its direction)
+ *   A Y { }  driftwood resting on a ^ v < > current
  *
  * Moves: walk one tile onto dry ground or onto floating wood. Walking into wood on dry ground pushes it one tile;
  * pushed into water it drifts straight on until it bumps something (a current turns it). Stepping onto a bell rings
- * it after the push has resolved. Floating wood on a current keeps flowing whenever the way ahead is open water.
+ * it after the push has resolved. Wood that drifts onto a current turns with it; wood resting on a current stays
+ * until you step onto it, then it flows on with you aboard until it bumps something.
  */
 export type Dir = 'U' | 'D' | 'L' | 'R';
 export const DIRS: readonly Dir[] = ['U', 'D', 'L', 'R'];
@@ -41,7 +43,12 @@ export type MoveEvent =
   | { type: 'wash'; tiles: number[] }
   | { type: 'flow'; from: number; to: number; path: number[]; rider: boolean }
   | { type: 'win' };
-export type Ablation = 'bells' | 'up' | 'down' | 'currents' | 'castles' | `raft:${number}`;
+/**
+ * Ways to switch one idea off, for proving a level needs it: bells / up / down ring without moving the sea, currents
+ * stand still, castles never wash away, `castleless` levels the castles to plain sand, `high` turns high sand into
+ * ordinary sand, and `raft:i` removes the i-th log.
+ */
+export type Ablation = 'bells' | 'up' | 'down' | 'currents' | 'castles' | 'castleless' | 'high' | `raft:${number}`;
 export type Rules = { bells: boolean; up: boolean; down: boolean; currents: boolean; castles: boolean };
 export const ALL_RULES: Rules = { bells: true, up: true, down: true, currents: true, castles: true };
 
@@ -52,6 +59,7 @@ const TILE: Record<string, { kind: K; height: number; raft?: boolean; castle?: n
   G: { kind: K.Goal, height: HEIGHT_DRY, goal: true }, P: { kind: K.Rock, height: HEIGHT_DRY, player: true },
   r: { kind: K.Rock, height: HEIGHT_DRY, raft: true }, s: { kind: K.Sand, height: 1, raft: true }, t: { kind: K.High, height: 2, raft: true }, o: { kind: K.Deep, height: 0, raft: true },
   C: { kind: K.Sand, height: 1, castle: 1 }, K: { kind: K.High, height: 2, castle: 2 },
+  A: { kind: K.Current, height: 0, flow: 0, raft: true }, Y: { kind: K.Current, height: 0, flow: 1, raft: true }, '{': { kind: K.Current, height: 0, flow: 2, raft: true }, '}': { kind: K.Current, height: 0, flow: 3, raft: true },
   '^': { kind: K.Current, height: 0, flow: 0 }, v: { kind: K.Current, height: 0, flow: 1 }, '<': { kind: K.Current, height: 0, flow: 2 }, '>': { kind: K.Current, height: 0, flow: 3 }
 };
 
@@ -135,24 +143,14 @@ export function step(b: Board, s: State, d: Dir, rules: Rules = ALL_RULES, event
   }
   const next: State = { pos: t, rafts: [], tide, peak };
   let pos = t;
-  if (b.hasCurrents && rules.currents) {
-    // Floating wood on a current flows whenever the water ahead is open; whoever stands on it rides along.
-    for (let round = 0; round < 64; round++) {
-      let moved = false;
-      for (const r of [...rafts].sort((a, c) => a - c)) {
-        const f = flowAt(b, r, rules); if (!f) continue;
-        rafts.delete(r);
-        const path = drift(b, next, rafts, r, f, rules);
-        const end = path[path.length - 1];
-        rafts.add(end);
-        if (end !== r) {
-          moved = true;
-          const rider = pos === r; if (rider) pos = end;
-          events?.push({ type: 'flow', from: r, to: end, path, rider });
-        }
-      }
-      if (!moved) break;
-    }
+  const f = b.hasCurrents && rafts.has(t) ? flowAt(b, t, rules) : null;
+  if (f) {
+    // Stepping onto wood that rests on a current nudges it free: it flows on, and you ride along.
+    rafts.delete(t);
+    const path = drift(b, next, rafts, t, f, rules);
+    const end = path[path.length - 1];
+    rafts.add(end);
+    if (end !== t) { pos = end; events?.push({ type: 'flow', from: t, to: end, path, rider: true }); }
   }
   next.pos = pos;
   next.rafts = [...rafts].sort((a, c) => a - c);
@@ -164,7 +162,7 @@ export function rulesWithout(ablations: readonly Ablation[]): { rules: Rules; dr
   const rules = { ...ALL_RULES }; const dropRafts: number[] = [];
   for (const a of ablations) {
     if (a.startsWith('raft:')) dropRafts.push(Number(a.slice(5)));
-    else rules[a as keyof Rules] = false;
+    else if (a !== 'castleless' && a !== 'high') rules[a as keyof Rules] = false;
   }
   return { rules, dropRafts };
 }
@@ -194,7 +192,11 @@ export function solveFrom(b: Board, start: State, rules: Rules = ALL_RULES, cap 
 }
 
 export function solveLevel(rows: readonly string[], tide: number, ablations: readonly Ablation[] = []): Solution {
-  const b = parseBoard(rows, tide);
+  const swap = (map: Record<string, string>) => (r: string) => [...r].map(c => map[c] ?? c).join('');
+  let grid = [...rows];
+  if (ablations.includes('castleless')) grid = grid.map(swap({ C: 'S', K: 'T' }));
+  if (ablations.includes('high')) grid = grid.map(swap({ T: 'S', t: 's', K: 'C' }));
+  const b = parseBoard(grid, tide);
   const { rules, dropRafts } = rulesWithout(ablations);
   const s = initialState(b);
   s.rafts = s.rafts.filter((_, i) => !dropRafts.includes(i));
