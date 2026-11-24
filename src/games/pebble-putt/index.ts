@@ -76,8 +76,10 @@ export const pebblePutt: GameModule = {
     let destroyed = false, paused = false, raf = 0, last = 0, clock = 0, storageWarned = false, frameFailed = false;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let width = 360, heightPx = 560;
-    /** Render-resolution scale: drops in steps (never below 0.55) if the device cannot hold ~48 fps, so slow GPUs stay smooth. */
-    let quality = 1, slowFrames = 0, sampled = 0;
+    /** Render-resolution scale: drops (1 -> 0.7 -> 0.55) while the device cannot hold ~48 fps and each drop clearly helps. */
+    let quality = 1, prevQuality = 1, slowFrames = 0, sampled = 0, lastShare = 1, justDropped = false, adapting = true, hiccup = false;
+    /** Start a fresh measuring window (after a hole load, a resume, or a long gap). */
+    const resetQualityWindow = () => { sampled = 0; slowFrames = 0; hiccup = false; };
     const frameTimes: number[] = [];
 
     const say = (text: string, ms = 1500) => {
@@ -257,7 +259,7 @@ export const pebblePutt: GameModule = {
       play = { hole, mode, world, strokes: Array(players).fill(0), holed: Array(players).fill(false), out: Array(players).fill(false), turn: 0, shooter: 0, phase: 'aim', acc: 0, fast: false, shots: 0, doneAt: 0, kbAim: null };
       teeUp(0);
       root.dataset.state = 'play'; root.dataset.hole = String(id);
-      gl?.setHole(hole, gardenOf(id).id, players, PLAYER_COLORS);
+      gl?.setHole(hole, gardenOf(id).id, players, PLAYER_COLORS); resetQualityWindow();
       buildHud(); showCaption(); layout();
       if (id === HOLES[0].id && mode === 'solo') showGhost();
       if (mode === 'party') showTurn();
@@ -562,15 +564,25 @@ export const pebblePutt: GameModule = {
       raf = 0;
       if (destroyed || paused) return;
       const t0 = performance.now();
-      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
+      const rawDt = (now - last) / 1000;
+      const dt = Math.min(0.1, Math.max(0, rawDt));
       last = now; clock += dt;
       if (frameTimes.length > 240) frameTimes.shift();
       frameTimes.push(dt);
-      if (gl && play && dt > 0) {
+      // Adaptive resolution: only while a hole is on screen; a window with a long gap (hole load, tab resume) is discarded.
+      // After each step down the next window must be clearly better, otherwise the drop is undone and adapting stops
+      // (a 30 Hz display, e.g. a phone in low-power mode, is "slow" at any resolution).
+      if (adapting && gl && play && !screen && dt > 0) {
+        if (rawDt > 0.25) hiccup = true;
         sampled++; if (dt > 1 / 48) slowFrames++;
         if (sampled >= 90) {
-          if (slowFrames > 30 && quality > 0.56) { quality = Math.max(0.55, quality - 0.15); layout(); }
-          sampled = 0; slowFrames = 0;
+          const share = slowFrames / sampled;
+          if (!hiccup) {
+            if (justDropped && share > lastShare - 0.1) { quality = prevQuality; adapting = false; layout(); }
+            else if (share > 1 / 3 && quality > 0.56) { prevQuality = quality; quality = Math.max(0.55, quality - 0.3); lastShare = share; justDropped = true; layout(); }
+            else justDropped = false;
+          }
+          resetQualityWindow();
         }
       }
       if (play) {

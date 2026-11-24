@@ -72,4 +72,7 @@ export const STYLES = `
 .pp-notice{position:absolute;left:8px;right:8px;bottom:8px;z-index:8;padding:8px 12px;border-radius:10px;background:#7a2e1ee6;color:#fff;font-size:.85rem}
 .pp.compact .pp-pill{min-height:36px;padding:3px 10px;font-size:.82rem}
 .pp.compact .pp-caption{top:54px;font-size:.95rem}
+.pp.compact .pp-pill.pp-grow{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;line-height:1.15}
+.pp.compact .pp-pill.pp-grow>span{flex:none;max-width:100%}
+.pp.compact .pp-pill.pp-grow small{font-size:.72rem}
 `;

@@ -36,6 +36,8 @@ const cursorKeys = { ArrowUp: CURSOR, ArrowDown: CURSOR, ArrowLeft: CURSOR, Arro
 export const gamepadRepeat: Record<string, Record<string, Repeat>> = {
   'block-drop': { ArrowLeft: { delay: 0.14, every: 0.04 }, ArrowRight: { delay: 0.14, every: 0.04 }, ArrowDown: { delay: 0.05, every: 0.04 } },
   mines: cursorKeys, memory: cursorKeys, 'ant-raid': cursorKeys, sudoku: cursorKeys, 'word-grid': cursorKeys, 'hex-puzzle': cursorKeys, 'lantern-works': cursorKeys,
+  // Aim and power step once per key press, so a held d-pad repeats quickly to sweep the aim.
+  'pebble-putt': { ArrowUp: { delay: 0.2, every: 0.05 }, ArrowDown: { delay: 0.2, every: 0.05 }, ArrowLeft: { delay: 0.2, every: 0.04 }, ArrowRight: { delay: 0.2, every: 0.04 } },
   bubble: { ArrowUp: { delay: 0.12, every: 0.03 }, ArrowDown: { delay: 0.12, every: 0.03 }, ArrowLeft: { delay: 0.12, every: 0.03 }, ArrowRight: { delay: 0.12, every: 0.03 } }
 };
 
