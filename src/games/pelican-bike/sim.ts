@@ -18,7 +18,6 @@ const GUST_DRIFT = [130, 200, 285];
 /** A pursuer starts this far behind the spawn point and waits this long before it moves. */
 export const CHASE_GAP = 420;
 export const CHASE_GRACE = 1.2;
-const TAU = Math.PI * 2;
 
 export type Input = { left: boolean; right: boolean; down: boolean; jump: boolean; turbo: boolean; jumpPressed: boolean };
 export const noInput = (): Input => ({ left: false, right: false, down: false, jump: false, turbo: false, jumpPressed: false });
@@ -67,9 +66,15 @@ export type SimOptions = { storm?: boolean };
 /** Storm remixes: faster enemies, platforms and pursuers, stronger gusts, quicker jellyfish. */
 const STORM = { enemy: 1.3, mover: 1.2, jellyWait: 1.0, chase: 1.08, gust: 1.15 };
 
+/** How full a tide pool is (0..1) at time `t`: low for 30% of the cycle, rising for 20%, full for 30%, ebbing for 20%. */
+export function tideFill(ph: number, t: number): number {
+  const u = ((t / CYCLE + ph) % 1 + 1) % 1;
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  return u < 0.3 ? 0 : u < 0.5 ? ease((u - 0.3) / 0.2) : u < 0.8 ? 1 : ease((1 - u) / 0.2);
+}
 /** Water level of a tide pool at time `t`: low (floor showing) at the start of its cycle, brim-full half a cycle later. */
 export function poolLevel(p: Pool, t: number): number {
-  return p.lo + (p.hi - p.lo) * (0.5 - 0.5 * Math.cos(TAU * (t / CYCLE + p.ph)));
+  return p.lo + (p.hi - p.lo) * tideFill(p.ph, t);
 }
 /** Strength of a gust lane at time `t`, 0..1: on for the first ~45% of its cycle, with short ramps. */
 export function gustPower(g: Gust, t: number): number {

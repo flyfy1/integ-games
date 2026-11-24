@@ -298,8 +298,8 @@ export const pelicanBike: GameModule = {
           break;
         case 'crumble':
           if (e.s === 'pier' && (e.x < camX - 40 || e.x > camX + VW + 40)) break;
-          audio.crumble();
-          emit(e.x, e.y, 12, { col: ['#c9935b', '#9e6b3b', '#e5bb7b'], v0: 40, v1: 150 });
+          if (e.s !== 'pier') audio.crumble();
+          emit(e.x, e.y, e.s === 'pier' ? 4 : 12, { col: ['#c9935b', '#9e6b3b', '#e5bb7b'], v0: 40, v1: 150 });
           break;
         case 'jelly':
           if (e.x > camX - 40 && e.x < camX + VW + 40) {

@@ -320,7 +320,164 @@ export const CHUNKS: Record<string, Chunk> = {
     '.................',
     '.........c.......',
     '###uu########uu##',
-    '#################'] }
+    '#################'] },
+  // ---- Coast 2 · rickety piers ----
+  pierintro: { r: [
+    '......ooooo.......',
+    '..................',
+    '...kkkkkkkkkkkk...',
+    '..................',
+    '##################',
+    '##################'] },
+  pierrun: { r: [
+    '....o..o..o..o..o..o....',
+    '........................',
+    '........................',
+    '###kkkkkkkkkkkkkkkkkk###',
+    '###..................###'] },
+  pierstairs: { r: [
+    '..............ooo.......',
+    '........................',
+    '...........kkkkk........',
+    '........................',
+    '......kkkkk.............',
+    '........................',
+    '###kkkk..........#######',
+    '###..............#######'] },
+  piergull: { r: [
+    '..........*.........',
+    '....................',
+    '....................',
+    '.........g..........',
+    '....o.o.....o.o.....',
+    '....................',
+    '##kkkkkkkkkkkkkkkk##',
+    '##................##'] },
+  pierlong: { r: [
+    '.....ooo.........ooo.....',
+    '.........................',
+    '.........................',
+    '##kkkkkkkk.....kkkkkkkk##',
+    '##..........j..........##'] },
+  pierdeck: { r: [
+    '..............*.......',
+    '......................',
+    '......................',
+    '.....kkkkkkkkkkkk.....',
+    '......................',
+    '.......o..o..o........',
+    '......................',
+    '..S...................',
+    '#####............#####',
+    '#####............#####'] },
+
+  // ---- Coast 3 · tide pools ----
+  poolintro: { r: [
+    '......o...o...o......',
+    '.....................',
+    '.....................',
+    '###.................#',
+    '#####www#www#www#####',
+    '#####www#www#www#####',
+    '#####################',
+    '#####################'] },
+  poolfloor: { r: [
+    '...................',
+    '..##...........##..',
+    '..##wwwwwwwwwww##..',
+    '####wwwwwwwwwww####',
+    '####wooowwwooow####',
+    '###################',
+    '###################'] },
+  poollog: { r: [
+    '.......ooo........',
+    '..................',
+    '..................',
+    '..................',
+    '###wwwwwwwwwwww###',
+    '###wwwwwwlwwwww###',
+    '###wwwwwwwwwwww###',
+    '###wwwwwwwwwwww###'] },
+  poolpair: { r: [
+    '.........*........',
+    '..................',
+    '..................',
+    '..................',
+    '##wwwww##WWWWW####',
+    '##wwwww##WWWWW####',
+    '##################',
+    '##################'] },
+  poolstar: { r: [
+    '..................',
+    '...##.........##..',
+    '..###wwwwwwww###..',
+    '.####wwwwwwww####.',
+    '#####wwwwwwww#####',
+    '#####ww*wwwww#####',
+    '##################',
+    '##################'] },
+  poolcrab: { r: [
+    '....o.o.o....o.o.o....',
+    '......................',
+    '...c..............c...',
+    '#######wwwwwwww#######',
+    '#######wwwwwwww#######',
+    '######################',
+    '######################'] },
+
+  // ---- Coast 4 · wind gusts ----
+  gustintro: { r: [
+    '>>>>>>>>>>>>>>>>>>>>>>>>',
+    '........................',
+    '........................',
+    '...o.o.o.o.o.o.o.o.o.o..',
+    '........................',
+    '########################',
+    '########################'] },
+  gusthead: { r: [
+    '<<<<<<<<<<<<<<<<<<<<',
+    '....................',
+    '......o.o.o.o.......',
+    '....................',
+    '....................',
+    '#####..........#####',
+    '#####..........#####'] },
+  gustgap: { r: [
+    '>>>>>>>>>>>>>>>>>>>>>>>>',
+    '........................',
+    '.......o...o...o...o....',
+    '........................',
+    '........................',
+    '........................',
+    '###..................###',
+    '###..................###'] },
+  gustcrab: { r: [
+    '<<<<<<<<<<<<<<<<<<',
+    '..................',
+    '....o.o.....o.o...',
+    '..................',
+    '.......c......c...',
+    '##################',
+    '##################'] },
+  guststar: { r: [
+    '>>>>>>>>>>>>>>>>>>>>>>>>>>',
+    '..........................',
+    '..............*...........',
+    '..........................',
+    '..........................',
+    '....o.o.o.................',
+    '..........................',
+    '..............##..........',
+    '###...........##.......###',
+    '###...........##.......###'] },
+  gustpier: { r: [
+    '<<<<<<<<<<<<<<<<<<<<<<',
+    '......................',
+    '....o..o..o..o..o.....',
+    '......................',
+    '......................',
+    '##kkkkkkkkkkkkkkkkkk##',
+    '##..................##'] }
 };
 
 /** A chase finale: a pursuer that sweeps right at a steady speed and wipes you out if it catches up. */
@@ -345,16 +502,31 @@ export const LEVELS: Level[] = [
   { name: '微风沙丘', nameEn: 'Breezy Dunes', theme: 0, par: 41,
     seq: ['fishline', 'ventup', 'crates', 'ventwall', 'crab', 'starhop', 'ventgap', 'urchins', 'ventisles', 'crabplank', 'ventstar', 'fishline'] },
   { name: '追浪', nameEn: 'Rolling Tide', theme: 0, par: 42, chase: { kind: 'wave', speed: 215 },
-    seq: ['fishline', 'ventup', 'gap3', 'crab', 'ventgap', 'stargap', 'ventwall', 'planks', 'ventisles', 'urchins', 'ventcrab', 'starhop'] }
+    seq: ['fishline', 'ventup', 'gap3', 'crab', 'ventgap', 'stargap', 'ventwall', 'planks', 'ventisles', 'urchins', 'ventcrab', 'starhop'] },
+  // Coast 2 · Sunset: rickety piers that collapse plank by plank once touched.
+  { name: '摇晃码头', nameEn: 'Rickety Wharf', theme: 1, par: 49,
+    seq: ['fishline', 'pierintro', 'crab', 'pierrun', 'cratestar', 'pierstairs', 'gull', 'piergull', 'urchins', 'pierlong', 'jellygap', 'pierdeck', 'fishline'] },
+  { name: '海鸥劫鱼', nameEn: 'Gull Raid', theme: 1, par: 46, chase: { kind: 'gull', speed: 225 },
+    seq: ['fishline', 'pierrun', 'crab', 'pierstairs', 'stargap', 'pierlong', 'gap3', 'piergull', 'crumble', 'pierrun', 'jellygap', 'pierdeck'] },
+  // Coast 3 · Moonlit: tide pools that fill and drain on a steady beat.
+  { name: '潮池阶地', nameEn: 'Tidepool Terraces', theme: 2, par: 48,
+    seq: ['fishline', 'poolintro', 'crab', 'poolfloor', 'starhop', 'poollog', 'gap3', 'poolpair', 'urchins', 'poolcrab', 'jellygap', 'poolstar', 'fishline'] },
+  { name: '大潮', nameEn: 'Spring Tide', theme: 2, par: 45, chase: { kind: 'wave', speed: 230 },
+    seq: ['fishline', 'poolintro', 'gap3', 'poolfloor', 'pierrun', 'poollog', 'stargap', 'poolcrab', 'ventup', 'poolpair', 'crabplank', 'poolstar'] },
+  // Coast 4 · Storm: gust lanes that blow on a beat, helping or holding you back.
+  { name: '狂风岬', nameEn: 'Gale Point', theme: 3, par: 56,
+    seq: ['fishline', 'gustintro', 'crab', 'gusthead', 'cratestar', 'gustgap', 'urchins', 'gustcrab', 'jellybridge', 'guststar', 'gullcrabgap', 'gustpier', 'liftstar', 'fishline'] },
+  { name: '最后的海鸥', nameEn: 'The Last Gull', theme: 3, par: 47, chase: { kind: 'gull', speed: 240 },
+    seq: ['fishline', 'gustintro', 'gusthead', 'pierrun', 'stargap', 'gustgap', 'poolfloor', 'gustcrab', 'ventisles', 'gustpier', 'urchinplanks', 'guststar'] }
 ];
 
 export type Coast = { name: string; nameEn: string; family: string; familyEn: string; stages: number[] };
 /** Four coasts of three stages each, in play order: the familiar stage, the new idea, then the chase finale. */
 export const COASTS: Coast[] = [
   { name: '晨光海岸', nameEn: 'Dawn Coast', family: '上升气流', familyEn: 'updraft vents', stages: [0, 4, 5] },
-  { name: '落日海岸', nameEn: 'Sunset Coast', family: '摇晃栈桥', familyEn: 'rickety piers', stages: [1] },
-  { name: '月夜海岸', nameEn: 'Moonlit Coast', family: '潮汐池', familyEn: 'tide pools', stages: [2] },
-  { name: '风暴海岸', nameEn: 'Storm Coast', family: '阵风', familyEn: 'wind gusts', stages: [3] }
+  { name: '落日海岸', nameEn: 'Sunset Coast', family: '摇晃栈桥', familyEn: 'rickety piers', stages: [1, 6, 7] },
+  { name: '月夜海岸', nameEn: 'Moonlit Coast', family: '潮汐池', familyEn: 'tide pools', stages: [2, 8, 9] },
+  { name: '风暴海岸', nameEn: 'Storm Coast', family: '阵风', familyEn: 'wind gusts', stages: [3, 10, 11] }
 ];
 /** Every stage id in play order. */
 export const ORDER: number[] = COASTS.flatMap((c) => c.stages);
