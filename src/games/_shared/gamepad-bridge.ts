@@ -14,12 +14,12 @@ const ARROWS: BridgeProfile = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLe
 const ACTION: BridgeProfile = { ...ARROWS, south: ' ', select: 'r' };
 const CHOICES: BridgeProfile = { ...ACTION, west: '1', north: '2', east: '3' };
 export const gamepadProfiles: Record<string, BridgeProfile> = {
-  'merge-2048': { ...ARROWS, north: 'u' }, 'block-drop': { ...ARROWS, south: 'ArrowUp', east: 'ArrowUp', north: ' ', r1: ' ', l1: 'c', select: 'r' }, snake: { ...ARROWS, select: 'r' }, mines: { ...ACTION, south: 'Enter', east: 'f' },
+  'merge-2048': { ...ARROWS, north: 'u', west: 'm' }, 'block-drop': { ...ARROWS, south: 'ArrowUp', east: 'ArrowUp', north: ' ', r1: ' ', l1: 'c', l2: 'm', select: 'r' }, snake: { ...ARROWS, select: 'r' }, mines: { ...ACTION, south: 'Enter', east: 'f' },
   // Solitaire picks columns by number, so the seven columns sit across the buttons from left to right.
   solitaire: { l2: '1', l1: '2', west: '3', north: '4', east: '5', r1: '6', r2: '7', south: 'd', up: 'w', down: 'Enter', select: 'r' },
   sudoku: { ...ARROWS, south: '1', east: '2', west: '3', north: '4', l1: '5', r1: '6', l2: '7', r2: '8', select: '9', l3: 'Backspace', r3: 'r' },
   'word-grid': { ...ACTION, east: 'Enter' }, memory: { ...ACTION, south: 'Enter' }, stack: { south: ' ', select: 'r' }, flap: { south: ' ', select: 'r' }, breakout: { left: 'ArrowLeft', right: 'ArrowRight', south: ' ' }, invaders: { left: 'ArrowLeft', right: 'ArrowRight', south: ' ' },
-  runner: { ...ACTION }, platformer: { ...ACTION }, drive: { left: 'ArrowLeft', right: 'ArrowRight', south: 'ArrowRight', west: 'ArrowLeft' }, 'fruit-merge': { left: 'ArrowLeft', right: 'ArrowRight', south: ' ', select: 'r' }, bubble: { ...ACTION }, 'hex-puzzle': { ...CHOICES }, knife: { south: ' ' }, arena: { ...CHOICES },
+  runner: { ...ACTION }, platformer: { ...ACTION }, drive: { left: 'ArrowLeft', right: 'ArrowRight', south: 'ArrowRight', west: 'ArrowLeft' }, 'fruit-merge': { left: 'ArrowLeft', right: 'ArrowRight', south: ' ', west: 'm', l1: 'q', r1: 'e', select: 'r' }, bubble: { ...ACTION }, 'hex-puzzle': { ...CHOICES }, knife: { south: ' ' }, arena: { ...CHOICES },
   'capital-quiz': { north: '1', east: '2', south: '3', west: '4', r1: 'Enter', l1: 'Enter' },
   ashfall: { ...ARROWS, south: ' ', west: 'j', north: 'k', east: 'l', r1: 'r', l1: 'Enter', select: 'p' },
   'pelican-bike': { ...ARROWS, south: ' ', east: 'Shift', west: 'Shift', north: ' ', select: 'r' },
@@ -41,12 +41,12 @@ const COMMON_LABELS: Record<string, Label> = { ArrowUp: ['Up', '上'], ArrowDown
 const JUMP: Record<string, Label> = { ' ': ['Jump', '跳'], ArrowUp: ['Jump', '跳'] };
 const numbered = (keys: string, label: Label) => Object.fromEntries([...keys].map((key) => [key, [`${label[0]} ${key}`, `${label[1]} ${key}`] as Label]));
 const GAME_LABELS: Record<string, Record<string, Label>> = {
-  'merge-2048': { u: ['Undo', '撤销'] },
-  'block-drop': { ArrowUp: ['Rotate', '旋转'], ArrowDown: ['Soft drop', '加速下落'], ' ': ['Hard drop', '直接落下'], c: ['Hold', '暂存'] },
+  'merge-2048': { u: ['Undo', '撤销'], m: ['Board / mode', '棋盘 / 模式'] },
+  'block-drop': { ArrowUp: ['Rotate', '旋转'], ArrowDown: ['Soft drop', '加速下落'], ' ': ['Hard drop', '直接落下'], c: ['Hold', '暂存'], m: ['Modes', '模式'] },
   mines: { Enter: ['Reveal', '翻开'], f: ['Flag', '插旗'] }, solitaire: { ...numbered('1234567', ['Column', '牌列']), d: ['Draw', '翻牌'], w: ['Waste pile', '废牌堆'], Enter: ['To foundation', '收牌'] },
   sudoku: { ...numbered('123456789', ['Number', '数字']), Backspace: ['Erase', '擦除'] }, 'word-grid': { ' ': ['Pick letter', '选字母'], Enter: ['Submit word', '提交单词'] }, memory: { Enter: ['Flip', '翻牌'] },
   stack: { ' ': ['Drop', '落下'] }, flap: { ' ': ['Flap', '扇翅膀'] }, breakout: { ' ': ['Restart', '重新开始'] }, invaders: { ' ': ['Fire', '发射'] }, runner: { ...JUMP, ArrowDown: ['Duck', '下蹲'] }, platformer: JUMP,
-  drive: { ArrowRight: ['Drive', '前进'], ArrowLeft: ['Brake', '刹车'] }, 'fruit-merge': { ' ': ['Drop', '落下'] }, bubble: { ' ': ['Shoot', '发射'] }, 'hex-puzzle': { ...numbered('123', ['Piece', '方块']), ' ': ['Place', '放置'] },
+  drive: { ArrowRight: ['Drive', '前进'], ArrowLeft: ['Brake', '刹车'] }, 'fruit-merge': { ' ': ['Drop', '落下'], m: ['Modes', '模式'], q: ['Shake', '摇一摇'], e: ['Pop smallest', '戳破最小'] }, bubble: { ' ': ['Shoot', '发射'] }, 'hex-puzzle': { ...numbered('123', ['Piece', '方块']), ' ': ['Place', '放置'] },
   knife: { ' ': ['Throw', '投掷'] }, arena: { ...numbered('123', ['Upgrade', '升级']), ' ': ['Burst / Restart', '爆发 / 重新开始'] }, 'capital-quiz': { ...numbered('1234', ['Answer', '答案']), Enter: ['Next', '下一题'] },
   ashfall: { ...JUMP, j: ['Slash', '斩击'], k: ['Shotgun', '霰弹枪'], l: ['Roll', '翻滚'], r: ['Reload', '换弹'], p: ['Pause', '暂停'] },
   'pelican-bike': { ...JUMP, Shift: ['Sprint', '冲刺加速'] },
