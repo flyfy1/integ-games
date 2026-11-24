@@ -21,7 +21,7 @@ export const catalog: readonly CatalogGame[] = catalogRows.map(([slug, title, ca
 export const noControllerSlugs: ReadonlySet<string> = new Set(['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz']);
 export function showsController(slug: string): boolean { return !noControllerSlugs.has(slug); }
 
-export const featuredSlugs = ['midnight-kitchen', 'ant-raid', 'ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'lantern-works', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals'] as const;
+export const featuredSlugs = ['midnight-kitchen', 'ant-raid', 'ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'lantern-works', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals', 'tide-bell'] as const;
 const featuredSet = new Set<string>(featuredSlugs);
 
 export function isListed(slug: string): boolean { return featuredSet.has(slug); }
