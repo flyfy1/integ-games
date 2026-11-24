@@ -53,3 +53,19 @@ Not verified anywhere in this pass: audio by ear, physical phones, physical cont
 ## Midnight Kitchen (2026-11-11)
 
 New eleventh listed game: an original lane-defense campaign (5 chapters, 25 nights, 5 bosses, 14 defenders with three tiers, 15 recipes, Endless, a bilingual story, synthesized music and SFX). Evidence: `tests/midnight-kitchen-{sim,content,shell,audio}.test.ts` (282 tests) lock bot win-rate floors per level, boss-night length, Endless survival, save/lifecycle behaviour; bots and scripted hands cleared every chapter through the real UI on desktop and iPhone 13 emulation in English and Chinese. Limits: balance is bot-tuned (a careless bot rarely clears bosses after chapter 2), audio was never heard by ear, no physical phone or controller, no human playtest, and phone frame time rose slightly with the larger sprites.
+
+## Crumb Raiders (2026-11-24)
+
+New twelfth listed game: an original ant-colony campaign. You lay scent trails, hatch ten castes and haul a picnic home past twelve hazards. It has 4 chapters, 20 levels, 4 bosses, Endless Summer, a Daily Raid on the shared daily kit, nest upgrades, a bilingual story, and synthesized music and SFX.
+
+Evidence:
+- `tests/ant-raid-{sim,content,shell}.test.ts` cover the hazards, saves and lifecycle.
+- A stored reference script for every level wins on three seeds with at least a 12% time margin. Bosses use at most three Scatters, and defence levels count hearts left as their margin.
+- A greedy bot with no level knowledge clears chapters 1 and 2 on every seed.
+- `scripts/ant-raid-replay.mjs` replays those scripts through real mouse and touch input.
+- Bot boss win rates: Old Gulp 4/4, Rumble 4/4. The bot cannot bridge, so it loses Bluestreak, and it cannot hold Queen Cinder's cut.
+
+Limits:
+- Balance is script-tuned and bot-tuned only, with no human playtest.
+- Audio was never heard by ear.
+- It has not been tried on a physical phone or controller.

@@ -83,7 +83,7 @@ try {
     await drag([start, ...todo].map(([x, y]) => screen(s, x, y)));
   };
 
-  const keeps = [], keepPaths = [];
+  const keeps = [], keepPaths = [], pending = [];
   let lastRepaint = 0;
   const reacts = new Set();
   const ops = [...script.ops].sort((a, b) => a.t - b.t);
@@ -97,7 +97,7 @@ try {
     while (next < ops.length && ops[next].t <= s.t) {
       const op = ops[next++];
       if (op.paint) { await paintPath(await read(), op.paint); if (op.keep) keepPaths.push(op.paint); }
-      else if (op.play) { await page.locator(`[data-ant-raid] [data-card="${op.play}"]`).click(); await tap(screen(s, op.at[0], op.at[1])); }
+      else if (op.play) pending.push({ ...op, until: s.t + 12 });
       else if (op.keep) keeps.push(op);
       else if (op.react) reacts.add(op.react);
       else if (op.priority) {
@@ -108,12 +108,22 @@ try {
         }
       } else if (op.queen) await page.locator(`[data-ant-raid] [data-queen="${op.queen}"]`).click();
     }
+    // Card plays retry for a while (Sugar, cooldown) the way a player would tap again.
+    for (const op of [...pending]) {
+      const before = await page.evaluate(() => document.querySelector('[data-ant-raid]').__ar.session.sim.queue.length + document.querySelector('[data-ant-raid]').__ar.session.sim.ants.length);
+      await page.locator(`[data-ant-raid] [data-card="${op.play}"]`).click();
+      if (op.at) await tap(screen(s, op.at[0], op.at[1]));
+      if (await page.evaluate(() => !!document.querySelector('[data-ant-raid]').__ar.session?.view.card)) await page.locator(`[data-ant-raid] [data-card="${op.play}"]`).click();
+      const after = await page.evaluate(() => document.querySelector('[data-ant-raid]').__ar.session?.sim.queue.length + document.querySelector('[data-ant-raid]').__ar.session?.sim.ants.length);
+      if (after > before || s.t > op.until) pending.splice(pending.indexOf(op), 1);
+    }
     if (keepPaths.length && s.t - lastRepaint > 1) { lastRepaint = s.t; for (const cells of keepPaths) await paintPath(await read(), cells); }
     if (reacts.has('rally-nap') && s.nap && s.rally <= 0) await page.locator('[data-ant-raid] [data-queen="rally"]').click();
     if (reacts.has('scatter-shoe') && s.shoe > 0 && s.shoe < 1.2) await page.locator('[data-ant-raid] [data-queen="scatter"]').click();
     if (s.t - lastTap > 0.4) for (const keep of keeps) {
       if (keep.until !== undefined && s.t > keep.until) continue;
       if ((s.counts[keep.keep] ?? 0) >= keep.ants || s.cards[keep.keep] > 0) continue;
+      if (pending.length || s.sugar - (keep.reserve ?? 0) < (keep.keep === 'worker' ? 24 : 0)) continue;
       await page.locator(`[data-ant-raid] [data-card="${keep.keep}"]`).click(); lastTap = s.t; break;
     }
     if (!half && s.t > 25) { half = true; await shot('mid'); }
