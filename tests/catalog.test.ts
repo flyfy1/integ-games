@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { arcade, catalog, categoryInfo, featuredSlugs, findGame, gamesInCategory, isListed, recommendationsFor } from '../src/core/catalog';
 
 describe('arcade catalog', () => {
-  it('contains exactly the 29 launch cabinets with unique slugs', () => {
-    expect(catalog).toHaveLength(29);
-    expect(new Set(catalog.map((game) => game.slug)).size).toBe(29);
+  it('contains exactly the 30 launch cabinets with unique slugs', () => {
+    expect(catalog).toHaveLength(30);
+    expect(new Set(catalog.map((game) => game.slug)).size).toBe(30);
   });
 
   it('finds the reference game by route slug', () => {
     expect(findGame('merge-2048')?.title).toBe('Merge 2048');
   });
 
-  it('lists exactly thirteen featured cabinets and keeps the rest installed but hidden', () => {
+  it('lists exactly fourteen featured cabinets and keeps the rest installed but hidden', () => {
     expect(arcade.map((game) => game.slug)).toEqual([...featuredSlugs]);
-    expect(arcade).toHaveLength(13);
-    expect(new Set(featuredSlugs).size).toBe(13);
+    expect(arcade).toHaveLength(14);
+    expect(new Set(featuredSlugs).size).toBe(14);
     expect(isListed('ashfall')).toBe(true);
     expect(isListed('snake')).toBe(false);
     expect(findGame('snake')?.title).toBe('Neon Snake');
@@ -50,7 +50,7 @@ describe('arcade catalog', () => {
 describe('controller entry point', () => {
   it('is hidden only for pointer-first games', async () => {
     const { showsController } = await import('../src/core/catalog');
-    for (const slug of ['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz']) expect(showsController(slug)).toBe(false);
+    for (const slug of ['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz', 'pebble-putt']) expect(showsController(slug)).toBe(false);
     for (const slug of ['ashfall', 'block-drop', 'pelican-bike', 'arena']) expect(showsController(slug)).toBe(true);
   });
 });

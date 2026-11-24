@@ -13,7 +13,7 @@ afterAll(() => rmSync(output, { recursive: true, force: true }));
 
 describe('static social preview pages', () => {
   it('generates one crawlable page per catalog game', () => {
-    expect(catalogRows).toHaveLength(29);
+    expect(catalogRows).toHaveLength(30);
     for (const [rawSlug] of catalogRows) {
       const slug = String(rawSlug);
       expect(readFileSync(join(output, 'play', slug, 'index.html'), 'utf8')).toContain(`https://games.integ.life/play/${slug}/`);
