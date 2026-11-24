@@ -35,7 +35,7 @@ test('category filters persist in the URL and search stays within the active cat
   await page.goto('/play/merge-2048');
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(4);
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(5);
 });
 
 test('game navigation updates canonical and social metadata', async ({ page }, testInfo) => {

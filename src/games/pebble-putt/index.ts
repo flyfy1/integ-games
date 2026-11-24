@@ -76,6 +76,8 @@ export const pebblePutt: GameModule = {
     let destroyed = false, paused = false, raf = 0, last = 0, clock = 0, storageWarned = false, frameFailed = false;
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let width = 360, heightPx = 560;
+    /** Render-resolution scale: drops in steps (never below 0.55) if the device cannot hold ~48 fps, so slow GPUs stay smooth. */
+    let quality = 1, slowFrames = 0, sampled = 0;
     const frameTimes: number[] = [];
 
     const say = (text: string, ms = 1500) => {
@@ -101,7 +103,7 @@ export const pebblePutt: GameModule = {
       heightPx = Math.floor(heightPx);
       root.style.setProperty('--pp-h', `${heightPx}px`);
       root.classList.toggle('compact', width < 420 || heightPx < 520);
-      gl?.resize(width, heightPx, window.devicePixelRatio || 1, { top: 58, bottom: play?.mode === 'party' ? 56 : 14 });
+      gl?.resize(width, heightPx, Math.min(2, window.devicePixelRatio || 1) * quality, { top: 58, bottom: play?.mode === 'party' ? 56 : 14 });
       placeGhost();
     };
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(layout);
@@ -564,6 +566,13 @@ export const pebblePutt: GameModule = {
       last = now; clock += dt;
       if (frameTimes.length > 240) frameTimes.shift();
       frameTimes.push(dt);
+      if (gl && play && dt > 0) {
+        sampled++; if (dt > 1 / 48) slowFrames++;
+        if (sampled >= 90) {
+          if (slowFrames > 30 && quality > 0.56) { quality = Math.max(0.55, quality - 0.15); layout(); }
+          sampled = 0; slowFrames = 0;
+        }
+      }
       if (play) {
         play.acc += dt * (play.fast ? 4 : 1);
         let n = 0;
@@ -599,6 +608,7 @@ export const pebblePutt: GameModule = {
     Object.defineProperty(root, '__pp', { configurable: true, value: {
       get play() { return play; }, get save() { return save; }, get screen() { return screenName; }, get card() { return !!card; }, get gl() { return gl; }, get glFailed() { return glFailed; }, glReady,
       openHole, shoot, titleScreen, mapScreen, partyScreen, startParty, closeCard, holes: HOLES.map(x => x.id),
+      get quality() { return quality; },
       fps(n = 120) {
         const s = frameTimes.slice(-n), w = workMs.slice(-n), avg = s.reduce((a, b) => a + b, 0) / Math.max(1, s.length);
         const sorted = [...w].sort((a, b) => a - b);
