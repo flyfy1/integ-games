@@ -402,8 +402,11 @@ export const shovePond: GameModule = {
       beginPlanning(scene.state.round === 1 ? FIRST_SECONDS : PLAN_SECONDS);
     }
     /** One short cue when the rim starts to wobble (rounds 3 and 5). */
+    let cuedRound = '';
     function roundCue() {
-      if (scene?.kind === 'match' && scene.state.pads.includes(2) && (scene.state.round === 3 || scene.state.round === 5)) say(`🌊 ${t('hud.sink')}`, 1300);
+      if (scene?.kind !== 'match' || !scene.state.pads.includes(2) || (scene.state.round !== 3 && scene.state.round !== 5)) return;
+      const key = `${scene.state.seed}:${scene.state.round}`; // once per round, not once per pass-and-play player
+      if (key !== cuedRound) { cuedRound = key; say(`🌊 ${t('hud.sink')}`, 1300); }
     }
     function beginPlanning(seconds: number, keepDraft = false) {
       phase = 'plan'; ready = false;
@@ -628,13 +631,17 @@ export const shovePond: GameModule = {
         const locked = i > 0 && !save.puzzles.includes(PUZZLES[i - 1].id) && !done && i > save.puzzles.length;
         grid.append(h('button', { class: done ? 'done' : '', disabled: locked, 'aria-label': `Puzzle ${i + 1}`, onclick: () => startScenario('puzzle', i) }, done ? '✓' : String(i + 1)));
       });
+      const keep = resumeFromMenu; // a submenu keeps the paused match resumable
       showCard(t('menu.puzzles'), `${t('puzzle.goal')} · ${t('puzzle.ghost')}`, [{ label: t('menu.back'), fn: () => openMenu() }], grid);
+      resumeFromMenu = keep;
     }
     function openPass() {
       phase = 'card';
       const row = h('div', { class: 'sp-inline' });
       for (const n of [2, 3, 4]) row.append(h('button', { class: `sp-small${n === 2 ? ' primary' : ''}`, onclick: () => startLocalMatch('pass', n) }, `${n} 🐸`));
+      const keep = resumeFromMenu; // a submenu keeps the paused match resumable
       showCard(t('pass.title'), `${t('pass.players')} · ${t('pass.bots')}`, [{ label: t('menu.back'), fn: () => openMenu() }], row);
+      resumeFromMenu = keep;
     }
     function openOnline(error?: string) {
       phase = 'card';
@@ -646,7 +653,9 @@ export const shovePond: GameModule = {
         h('button', { class: 'sp-small primary', onclick: () => { saveName(); void online.create().then(ok => { if (!ok) openOnline(t('room.error')); else closePanel(); }); } }, `＋ ${t('menu.create')}`),
         h('div', { class: 'sp-inline' }, code, h('button', { class: 'sp-small', onclick: () => { saveName(); void joinCode(code.value); } }, t('menu.go'))),
         error ? h('p', { text: error }) : null);
+      const keep = resumeFromMenu; // a submenu keeps the paused match resumable
       showCard(t('menu.online'), t('menu.onlineSub'), [{ label: t('menu.back'), fn: () => openMenu() }], extra);
+      resumeFromMenu = keep;
     }
     async function joinCode(raw: string) {
       const code = raw.trim().toUpperCase();
