@@ -9,7 +9,7 @@ import { angleGap, FOG_RADIUS, idle, isPit, isSolid, lineOfSight, muzzle, traceS
 export type BotStyle = 'camper' | 'rammer' | 'bouncer';
 export type BotSkill = { aim: number; reaction: number; dodge: number; bounceShots: boolean; style?: BotStyle };
 export const withStyle = (skill: BotSkill, style: BotStyle): BotSkill => ({ ...skill, style, bounceShots: skill.bounceShots || style !== 'rammer' });
-/** Easy, Normal, Hard, and the Boss that is unlocked by beating Hard (it also brings two extra hearts). */
+/** Easy, Normal, Hard, and the Boss that is unlocked by beating Hard (it also brings two extra hearts, except at the tour finale). */
 export const SKILLS: readonly BotSkill[] = [
   { aim: 0.34, reaction: 1.3, dodge: 0.15, bounceShots: false },
   { aim: 0.2, reaction: 0.85, dodge: 0.5, bounceShots: false },

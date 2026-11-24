@@ -31,6 +31,8 @@ export type Tank = {
   spawnX: number; spawnY: number; mileage: number;
   /** Seconds left frozen in an ice block (cannot drive, turn or fire). */
   frozen: number;
+  /** The last tank that shoved this one (shell, blast, dash ram or a body push) and when, so a fall can be credited. */
+  pushedBy: number; pushedAt: number;
 };
 
 export type ShellKind = 'shell' | 'mega' | 'bee' | 'freeze' | 'boomerang';
@@ -46,7 +48,8 @@ export type GameEvent =
   | { type: 'hit'; x: number; y: number; tank: number; left: number; by: number }
   | { type: 'explode'; x: number; y: number; radius: number }
   | { type: 'pickup'; x: number; y: number; kind: PowerKind; tank: number }
-  | { type: 'fall'; x: number; y: number; tank: number }
+  /** `by` is the tank whose shove sent it over the edge in the last PUSH_CREDIT seconds, or -1 (its own driving, the crumbling floor). */
+  | { type: 'fall'; x: number; y: number; tank: number; by: number }
   | { type: 'ko'; x: number; y: number; tank: number }
   | { type: 'honk'; x: number; y: number; tank: number }
   | { type: 'collapse'; ring: number }
@@ -114,7 +117,7 @@ export function makeTank(world: World, team: number, seat: number, x: number, y:
     id: world.nextId++, team, seat, enemy, x, y, vx: 0, vy: 0, heading: facing, turret: facing, scale: world.twist.scale, speed: BASE_SPEED * world.twist.speed,
     hp, maxHp: hp, ammo: MAX_AMMO, reload: 0, cooldown: 0, dash: 0, dashCooldown: 0, dashX: 0, dashY: 0, rammed: false,
     invuln: 1.2, shield: 0, giant: 0, flash: 0, recoil: 0, honk: 0, power: null, charges: 0, laserCharge: 0,
-    falling: 0, downed: false, revive: 0, alive: true, portalCooldown: 0, spawnX: x, spawnY: y, mileage: 0, frozen: 0
+    falling: 0, downed: false, revive: 0, alive: true, portalCooldown: 0, spawnX: x, spawnY: y, mileage: 0, frozen: 0, pushedBy: -1, pushedAt: -99
   };
   world.tanks.push(tank);
   return tank;
@@ -231,6 +234,7 @@ function startDash(world: World, tank: Tank, intent: Intent) {
   tank.heading = angle;
   tank.dashX = Math.cos(angle); tank.dashY = Math.sin(angle);
   tank.dash = DASH_TIME * (world.twist.dash ?? 1); tank.dashCooldown = DASH_COOLDOWN; tank.rammed = false;
+  tank.pushedBy = -1; // A tank that dashes on its own after a shove owns wherever it lands.
   tank.invuln = Math.max(tank.invuln, DASH_TIME * 0.7);
   world.events.push({ type: 'dash', x: tank.x, y: tank.y });
 }
@@ -298,10 +302,18 @@ function portalExit(world: World, tile: Tile, x: number, y: number): [number, nu
   return found;
 }
 
+/** How long a shove stays "yours": long enough to slide into a pit, short enough that a later blunder is the victim's own. */
+export const PUSH_CREDIT = 1.5;
+function pushed(world: World, tank: Tank, by: number) {
+  if (by < 0 || by === tank.id) return;
+  tank.pushedBy = by; tank.pushedAt = world.time;
+}
+
 function startFall(world: World, tank: Tank) {
   if (tank.falling > 0) return;
-  tank.falling = 0.7; tank.vx = tank.vy = 0; tank.dash = 0; tank.laserCharge = 0;
-  world.events.push({ type: 'fall', x: tank.x, y: tank.y, tank: tank.id });
+  const by = world.time - tank.pushedAt <= PUSH_CREDIT ? tank.pushedBy : -1;
+  tank.falling = 0.7; tank.vx = tank.vy = 0; tank.dash = 0; tank.laserCharge = 0; tank.pushedBy = -1;
+  world.events.push({ type: 'fall', x: tank.x, y: tank.y, tank: tank.id, by });
 }
 
 function respawnAfterFall(world: World, tank: Tank) {
@@ -551,6 +563,7 @@ function clashShells(world: World) {
 }
 
 export function damage(world: World, tank: Tank, amount: number, x: number, y: number, pushX: number, pushY: number, ignoreGuard = false, by = -1) {
+  pushed(world, tank, by);
   if (!ignoreGuard && (tank.invuln > 0 || tank.shield > 0)) { tank.vx += pushX * 0.3; tank.vy += pushY * 0.3; return; }
   tank.hp -= amount;
   tank.flash = 0.2; tank.invuln = tank.enemy ? ENEMY_INVULN : INVULN; // Bosses must be burst-able, or a King outlasts any hero.
@@ -692,7 +705,12 @@ function resolveTankContacts(world: World) {
       const nx = dx / distance, ny = dy / distance, overlap = (reach - distance) / 2;
       a.x -= nx * overlap; a.y -= ny * overlap; b.x += nx * overlap; b.y += ny * overlap;
       const closing = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-      if (closing > 0) { a.vx -= closing * nx * 0.8; a.vy -= closing * ny * 0.8; b.vx += closing * nx * 0.8; b.vy += closing * ny * 0.8; }
+      if (closing > 0) {
+        // Credit the shove to whoever was driving into the other; a tank that bounces off its own charge gets no credit.
+        const aIn = a.vx * nx + a.vy * ny, bIn = -(b.vx * nx + b.vy * ny);
+        if (a.team !== b.team) { if (aIn > bIn) pushed(world, b, a.id); else if (bIn > aIn) pushed(world, a, b.id); }
+        a.vx -= closing * nx * 0.8; a.vy -= closing * ny * 0.8; b.vx += closing * nx * 0.8; b.vy += closing * ny * 0.8;
+      }
       ram(world, a, b, nx, ny); ram(world, b, a, -nx, -ny);
       if (closing > 120) world.events.push({ type: 'crash', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
     }
@@ -702,6 +720,7 @@ function resolveTankContacts(world: World) {
 function ram(world: World, attacker: Tank, target: Tank, nx: number, ny: number) {
   if (attacker.dash > 0 && !attacker.rammed) {
     attacker.rammed = true;
+    if (attacker.team !== target.team) pushed(world, target, attacker.id);
     target.vx += nx * 640 * world.twist.knock; target.vy += ny * 640 * world.twist.knock;
     attacker.dash = 0;
   }

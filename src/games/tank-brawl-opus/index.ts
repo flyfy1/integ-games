@@ -7,10 +7,10 @@ import { botIntent, enemySkill, SKILLS, withStyle, type BotSkill } from './bot';
 import { BOSS, botLevels, earnedHats, hatById, matchBonus, MEDALS, medalRow, recordCoopRun, recordSoloMatch, recordTourStop, roundScore, tourTotal, validCareer, WARDROBE, type Career } from './career';
 import { createRenderer, HEIGHT, menuRowBox, SEAT_COLORS, START_BOX, TOUR_BACK_BOX, TOUR_GO_BOX, TOUR_NODE_R, tourNodeCenter, WIDTH, type MenuRow, type Overlay, type Touch } from './render';
 import { arenaForRound, bossOf, COOP_HP, createMatch, createWorld, heartsAfterWave, idle, isBossWave, makeTank, mirrored, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, suddenDeathAt, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
-import { BOT_BLURB, BOT_NAMES, FAST_ROUND, GOAL_TEXT, TOUR, TOUR_TARGET, tourStars, tourUnlocked, type RoundStats } from './tour';
+import { BOSS_HEARTS, BOT_BLURB, BOT_NAMES, FAST_ROUND, GOAL_TEXT, TOUR, TOUR_TARGET, tourHearts, tourStars, tourUnlocked, VERSUS_HP, type RoundStats } from './tour';
 
 const ACCENT = '#ffd34d';
-const VERSUS_HP = 5, FIRE = 0, DASH = 1, HONK = 2, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9;
+const FIRE = 0, DASH = 1, HONK = 2, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9;
 const KEYS: KeyboardMap[] = [
   { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', buttons: [['KeyF', 'Space'], 'KeyG', 'KeyR', [], [], [], [], [], 'KeyT', 'KeyP'] },
   { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', buttons: [['KeyK', 'Enter'], 'KeyL', 'Semicolon', [], [], [], [], [], 'Quote', 'KeyO'] }
@@ -185,7 +185,7 @@ function mount(host: HTMLElement, services: GameServices) {
     for (const seat of seats) {
       const [x, y] = spawnPoint(arena, seat);
       const boss = !coop && oneSeat() && seat === 1 && botLevel() === BOSS;
-      const hp = coop ? COOP_HP : (rolledTwist.hp ?? VERSUS_HP) + (boss ? 2 : 0);
+      const hp = coop ? COOP_HP : tourStop >= 0 ? tourHearts(TOUR[tourStop], rolledTwist)[seat] : (rolledTwist.hp ?? VERSUS_HP) + (boss ? BOSS_HEARTS : 0);
       const tank = makeTank(world, coop ? 0 : seat, seat, x, y, hp);
       if (coop && match.hp[seat] > 0) tank.hp = match.hp[seat];
       heroes.push(tank);
@@ -337,7 +337,8 @@ function mount(host: HTMLElement, services: GameServices) {
     const hero = heroes[0], bot = heroes[1];
     for (const event of world.events) {
       audio.event(event);
-      if (event.type === 'fall' && bot && event.tank === bot.id) roundStat.botFell = true;
+      // Only a fall the player caused (a shell, a blast, a ram or a shove in the last moments) counts for the pit goal.
+      if (event.type === 'fall' && bot && hero && event.tank === bot.id && event.by === hero.id) roundStat.botFell = true;
       if (event.type === 'pickup' && hero && event.tank === hero.id) roundStat.grabbed = true;
       if (event.type === 'ko' && match?.mode === 'coop' && !heroes.some((tank) => tank.id === event.tank)) match.kills++;
       if (event.type === 'hit' && !services.isReducedMotion) hitStop = Math.max(hitStop, 0.05);

@@ -5,11 +5,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GameServices } from '../src/core/game-types';
 import game from '../src/games/tank-brawl-opus';
-import { ARENAS, arenaById } from '../src/games/tank-brawl-opus/arenas';
+import { ARENAS, arenaById, TILE } from '../src/games/tank-brawl-opus/arenas';
 import { botIntent, SKILLS, withStyle } from '../src/games/tank-brawl-opus/bot';
 import { BOARD_SIZE, earnedHats, emptyCareer, recordCoopRun, recordTourStop, tourTotal, validCareer, WARDROBE } from '../src/games/tank-brawl-opus/career';
 import { bossOf, createWorld, FREEZE_TIME, givePower, idle, isBossWave, makeTank, mirrored, spawnPoint, spawnWave, step, STEP, TWISTS, WAVES, waveSpec, type Intent, type Tank, type World } from '../src/games/tank-brawl-opus/sim';
-import { FAST_ROUND, goalMet, TOUR, tourStars, tourUnlocked, type RoundStats } from '../src/games/tank-brawl-opus/tour';
+import { FAST_ROUND, goalMet, TOUR, tourHearts, tourStars, tourUnlocked, type RoundStats } from '../src/games/tank-brawl-opus/tour';
 
 const rng = (seed = 7) => () => { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 2 ** 32; };
 const twist = (id: string) => TWISTS.find((item) => item.id === id)!;
@@ -303,4 +303,90 @@ describe('shell flow', () => {
     expect(cheeky.state().settings.stop).toBe(0);
     cheeky.finish();
   });
+});
+
+describe('pit goal credit', () => {
+  /** A one-pit arena: the bot (seat 1) parks beside a pit and something sends it in. */
+  function ledge() {
+    const { world, a, b } = duel();
+    a.invuln = b.invuln = 0;
+    const row = Math.floor(340 / TILE), col = Math.floor(700 / TILE);
+    world.tiles[row][col] = 'o';
+    return { world, a, b, pitX: (col + 0.5) * TILE, pitY: (row + 0.5) * TILE };
+  }
+  const fall = (world: World) => world.events.find((event) => event.type === 'fall') as Extract<World['events'][number], { type: 'fall' }> | undefined;
+  const watch = (world: World, frames: number, intents = new Map<number, Intent>()) => { let seen; for (let i = 0; i < frames && !seen; i++) { world.events.length = 0; step(world, intents); seen = fall(world); } return seen; };
+
+  it('credits the player when their shell knocks the bot in', () => {
+    const { world, a, b, pitX, pitY } = ledge();
+    b.x = pitX - 60; b.y = pitY; a.x = pitX - 300; a.y = pitY; a.turret = 0; a.heading = 0;
+    const event = watch(world, 120, hold(a, { fire: true, ax: 1 }));
+    expect(event?.tank).toBe(b.id);
+    expect(event?.by).toBe(a.id);
+  });
+
+  it('credits the player for a dash ram', () => {
+    const { world, a, b, pitX, pitY } = ledge();
+    b.x = pitX - 70; b.y = pitY; a.x = pitX - 190; a.y = pitY; a.heading = 0;
+    const event = watch(world, 90, hold(a, { x: 1, dash: true }));
+    expect(event?.tank).toBe(b.id);
+    expect(event?.by).toBe(a.id);
+  });
+
+  it('does not credit anyone when the bot drives in by itself', () => {
+    const { world, a, b, pitX, pitY } = ledge();
+    a.x = 200; a.y = 120; b.x = pitX - 90; b.y = pitY; b.heading = 0;
+    const event = watch(world, 120, new Map([[b.id, { ...idle(), x: 1 }]]));
+    expect(event?.tank).toBe(b.id);
+    expect(event?.by).toBe(-1);
+  });
+
+  it('a bot that dashes on its own right after being hit owns where it lands', () => {
+    const { world, a, b, pitX, pitY } = ledge();
+    b.x = pitX - 300; b.y = pitY; a.x = pitX - 440; a.y = pitY; a.turret = 0;
+    let hit = false;
+    for (let i = 0; i < 120 && !hit; i++) { world.events.length = 0; step(world, hold(a, { fire: true, ax: 1 })); hit = world.events.some((event) => event.type === 'hit' && event.tank === b.id); }
+    expect(hit).toBe(true);
+    expect(b.pushedBy).toBe(a.id);
+    run(world, 1, new Map([[b.id, { ...idle(), x: 1, dash: true }]]));
+    expect(b.pushedBy).toBe(-1);
+    const event = watch(world, 180, new Map([[b.id, { ...idle(), x: 1 }]]));
+    expect(event?.tank).toBe(b.id);
+    expect(event?.by).toBe(-1);
+  });
+
+  it('forgets an old shove: a fall long after the last hit is the bot\'s own', () => {
+    const { world, a, b, pitX, pitY } = ledge();
+    b.x = pitX - 260; b.y = pitY; a.x = pitX - 400; a.y = pitY; a.turret = 0;
+    let hit = false;
+    for (let i = 0; i < 120 && !hit; i++) { world.events.length = 0; step(world, hold(a, { fire: true, ax: 1 })); hit = world.events.some((event) => event.type === 'hit' && event.tank === b.id); }
+    expect(hit).toBe(true);
+    run(world, Math.ceil(2.5 / STEP)); // Longer than the credit window, standing still.
+    const event = watch(world, 120, new Map([[b.id, { ...idle(), x: 1 }]]));
+    expect(event?.by).toBe(-1);
+  });
+});
+
+describe('tour finale balance (bot-measured, see scripts/tank-brawl-tour-balance.ts)', () => {
+  /** Seat 0 is a proxy human (the sharpest bot skill, no personality); seat 1 is the stop's own bot, set up as the game does. */
+  function finaleMatch(seed: number) {
+    const stop = TOUR[11], arena = arenaById(stop.arena), twisted = twist(stop.twist), [heroHp, botHp] = tourHearts(stop, twisted);
+    const wins = [0, 0];
+    for (let r = 0; wins[0] < 2 && wins[1] < 2; r++) {
+      const world = createWorld(arena, twisted, rng(seed * 17 + r + 1), true);
+      const hero = makeTank(world, 0, 0, ...spawnPoint(arena, 0), heroHp), bot = makeTank(world, 1, 1, ...spawnPoint(arena, 1), botHp);
+      const style = withStyle(SKILLS[stop.skill], stop.style);
+      for (let frame = 0; frame < 60 * 180 && !world.finished; frame++) { step(world, new Map([[hero.id, botIntent(world, hero, SKILLS[3])], [bot.id, botIntent(world, bot, style)]])); world.events.length = 0; }
+      wins[world.winner === 0 ? 0 : 1]++;
+    }
+    return wins[0] >= 2;
+  }
+
+  it('stop 12 (which gates the Crown and Party hats) is beatable: a proxy human wins some matches, but not most', () => {
+    expect(TOUR[11].skill).toBe(3);
+    let won = 0;
+    for (let seed = 0; seed < 40; seed++) if (finaleMatch(seed)) won++;
+    expect(won).toBeGreaterThan(0);
+    expect(won).toBeLessThan(20);
+  }, 60_000);
 });

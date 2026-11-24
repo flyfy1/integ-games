@@ -2,8 +2,18 @@
 import type { BotStyle } from './bot';
 
 export type TourGoal = 'hearts' | 'fast' | 'pit' | 'power';
-export type TourStop = { arena: string; twist: string; style: BotStyle; skill: number; goal: TourGoal };
+/** `botHearts` overrides the Boss's usual extra hearts for one stop (the finale is tuned on its own). */
+export type TourStop = { arena: string; twist: string; style: BotStyle; skill: number; goal: TourGoal; botHearts?: number };
 
+/** Hearts each tank starts a versus round with, before a twist changes it. */
+export const VERSUS_HP = 5;
+/** The Boss bot brings two extra hearts (in the versus ladder and, unless a stop says otherwise, on the tour). */
+export const BOSS_SKILL = 3, BOSS_HEARTS = 2;
+/** Hearts for [player, bot] at a tour stop: the twist sets the base, the Boss adds its extra hearts unless the stop overrides them. */
+export const tourHearts = (stop: TourStop, twist: { hp?: number }): [number, number] => {
+  const base = twist.hp ?? VERSUS_HP;
+  return [base, base + (stop.botHearts ?? (stop.skill >= BOSS_SKILL ? BOSS_HEARTS : 0))];
+};
 /** Rounds to win a tour match (best of three). */
 export const TOUR_TARGET = 2;
 /** The "quick" goal: win a round inside this many seconds. */
@@ -21,7 +31,8 @@ export const TOUR: readonly TourStop[] = [
   { arena: 'bumperrink', twist: 'thief', style: 'bouncer', skill: 1, goal: 'power' },
   { arena: 'warehouse', twist: 'fog', style: 'camper', skill: 2, goal: 'power' },
   { arena: 'volcano', twist: 'crumble', style: 'rammer', skill: 2, goal: 'pit' },
-  { arena: 'mirrorhall', twist: 'tiny', style: 'bouncer', skill: 3, goal: 'fast' }
+  // The finale: the Boss's aim and dodging on Teeny Tanks is hard enough without its usual two extra hearts (0% for a bot proxy with them).
+  { arena: 'mirrorhall', twist: 'tiny', style: 'bouncer', skill: 3, goal: 'fast', botHearts: 0 }
 ];
 
 export const BOT_NAMES: Record<BotStyle, readonly [string, string]> = {
