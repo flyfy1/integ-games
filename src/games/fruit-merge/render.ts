@@ -1,6 +1,7 @@
 /** Fruit Orbit drawing: twilight backdrop, glass jar, HUD, aim guide, effects and the game-over card. */
 import { BOUNDS, DANGER_LIMIT, RADII, TIER_COUNT, isOverLine, landingY, type World } from './sim';
 import { FRUITS, drawFruit, type Mood } from './fruits';
+import { JAR_SKINS, type JarSkin } from './modes';
 
 type C = CanvasRenderingContext2D;
 export const W = 360, H = 580;
@@ -11,7 +12,9 @@ const JAR_TOP = 56;
 export type Spark = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size: number };
 export type Ring = { x: number; y: number; from: number; to: number; life: number; max: number; color: string };
 export type Popup = { x: number; y: number; text: string; life: number; max: number; color: string; size: number; banner?: boolean };
-export type Effects = { sparks: Spark[]; rings: Ring[]; popups: Popup[] };
+/** A full-jar wash of colour for the biggest moments (Moon Melon and up, the Sun Melon finale). */
+export type Flash = { color: string; life: number; max: number };
+export type Effects = { sparks: Spark[]; rings: Ring[]; popups: Popup[]; flash?: Flash | null };
 
 export type View = {
   world: World; fx: Effects;
@@ -24,6 +27,12 @@ export type View = {
   /** Touch-first device: the hint and retry prompt talk about fingers rather than keys. */
   touch: boolean;
   t(en: string, zh: string): string;
+  /** Jar skin (backdrop and glass colours); the first skin when omitted. */
+  skin?: JarSkin;
+  /** Replaces the overflow card (jar puzzles and other modes show their own result panel). */
+  hideOverCard?: boolean;
+  /** Replaces the BEST line under the score (puzzles show their goal, the Daily today's best). */
+  subline?: string;
 };
 
 export const formatScore = (value: number) => Math.round(value).toLocaleString('en-US');
@@ -43,10 +52,10 @@ function jarPath(c: C) {
   c.lineTo(right + 2 - r, floor + 2); c.quadraticCurveTo(right + 2, floor + 2, right + 2, floor + 2 - r); c.lineTo(right + 2, JAR_TOP);
 }
 
-/** Static scenery, painted once per pixel scale. */
-function paintBackdrop(c: C) {
+/** Static scenery, painted once per pixel scale and skin. */
+function paintBackdrop(c: C, skin: JarSkin) {
   const sky = c.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#150f33'); sky.addColorStop(0.55, '#26143f'); sky.addColorStop(1, '#3b1b47');
+  sky.addColorStop(0, skin.sky[0]); sky.addColorStop(0.55, skin.sky[1]); sky.addColorStop(1, skin.sky[2]);
   c.fillStyle = sky; c.fillRect(0, 0, W, H);
   for (const [x, y, r, color] of [[70, 120, 190, 'rgba(120,90,255,.2)'], [310, 420, 210, 'rgba(255,120,110,.16)'], [180, 600, 200, 'rgba(255,190,90,.1)']] as const) {
     const glow = c.createRadialGradient(x, y, 0, x, y, r); glow.addColorStop(0, color); glow.addColorStop(1, 'rgba(0,0,0,0)');
@@ -64,21 +73,22 @@ function paintBackdrop(c: C) {
   roundRect(c, 8, 546, W - 16, 30, 15); c.fillStyle = 'rgba(255,255,255,.07)'; c.fill();
 }
 
-function paintJarFront(c: C) {
+function paintJarFront(c: C, skin: JarSkin) {
   const { left } = BOUNDS;
   c.lineCap = 'round'; c.lineJoin = 'round';
-  jarPath(c); c.strokeStyle = 'rgba(255,143,112,.22)'; c.lineWidth = 8; c.stroke();
-  jarPath(c); c.strokeStyle = 'rgba(255,236,226,.7)'; c.lineWidth = 2.5; c.stroke();
+  jarPath(c); c.strokeStyle = skin.glow; c.lineWidth = 8; c.stroke();
+  jarPath(c); c.strokeStyle = skin.rim; c.lineWidth = 2.5; c.stroke();
   c.strokeStyle = 'rgba(255,255,255,.13)'; c.lineWidth = 3; c.beginPath(); c.moveTo(left + 7, JAR_TOP + 14); c.lineTo(left + 7, 300); c.stroke();
   c.beginPath(); c.moveTo(left + 7, 316); c.lineTo(left + 7, 336); c.stroke();
 }
 
 export function createRenderer(c: C, pixelScale: number) {
-  let backdrop: HTMLCanvasElement | undefined;
-  const scenery = () => {
-    if (!backdrop) {
+  let backdrop: HTMLCanvasElement | undefined, backdropSkin = '';
+  const scenery = (skin: JarSkin) => {
+    if (!backdrop || backdropSkin !== skin.id) {
       backdrop = document.createElement('canvas'); backdrop.width = Math.ceil(W * pixelScale); backdrop.height = Math.ceil(H * pixelScale);
-      const b = backdrop.getContext('2d')!; b.scale(pixelScale, pixelScale); paintBackdrop(b); paintJarFront(b);
+      const b = backdrop.getContext('2d')!; b.scale(pixelScale, pixelScale); paintBackdrop(b, skin); paintJarFront(b, skin);
+      backdropSkin = skin.id;
     }
     return backdrop;
   };
@@ -86,10 +96,11 @@ export function createRenderer(c: C, pixelScale: number) {
   function hud(v: View) {
     const { world } = v;
     label(c, formatScore(world.score), 58, 33, 28, '#ffffff', 'left');
-    label(c, `${v.t('BEST', '最高')} ${formatScore(v.best)}`, 58, 49, 14, v.newBest ? '#ffd84a' : '#c4bce6', 'left');
+    label(c, v.subline ?? `${v.t('BEST', '最高')} ${formatScore(v.best)}`, 58, 49, 14, v.newBest ? '#ffd84a' : '#c4bce6', 'left');
     label(c, v.t('NEXT', '下一个'), 252, 32, 14, '#c4bce6', 'right');
     c.fillStyle = 'rgba(255,255,255,.1)'; c.beginPath(); c.arc(282, 27, 22, 0, TAU); c.fill();
     c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.5; c.beginPath(); c.arc(282, 27, 22, 0, TAU); c.stroke();
+    if (world.next < 0) { label(c, '–', 282, 33, 16, '#c4bce6'); return; }
     const icon = Math.min(15, 8 + world.next * 1.8);
     drawFruit(c, world.next, 282, 28, icon, 0, 'calm', pixelScale);
   }
@@ -140,7 +151,7 @@ export function createRenderer(c: C, pixelScale: number) {
 
   function held(v: View) {
     const { world } = v;
-    if (world.over) return;
+    if (world.over || world.current < 0) return;
     const tier = world.current, r = RADII[tier], x = v.heldX, y = BOUNDS.spawnY;
     const ready = world.cooldown <= 0, appear = v.reduced ? (ready ? 1 : 0) : Math.max(0, 1 - world.cooldown / 0.16);
     const land = landingY(world, x, r);
@@ -165,6 +176,11 @@ export function createRenderer(c: C, pixelScale: number) {
       c.beginPath(); c.arc(ring.x, ring.y, ring.from + (ring.to - ring.from) * (v.reduced ? 0.6 : 1 - (1 - t) * (1 - t)), 0, TAU); c.stroke();
     }
     for (const s of fx.sparks) { c.globalAlpha = Math.min(1, s.life / s.max * 1.6); c.fillStyle = s.color; c.beginPath(); c.arc(s.x, s.y, s.size * (0.4 + 0.6 * s.life / s.max), 0, TAU); c.fill(); }
+    if (fx.flash && fx.flash.life > 0) {
+      const t = fx.flash.life / fx.flash.max;
+      c.globalAlpha = (v.reduced ? 0.25 : 0.45) * t * t; c.fillStyle = fx.flash.color; c.fillRect(0, 0, W, H);
+      c.globalAlpha = 1;
+    }
     for (const p of fx.popups) {
       const t = 1 - p.life / p.max;
       c.globalAlpha = Math.min(1, p.life / p.max * 2.5);
@@ -216,7 +232,7 @@ export function createRenderer(c: C, pixelScale: number) {
 
   return function draw(v: View) {
     c.clearRect(0, 0, W, H);
-    c.drawImage(scenery(), 0, 0, W, H);
+    c.drawImage(scenery(v.skin ?? JAR_SKINS[0]), 0, 0, W, H);
     dangerLine(v);
     held(v);
     fruits(v);
@@ -225,7 +241,7 @@ export function createRenderer(c: C, pixelScale: number) {
     hud(v);
     strip(v);
     if (v.hint && !v.world.over) hint(v);
-    if (v.world.over) gameOver(v);
+    if (v.world.over && !v.hideOverCard) gameOver(v);
     if (v.paused) { roundRect(c, W / 2 - 70, 268, 140, 44, 22); c.fillStyle = 'rgba(24,10,44,.85)'; c.fill(); label(c, v.t('PAUSED', '已暂停'), W / 2, 297, 20, '#ffffff'); }
   };
 }
