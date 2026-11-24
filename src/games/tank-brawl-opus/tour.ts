@@ -18,7 +18,7 @@ export const TOUR: readonly TourStop[] = [
   { arena: 'mirrorhall', twist: 'moon', style: 'bouncer', skill: 1, goal: 'hearts' },
   { arena: 'bridges', twist: 'mirror', style: 'rammer', skill: 1, goal: 'pit' },
   { arena: 'factory', twist: 'bigduck', style: 'camper', skill: 2, goal: 'fast' },
-  { arena: 'bumperrink', twist: 'thief', style: 'bouncer', skill: 1, goal: 'hearts' },
+  { arena: 'bumperrink', twist: 'thief', style: 'bouncer', skill: 1, goal: 'power' },
   { arena: 'warehouse', twist: 'fog', style: 'camper', skill: 2, goal: 'power' },
   { arena: 'volcano', twist: 'crumble', style: 'rammer', skill: 2, goal: 'pit' },
   { arena: 'mirrorhall', twist: 'tiny', style: 'bouncer', skill: 3, goal: 'fast' }

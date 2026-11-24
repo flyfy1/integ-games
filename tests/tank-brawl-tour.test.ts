@@ -125,6 +125,17 @@ describe('new twists', () => {
   });
 });
 
+describe('ducks', () => {
+  it('in versus, seat 2 still sets off its own power-up duck (only co-op enemies are spared)', () => {
+    const { world, a, b } = duel();
+    a.x = 200; a.y = 200; b.x = 900; b.y = 400;
+    world.ducks.push({ id: 999, owner: b.id, team: b.team, x: b.x, y: b.y, age: 1 });
+    run(world, 1);
+    expect(world.ducks).toHaveLength(0);
+    expect(b.hp).toBeLessThan(3);
+  });
+});
+
 describe('bot personalities', () => {
   it('the Rammer closes in and dashes, the Camper stays home', () => {
     const settle = (style: 'rammer' | 'camper') => {

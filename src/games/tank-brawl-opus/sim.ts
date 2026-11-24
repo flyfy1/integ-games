@@ -614,8 +614,9 @@ function stepDucks(world: World) {
     duck.age += STEP;
     if (duck.age < 0.9) continue;
     const reach = duck.big ? 62 : 44;
-    // A wave's own ducks only go off under the heroes (or a shell), never under the enemy that laid them.
-    const trigger = world.tanks.some((tank) => tank.alive && !tank.downed && tank.falling <= 0 && !(duck.team === 1 && tank.team === 1) && Math.hypot(tank.x - duck.x, tank.y - duck.y) < reach * tank.scale);
+    // In co-op a wave's own ducks only go off under the heroes (or a shell), never under the enemies that laid them.
+    const spared = (tank: Tank) => !world.friendlyFire && duck.team === 1 && tank.team === 1;
+    const trigger = world.tanks.some((tank) => tank.alive && !tank.downed && tank.falling <= 0 && !spared(tank) && Math.hypot(tank.x - duck.x, tank.y - duck.y) < reach * tank.scale);
     const shot = world.shells.find((shell) => Math.hypot(shell.x - duck.x, shell.y - duck.y) < (duck.big ? 34 : 18));
     if (shot) shot.life = -1;
     if (trigger || shot || (!duck.big && duck.age > 14)) {

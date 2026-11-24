@@ -480,7 +480,7 @@ export function createRenderer(ctx: CanvasRenderingContext2D, reduced: boolean, 
     drawWorld(current, match);
     if (current.twist.fog) drawFog(current);
     ctx.restore();
-    if (mirrored(current) && !reduced) { ctx.strokeStyle = '#ff9df0'; ctx.lineWidth = 6; ctx.globalAlpha = 0.5 + Math.sin(clock * 10) * 0.3; ctx.strokeRect(OFFSET_X - 4, OFFSET_Y - 4, WORLD_W + 8, WORLD_H + 8); ctx.globalAlpha = 1; }
+    if (mirrored(current)) { ctx.strokeStyle = '#ff9df0'; ctx.lineWidth = 6; ctx.globalAlpha = reduced ? 0.8 : 0.5 + Math.sin(clock * 10) * 0.3; ctx.strokeRect(OFFSET_X - 4, OFFSET_Y - 4, WORLD_W + 8, WORLD_H + 8); ctx.globalAlpha = 1; }
     if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash})`; ctx.fillRect(0, 0, WIDTH, HEIGHT); }
     if (touch) drawTouch(touch);
     drawOverlay(overlay);

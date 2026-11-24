@@ -6,8 +6,8 @@ import { createTankAudio } from './audio';
 import { botIntent, enemySkill, SKILLS, withStyle, type BotSkill } from './bot';
 import { BOSS, botLevels, earnedHats, hatById, matchBonus, MEDALS, medalRow, recordCoopRun, recordSoloMatch, recordTourStop, roundScore, tourTotal, validCareer, WARDROBE, type Career } from './career';
 import { createRenderer, HEIGHT, menuRowBox, SEAT_COLORS, START_BOX, TOUR_BACK_BOX, TOUR_GO_BOX, TOUR_NODE_R, tourNodeCenter, WIDTH, type MenuRow, type Overlay, type Touch } from './render';
-import { arenaForRound, bossOf, COOP_HP, createMatch, createWorld, heartsAfterWave, idle, isBossWave, makeTank, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, suddenDeathAt, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
-import { BOT_BLURB, BOT_NAMES, GOAL_TEXT, TOUR, TOUR_TARGET, tourStars, tourUnlocked, type RoundStats } from './tour';
+import { arenaForRound, bossOf, COOP_HP, createMatch, createWorld, heartsAfterWave, idle, isBossWave, makeTank, mirrored, pickTwist, recordRound, spawnPoint, spawnWave, step, STEP, suddenDeathAt, TWISTS, WAVES, waveScore, type Intent, type Match, type Mode, type Tank, type Twist, type World } from './sim';
+import { BOT_BLURB, BOT_NAMES, FAST_ROUND, GOAL_TEXT, TOUR, TOUR_TARGET, tourStars, tourUnlocked, type RoundStats } from './tour';
 
 const ACCENT = '#ffd34d';
 const VERSUS_HP = 5, FIRE = 0, DASH = 1, HONK = 2, L1 = 4, R1 = 5, L2 = 6, R2 = 7, SELECT = 8, START = 9;
@@ -72,7 +72,7 @@ function mount(host: HTMLElement, services: GameServices) {
   let touched = coarsePointer();
   const FIRE_R = 66, DASH_R = 54;
   const seatButtons = (seat: number) => {
-    if (settings.players === 1) return { fire: { x: 1178, y: 606 }, dash: { x: 1030, y: 648 } };
+    if (oneSeat()) return { fire: { x: 1178, y: 606 }, dash: { x: 1030, y: 648 } };
     return seat === 0 ? { fire: { x: 330, y: 632 }, dash: { x: 190, y: 652 } } : { fire: { x: WIDTH - 330, y: 632 }, dash: { x: WIDTH - 190, y: 652 } };
   };
   const virtual = (player: number): VirtualPad | undefined => {
@@ -317,8 +317,11 @@ function mount(host: HTMLElement, services: GameServices) {
     const seat = tank.seat, mine = pads ? padIntent(pads[seat]) : idle();
     if (mine.x || mine.y || mine.fire || mine.dash || mine.honk) { seatSeen[seat] = true; autoBot[seat] = false; return mine; }
     if (!autoBot[seat] && !seatSeen[seat] && seatSeen[seat ? 0 : 1] && world.time > 4 && screen === 'fight') { autoBot[seat] = true; takeoverNote = 5; }
-    return autoBot[seat] ? botIntent(world, tank, SKILLS[0]) : mine;
+    return autoBot[seat] ? unmirror(botIntent(world, tank, SKILLS[0])) : mine;
   }
+
+  /** Mirror Minutes flips seat steering in the sim; a bot is pre-flipped so only the humans get confused. */
+  const unmirror = (intent: Intent): Intent => (mirrored(world) ? { ...intent, x: -intent.x, ax: -intent.ax } : intent);
 
   function stepWorld(pads: PadState[] | null, merged: PadState) {
     const intents = new Map<number, Intent>();
@@ -326,7 +329,7 @@ function mount(host: HTMLElement, services: GameServices) {
       if (!tank.alive) continue;
       if (screen === 'menu' || screen === 'tour') intents.set(tank.id, botIntent(world, tank, SKILLS[1]));
       else if (tank.enemy) intents.set(tank.id, botIntent(world, tank, enemySkill(tank.enemy)));
-      else if (oneSeat()) intents.set(tank.id, tank.seat === 0 ? padIntent(merged) : botIntent(world, tank, botSkill()));
+      else if (oneSeat()) intents.set(tank.id, tank.seat === 0 ? padIntent(merged) : unmirror(botIntent(world, tank, botSkill())));
       else intents.set(tank.id, seatIntent(tank, pads));
     }
     step(world, intents);
@@ -469,7 +472,7 @@ function mount(host: HTMLElement, services: GameServices) {
     if (match.mode === 'coop') return { center: match.wave > WAVES ? tr(`WAVE ${match.wave} · OVERTIME`, `第 ${match.wave} 波 · 加时`) : tr(`WAVE ${match.wave}/${WAVES}`, `第 ${match.wave}/${WAVES} 波`), sub: tr(`Enemies ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · Score ${waveScore(match)}`, `敌人 ${world.tanks.filter((tank) => tank.enemy && tank.alive).length} · 得分 ${waveScore(match)}`), names };
     const left = Math.ceil(Math.max(0, suddenDeathAt(world.twist) - world.time));
     if (tourStop >= 0 && !world.suddenDeath) {
-      const goal = TOUR[tourStop].goal, clock = goal === 'fast' ? Math.max(0, Math.ceil(20 - world.time)) : -1;
+      const goal = TOUR[tourStop].goal, clock = goal === 'fast' ? Math.max(0, Math.ceil(FAST_ROUND - world.time)) : -1;
       const sub = goal === 'fast' ? (clock > 0 ? tr(`★ Win in ${clock}s`, `★ ${clock} 秒内获胜`) : tr('★ Too slow this round', '★ 这局超时了'))
         : goal === 'hearts' ? (heroes[0] && heroes[0].hp >= heroes[0].maxHp ? tr('★ No hearts lost yet', '★ 还没丢心') : tr('★ Hearts lost this round', '★ 这局已丢心'))
         : goal === 'pit' ? (roundStat.botFell ? tr('★ Bot in the pit! Now win', '★ 电脑落坑了！拿下这局') : tr('★ Knock the bot into a pit', '★ 把电脑撞进坑'))
@@ -585,7 +588,7 @@ function mount(host: HTMLElement, services: GameServices) {
 
   void input.reconnect();
   const stop = startLoop(frame);
-  const debug = { state: () => ({ screen, settings, match, career, tourStop, tourRounds, coopCleared, frozen: world.tanks.some((tank) => tank.frozen > 0), soloScore, autoBot, rotated, twist: world.twist.id, time: world.time, tanks: world.tanks.map(({ x, y, hp, seat, team }) => ({ x, y, hp, seat, team })), shells: world.shells.length }) };
+  const debug = { world: () => world, state: () => ({ screen, settings, match, career, tourStop, tourRounds, coopCleared, frozen: world.tanks.some((tank) => tank.frozen > 0), soloScore, autoBot, rotated, twist: world.twist.id, time: world.time, tanks: world.tanks.map(({ x, y, hp, seat, team }) => ({ x, y, hp, seat, team })), shells: world.shells.length }) };
   (globalThis as { __tankBrawl?: typeof debug }).__tankBrawl = debug;
 
   return {
