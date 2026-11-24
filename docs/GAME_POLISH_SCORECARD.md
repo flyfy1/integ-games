@@ -57,3 +57,19 @@ New eleventh listed game: an original lane-defense campaign (5 chapters, 25 nigh
 ## Lantern Works (2026-11-24)
 
 New listed game (Match & Build, after Block Drop): a deterministic conveyor-belt factory puzzle. Four chapters, 20 levels with three stars (Delivered / Tidy parts / Swift beats), 13 parts, Inspector Mittens, fixed machines, a change-of-plan order, Night Shift (endless seeded order queue) and a Daily Order on the shared daily kit; undo, saved builds, EN/zh, touch, keyboard and a gamepad profile. Every machine plays a pentatonic note when it works, so a running factory plays a tune. Evidence: `tests/lantern-works-content.test.ts` replays stored reference solutions (`tests/lantern-works-solutions.ts`) for every level, checks the Tidy and Swift pars are met with a small margin, at least two layout-different solutions from 1-5 on, empty boards never win, placement order does not matter; sim rule, save, Night Shift and lifecycle tests. A Playwright driver rebuilt one stored solution per level through the real UI (tray, canvas taps, machine popover, Run/Pause for mid-run edits) for all 20 levels on desktop (mouse) and Pixel 7 (touch); 1-1 was also drawn by a CDP touch drag on Pixel 7 (with one Undo removing the whole drag), iPhone 13 rebuilt 1-5 and 3-3 by touch taps, 1-2 was cleared by keyboard only, and Night Shift and the Daily Order each ran to the shift-over card. The gamepad profile is unit-tested only. Levels were opened through a debug handle, not the map. Limits: audio never heard by ear, pars are set from the stored solutions (not human-tuned), Night Shift pacing bot-free and untuned by humans, no physical phone or controller.
+
+## Crumb Raiders (2026-11-24)
+
+New twelfth listed game: an original ant-colony campaign. You lay scent trails, hatch ten castes and haul a picnic home past twelve hazards. It has 4 chapters, 20 levels, 4 bosses, Endless Summer, a Daily Raid on the shared daily kit, nest upgrades, a bilingual story, and synthesized music and SFX.
+
+Evidence:
+- `tests/ant-raid-{sim,content,shell}.test.ts` cover the hazards, saves and lifecycle.
+- A stored reference script for every level wins on three seeds with at least a 12% time margin. Bosses use at most three Scatters, and defence levels count hearts left as their margin.
+- A greedy bot with no level knowledge clears chapters 1 and 2 on every seed.
+- `scripts/ant-raid-replay.mjs` replays those scripts through real mouse and touch input.
+- Bot boss win rates: Old Gulp 4/4, Rumble 4/4. The bot cannot bridge, so it loses Bluestreak, and it cannot hold Queen Cinder's cut.
+
+Limits:
+- Balance is script-tuned and bot-tuned only, with no human playtest.
+- Audio was never heard by ear.
+- It has not been tried on a physical phone or controller.

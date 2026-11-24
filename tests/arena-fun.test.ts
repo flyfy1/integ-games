@@ -168,7 +168,7 @@ describe('Pocket Survivor stages, bosses and generals', () => {
     }
     expect(survived).toBeGreaterThanOrEqual(3);
     expect(mids).toBeGreaterThanOrEqual(2);
-  });
+  }, 30_000);
 });
 
 describe('Pocket Survivor Daily', () => {

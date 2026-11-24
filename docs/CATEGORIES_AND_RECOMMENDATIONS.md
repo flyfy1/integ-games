@@ -6,9 +6,9 @@ Classification should help a visitor answer two questions quickly: “what kind 
 
 ## Listed arcade (2026-11-11)
 
-The catalog installs 28 modules, but the arcade lists only the twelve in `featuredSlugs` (`src/core/catalog.ts`), in this order: Midnight Kitchen (added 2026-11-11), Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Lantern Works (added 2026-11-24), Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
+The catalog installs 29 modules, but the arcade lists only the thirteen in `featuredSlugs` (`src/core/catalog.ts`), in this order: Midnight Kitchen (added 2026-11-11), Crumb Raiders (added 2026-11-24), Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Lantern Works (added 2026-11-24), Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
 
-Listed categories: Puzzle & Strategy (Midnight Kitchen, Merge 2048, Geo Quiz), Match & Build (Block Drop, Lantern Works, Fruit Orbit), Quick Reflex (Tank Brawl, Pocket Survivor, Pad Pals), Action & Adventure (Ashfall, Pelican Pedal, Tank Clash). Tank Brawl and Pocket Survivor moved to Quick Reflex because their rounds and runs are short. `recommendationsFor` returns only listed games: the editorial picks that are still listed, topped up in arcade order to four. The table below records the original 26-game editorial picks and is historical for hidden games.
+Listed categories: Puzzle & Strategy (Midnight Kitchen, Crumb Raiders, Merge 2048, Geo Quiz), Match & Build (Block Drop, Lantern Works, Fruit Orbit), Quick Reflex (Tank Brawl, Pocket Survivor, Pad Pals), Action & Adventure (Ashfall, Pelican Pedal, Tank Clash). Tank Brawl and Pocket Survivor moved to Quick Reflex because their rounds and runs are short. `recommendationsFor` returns only listed games: the editorial picks that are still listed, topped up in arcade order to four. The table below records the original 26-game editorial picks and is historical for hidden games.
 
 ## Primary categories
 
@@ -78,7 +78,7 @@ Recommendations are ordered. Show the first four, excluding the current game. Th
 
 ## Acceptance checks
 
-- All 26 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
+- All 29 games have exactly one primary category, exactly two traits, and four valid unique recommendations.
 - Every category has at least four games.
 - Home filtering, search-within-filter, query persistence, and empty states work on desktop and mobile.
 - Every `/play/:slug` page renders the right category, traits, breadcrumb, and four recommendations.
