@@ -1,4 +1,4 @@
-/** Six mirrored arenas. Only the left half is written, so neither seat ever gets the better side. */
+/** Ten mirrored arenas. Only the left half is written, so neither seat ever gets the better side. */
 export const COLS = 24, ROWS = 13, TILE = 48;
 export const WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
 
@@ -132,6 +132,82 @@ export const ARENAS: readonly Arena[] = [
       '.....oo.....',
       '............',
       '............'
+    ])
+  },
+  {
+    id: 'bridges', name: ['Rope Bridges', '吊桥峡谷'], tagline: ['Narrow planks over a long drop. Shove gently.', '窄桥下面是深渊，推人要温柔'],
+    floor: '#a8895c', floorAlt: '#9d7f53', wall: '#5a4630', wallTop: '#8c6d48', crate: '#b5763c', pit: '#1d2a3a', pitGlow: '#3b5878',
+    rows: mirror([
+      '............',
+      '.1....oooo..',
+      '......oooo..',
+      '..oo..oooo..',
+      '..oo........',
+      '..oo..oo.ooo',
+      '......oo.ooo',
+      '..oo..oo.ooo',
+      '..oo........',
+      '..oo..oooo..',
+      '......oooo..',
+      '......oooo..',
+      '............'
+    ])
+  },
+  {
+    id: 'mirrorhall', name: ['Hall of Mirrors', '镜子大厅'], tagline: ['Steel posts everywhere. Bank every shot.', '到处是钢柱，炮弹会反复弹'],
+    floor: '#3b3f63', floorAlt: '#363a5c', wall: '#7e86b8', wallTop: '#d6dcff', crate: '#9a7bd1', pit: '#141631', pitGlow: '#6b6fe0',
+    rows: mirror([
+      '............',
+      '.1..#...#...',
+      '..........#.',
+      '..#...#.....',
+      '........#..#',
+      '.#..#.......',
+      '......#..#..',
+      '.#..#.......',
+      '........#..#',
+      '..#...#.....',
+      '..........#.',
+      '....#...#...',
+      '............'
+    ])
+  },
+  {
+    id: 'bumperrink', name: ['Bumper Rink', '弹弹冰场'], tagline: ['Ice under your treads, bumpers in your face.', '脚下是冰，眼前是弹簧柱'],
+    floor: '#cfe9f5', floorAlt: '#c2e1ef', wall: '#5f87ad', wallTop: '#9fc4e6', crate: '#8fc5ea', pit: '#1c3a5e', pitGlow: '#2f6ea6',
+    rows: mirror([
+      '~~~~~~~~~~~~',
+      '~1~~~~~~B~~~',
+      '~~~~~~~~~~~~',
+      '~~~B~~~~~~~~',
+      '~~~~~~~B~~~~',
+      '~~~~~~~~~~B~',
+      '~B~~~~~~~~~~',
+      '~~~~~~~~~~B~',
+      '~~~~~~~B~~~~',
+      '~~~B~~~~~~~~',
+      '~~~~~~~~~~~~',
+      '~~~~~~~~B~~~',
+      '~~~~~~~~~~~~'
+    ])
+  },
+  {
+    id: 'warehouse', name: ['Crate Warehouse', '货箱仓库'], tagline: ['Belts, boxes and a back door.', '传送带、货箱和一道后门'],
+    floor: '#6f6a5f', floorAlt: '#67625a', wall: '#3a3631', wallTop: '#d9b25a', crate: '#c08a4a', pit: '#1a1816', pitGlow: '#ff9d3c',
+    rows: mirror([
+      'P...........',
+      '.1..cc..cc..',
+      '....cc..cc..',
+      '.vv.........',
+      '.vv..cc.>>>>',
+      '.vv..cc.....',
+      '.vv.....cc..',
+      '.vv..cc.....',
+      '.vv..cc.<<<<',
+      '.vv.........',
+      '....cc..cc..',
+      '....cc..cc..',
+      'p...........'
     ])
   }
 ];

@@ -1,6 +1,9 @@
 import { t, type Key, type Lang } from './i18n';
-import { CHASSIS_ORDER, CHASSIS_SPECS } from './maps';
-import { drawTankModel, type LobbyConfig } from './render';
+import { DIFFICULTIES } from './engine';
+import { CHASSIS_ORDER, CHASSIS_SPECS, COOP_STAGE_COUNT, DUEL_ARENA_COUNT } from './maps';
+import { clock, drawTankModel, type LobbyConfig } from './render';
+
+export { clock };
 import type { ChassisId, GameMode, TeamSetup } from './types';
 
 /**
@@ -25,6 +28,24 @@ export interface LobbyView {
   touch: boolean;
   canConnectPad: boolean;
   padStatus: string;
+  /** Co-op campaign progress for the selected stage and overall. */
+  campaign?: {
+    stars: number;
+    crown: boolean;
+    total: number;
+    max: number;
+    par: number;
+    lockedHint?: string;
+    resume?: string;
+  };
+}
+
+export interface PerkOption {
+  id: string;
+  icon: string;
+  name: string;
+  desc: string;
+  level: number;
 }
 
 export interface ResultsView {
@@ -36,6 +57,12 @@ export interface ResultsView {
   tip?: string;
   primary: { id: string; label: string };
   secondary: { id: string; label: string };
+  /** Optional third action, e.g. "retry the whole stage" next to "retry from the boss". */
+  extra?: { id: string; label: string };
+  /** Three stage stars with what each one asks for. */
+  stars?: Array<{ got: boolean; label: string; isNew?: boolean }>;
+  /** Field upgrade choice between stages. */
+  perks?: { title: string; options: PerkOption[]; selected: string };
   footnote?: string;
 }
 
@@ -80,6 +107,20 @@ const STYLE = `
 [data-tank-clash] .tc-lose{color:#ff8a8a}
 [data-tank-clash] .tc-actions{display:grid;gap:8px;grid-template-columns:1.6fr 1fr}
 [data-tank-clash] .tc-primary{background:#70f0c2;color:#062019;border-color:#fff;min-height:54px;font-size:18px}
+[data-tank-clash] .tc-stars{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center}
+[data-tank-clash] .tc-star{font-size:34px;line-height:1;color:#334155}
+[data-tank-clash] .tc-star.is-got{color:#ffd15c;text-shadow:0 0 12px #ffd15c88}
+[data-tank-clash] .tc-star.is-new{animation:tc-pop .5s ease-out both}
+[data-tank-clash] .tc-star-label{display:block;font-size:13px;color:#a8b1c5;margin-top:4px;font-weight:700}
+@keyframes tc-pop{0%{transform:scale(.3);opacity:0}70%{transform:scale(1.25)}100%{transform:scale(1);opacity:1}}
+@media (prefers-reduced-motion:reduce){[data-tank-clash] .tc-star.is-new{animation:none}}
+[data-tank-clash] .tc-perks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+[data-tank-clash] .tc-perk{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;font-size:14px}
+[data-tank-clash] .tc-perk b{font-size:24px;line-height:1.1}
+[data-tank-clash] .tc-perk small{font-size:12.5px}
+[data-tank-clash] .tc-continue{min-height:50px;font-size:17px;background:#1e3a5f;border-color:#7dd3fc;color:#e0f2fe}
+[data-tank-clash] .tc-camp{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:6px 0 0;color:#cbd5e1;font-size:14.5px}
+[data-tank-clash] .tc-camp .tc-gold{color:#ffd15c;font-weight:900;letter-spacing:.06em}
 @media(min-width:760px){
 [data-tank-clash] .tc-cols{grid-template-columns:minmax(0,5fr) minmax(0,6fr)}
 }
@@ -243,7 +284,7 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
     },
     showLobby(view: LobbyView): void {
       const { cfg, lang } = view;
-      const stageCount = cfg.mode === 'coop' ? 6 : 5;
+      const stageCount = cfg.mode === 'coop' ? COOP_STAGE_COUNT : DUEL_ARENA_COUNT;
       const stageName = t(lang, `stage.${cfg.mode}.${cfg.stageIndex % stageCount}` as Key);
       const teams = teamOrder(cfg.mode)
         .map((ts, i) => btn(`team-${ts}`, 1, i, esc(t(lang, teamKey(cfg.mode, ts))), '', cfg.teamSetup === ts))
@@ -260,6 +301,21 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
           )
         )
         .join('');
+      const diffs = DIFFICULTIES.map((d, i) =>
+        btn(`diff-${d}`, 2.5, i, esc(t(lang, `diff.${d}` as Key)), '', cfg.difficulty === d)
+      ).join('');
+      const diffSection =
+        cfg.mode === 'coop'
+          ? `<section><h3 class="tc-h">${esc(t(lang, 'lobby.diff'))}</h3><div class="tc-row tc-seg">${diffs}</div><p class="tc-note" style="margin-top:6px">${esc(t(lang, `diff.${cfg.difficulty}.desc` as Key))}${cfg.teamSetup === '1p-solo' ? ` ${esc(t(lang, 'diff.solo'))}` : ''}</p></section>`
+          : '';
+      const camp = cfg.mode === 'coop' ? view.campaign : undefined;
+      const starText = (n: number) => '★'.repeat(n) + '☆'.repeat(3 - n);
+      const campaignHtml = camp
+        ? `<p class="tc-camp"><span><span class="tc-gold">${starText(camp.stars)}</span>${camp.crown ? ' 👑' : ''} · ${esc(t(lang, 'lobby.par', { t: clock(camp.par) }))}</span><span>${esc(t(lang, 'lobby.totalStars', { n: camp.total, max: camp.max }))}</span></p>${
+            camp.lockedHint ? `<p class="tc-note">🔒 ${esc(camp.lockedHint)}</p>` : ''
+          }`
+        : '';
+      const continueBtn = camp?.resume ? btn('continue', 0.5, 0, `⏩ ${esc(camp.resume)}`, 'tc-continue') : '';
       const controls = view.touch
         ? `<p class="tc-note">${esc(t(lang, 'ctl.touch'))}</p>`
         : cfg.teamSetup === '2p'
@@ -272,6 +328,7 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
   </div>
   <p class="tc-goal">${esc(t(lang, cfg.mode === 'coop' ? 'lobby.goal.coop' : 'lobby.goal.duel'))}</p>
   ${btn('start-battle', 0, 0, `▶ ${esc(t(lang, 'lobby.start'))}`, 'tc-start')}
+  ${continueBtn}
   <section>${controls}${view.touch ? '' : `<p class="tc-note">${esc(t(lang, 'ctl.pad'))}</p>`}</section>
   <div class="tc-cols">
     <div class="tc-col">
@@ -279,7 +336,8 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
         view.touch && cfg.teamSetup === '2p' ? `<p class="tc-warn" style="margin-top:6px">${esc(t(lang, 'lobby.touch2p'))}</p>` : ''
       }</section>
       <section><h3 class="tc-h">${esc(t(lang, 'lobby.mode'))}</h3><div class="tc-row tc-seg">${modes}</div></section>
-      <section><h3 class="tc-h">${esc(t(lang, cfg.mode === 'coop' ? 'lobby.stage' : 'lobby.arena'))}</h3><div class="tc-row tc-stage">${btn('stage-prev', 3, 0, '◀', '')}<div class="tc-stage-name">${esc(stageName)}</div>${btn('stage-next', 3, 1, '▶', '')}</div></section>
+      ${diffSection}
+      <section><h3 class="tc-h">${esc(t(lang, cfg.mode === 'coop' ? 'lobby.stage' : 'lobby.arena'))}</h3><div class="tc-row tc-stage">${btn('stage-prev', 3, 0, '◀', '')}<div class="tc-stage-name">${esc(stageName)}</div>${btn('stage-next', 3, 1, '▶', '')}</div>${campaignHtml}</section>
     </div>
     <div class="tc-col">
       ${tankPicker(view, 0, 4)}
@@ -291,9 +349,10 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
       show('lobby', html, false, 'start-battle');
       paintTankIcons();
     },
-    showPause(lang: Lang): void {
+    showPause(lang: Lang, note?: string): void {
       const html = `<div class="tc-panel is-narrow">
   <h2 class="tc-title tc-center">${esc(t(lang, 'pause.title'))}</h2>
+  ${note ? `<p class="tc-note tc-center">${esc(note)}</p>` : ''}
   ${btn('pause-resume', 0, 0, esc(t(lang, 'pause.resume')), 'tc-primary')}
   ${btn('pause-restart', 1, 0, esc(t(lang, 'pause.restart')))}
   ${btn('pause-lobby', 2, 0, esc(t(lang, 'pause.lobby')))}
@@ -302,13 +361,39 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
     },
     showResults(view: ResultsView): void {
       const rows = view.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+      const stars = view.stars
+        ? `<div class="tc-stars">${view.stars
+            .map(
+              (st) =>
+                `<div><span class="tc-star${st.got ? ' is-got' : ''}${st.isNew ? ' is-new' : ''}" aria-hidden="true">${st.got ? '★' : '☆'}</span><span class="tc-star-label">${esc(st.label)}</span></div>`
+            )
+            .join('')}</div>`
+        : '';
+      const perks = view.perks
+        ? `<section><h3 class="tc-h tc-center">${esc(view.perks.title)}</h3><div class="tc-perks">${view.perks.options
+            .map((p, i) =>
+              btn(
+                `perk-${p.id}`,
+                -1,
+                i,
+                `<b>${p.icon}</b>${esc(p.name)}${p.level > 0 ? ` ${'+'.repeat(p.level)}` : ''}<small>${esc(p.desc)}</small>`,
+                'tc-perk',
+                view.perks?.selected === p.id
+              )
+            )
+            .join('')}</div></section>`
+        : '';
+      const extra = view.extra ? btn(view.extra.id, 1, 0, esc(view.extra.label)) : '';
       const html = `<div class="tc-panel is-narrow" role="dialog" aria-live="polite">
   <h2 class="tc-title tc-center ${view.tone === 'win' ? 'tc-win' : view.tone === 'lose' ? 'tc-lose' : ''}">${esc(view.title)}</h2>
   ${view.subtitle ? `<p class="tc-sub tc-center">${esc(view.subtitle)}</p>` : ''}
   ${view.badge ? `<span class="tc-badge">${esc(view.badge)}</span>` : ''}
+  ${stars}
   ${rows ? `<dl class="tc-stats">${rows}</dl>` : ''}
   ${view.tip ? `<p class="tc-note">${esc(view.tip)}</p>` : ''}
+  ${perks}
   <div class="tc-actions">${btn(view.primary.id, 0, 0, esc(view.primary.label), 'tc-primary')}${btn(view.secondary.id, 0, 1, esc(view.secondary.label))}</div>
+  ${extra}
   ${view.footnote ? `<p class="tc-sub tc-center" data-tc-foot>${esc(view.footnote)}</p>` : ''}
 </div>`;
       show('results', html, true, view.primary.id);

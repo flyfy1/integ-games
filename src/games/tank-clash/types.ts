@@ -2,6 +2,9 @@ export type GameMode = 'coop' | 'duel';
 export type TeamSetup = '2p' | '1p-ai' | '1p-solo';
 export type ChassisId = 'vanguard' | 'phantom' | 'titan' | 'prism';
 export type Direction = 'up' | 'down' | 'left' | 'right';
+export type Difficulty = 'easy' | 'normal' | 'hard';
+/** Run-long field upgrades picked between co-op stages. */
+export type PerkId = 'reload' | 'armour' | 'mines' | 'bulwark' | 'dash' | 'shells' | 'life';
 
 export type TileKind =
   | 'empty'
@@ -12,6 +15,7 @@ export type TileKind =
   | 'water'
   | 'portal'
   | 'barrel'
+  | 'gate'
   | 'base';
 
 export type PowerUpKind =
@@ -24,7 +28,16 @@ export type PowerUpKind =
   | 'freeze'
   | 'repair';
 
-export type EnemyArchetype = 'scout' | 'striker' | 'sniper' | 'juggernaut' | 'cargo' | 'boss-behemoth' | 'boss-omega';
+export type EnemyArchetype =
+  | 'scout'
+  | 'striker'
+  | 'sniper'
+  | 'juggernaut'
+  | 'cargo'
+  | 'boss-behemoth'
+  | 'boss-omega'
+  | 'boss-warden'
+  | 'boss-dreadnought';
 
 export interface ChassisSpec {
   id: ChassisId;
@@ -50,6 +63,8 @@ export interface TileCell {
   portalId?: number;
   partnerCol?: number;
   partnerRow?: number;
+  /** One-way gate: the only direction a tank may cross it. */
+  gateDir?: Direction;
 }
 
 export interface Tank {
@@ -103,6 +118,9 @@ export interface Tank {
   /** Boss special-attack countdown. */
   bossTimer: number;
   bossCharging: boolean;
+  /** Boss special counter (alternates attack patterns) and escorts summoned so far. */
+  bossPhase?: number;
+  bossSummons?: number;
   /** Seconds of white hit-flash left (render only). */
   hitFlash: number;
   treadPhase: number;

@@ -1,8 +1,14 @@
 /** A bot only produces the same Intent a player's controller would, so it can never cheat the rules. */
 import { COLS, ROWS, TILE } from './arenas';
-import { angleGap, idle, isPit, isSolid, lineOfSight, muzzle, traceShot, type EnemyKind, type Intent, type Tank, type World } from './sim';
+import { angleGap, FOG_RADIUS, idle, isPit, isSolid, lineOfSight, muzzle, traceShot, type EnemyKind, type Intent, type Tank, type World } from './sim';
 
-export type BotSkill = { aim: number; reaction: number; dodge: number; bounceShots: boolean };
+/**
+ * Tour personalities. The camper digs in at home and banks shots, the rammer charges and dashes into you,
+ * the bouncer keeps its distance and plays the walls.
+ */
+export type BotStyle = 'camper' | 'rammer' | 'bouncer';
+export type BotSkill = { aim: number; reaction: number; dodge: number; bounceShots: boolean; style?: BotStyle };
+export const withStyle = (skill: BotSkill, style: BotStyle): BotSkill => ({ ...skill, style, bounceShots: skill.bounceShots || style !== 'rammer' });
 /** Easy, Normal, Hard, and the Boss that is unlocked by beating Hard (it also brings two extra hearts). */
 export const SKILLS: readonly BotSkill[] = [
   { aim: 0.34, reaction: 1.3, dodge: 0.15, bounceShots: false },
@@ -17,7 +23,8 @@ const ENEMY_SKILLS: Record<EnemyKind, BotSkill> = {
   zippy: { aim: 0.32, reaction: 1.2, dodge: 0.2, bounceShots: false },
   bouncer: { aim: 0.28, reaction: 1.15, dodge: 0.1, bounceShots: false },
   heavy: { aim: 0.24, reaction: 1.3, dodge: 0, bounceShots: false },
-  king: { aim: 0.22, reaction: 1.5, dodge: 0, bounceShots: false }
+  king: { aim: 0.22, reaction: 1.5, dodge: 0, bounceShots: false },
+  mother: { aim: 0.3, reaction: 1.8, dodge: 0, bounceShots: false }
 };
 export const enemySkill = (kind: EnemyKind | undefined): BotSkill => (kind ? ENEMY_SKILLS[kind] : ENEMY_SKILL);
 
@@ -86,9 +93,11 @@ export function botIntent(world: World, tank: Tank, skill: BotSkill): Intent {
   const col = Math.floor(tank.x / TILE), row = Math.floor(tank.y / TILE);
   if (memory.think <= 0) {
     memory.think = 0.35;
-    const prize = tank.enemy ? undefined : world.pickups.find((pickup) => pickup.drop <= 0 && Math.hypot(pickup.x - tank.x, pickup.y - tank.y) < nearest);
+    const reach = skill.style === 'camper' ? Math.min(nearest, 200) : nearest;
+    const prize = tank.enemy ? undefined : world.pickups.find((pickup) => pickup.drop <= 0 && Math.hypot(pickup.x - tank.x, pickup.y - tank.y) < reach);
     const refuge = world.warnRing >= 0 && ringOf(col, row) <= world.warnRing ? saferTile(world, col, row) : null;
-    memory.path = refuge ? findPath(world, col, row, refuge[0], refuge[1]) : findPath(world, col, row, Math.floor((prize ?? target).x / TILE), Math.floor((prize ?? target).y / TILE));
+    const goal = prize ?? (skill.style === 'camper' && !world.suddenDeath ? { x: tank.spawnX, y: tank.spawnY } : target);
+    memory.path = refuge ? findPath(world, col, row, refuge[0], refuge[1]) : findPath(world, col, row, Math.floor(goal.x / TILE), Math.floor(goal.y / TILE));
     memory.aimError = (world.random() - 0.5) * 2 * skill.aim;
     if (memory.dodgeLeft <= 0 && world.random() < skill.dodge) {
       const away = threat(world, tank);
@@ -96,7 +105,7 @@ export function botIntent(world: World, tank: Tank, skill: BotSkill): Intent {
     }
   }
   while (memory.path.length && memory.path[0][0] === col && memory.path[0][1] === row) memory.path.shift();
-  const sees = lineOfSight(world, tank.x, tank.y, target.x, target.y);
+  const sees = lineOfSight(world, tank.x, tank.y, target.x, target.y) && (!world.twist.fog || nearest < FOG_RADIUS + 30);
   const toward = Math.atan2(target.y - tank.y, target.x - tank.x) + memory.aimError;
   const next = memory.path[0];
   let moveX = 0, moveY = 0;
@@ -104,7 +113,16 @@ export function botIntent(world: World, tank: Tank, skill: BotSkill): Intent {
     const dx = (next[0] + 0.5) * TILE - tank.x, dy = (next[1] + 0.5) * TILE - tank.y, length = Math.hypot(dx, dy) || 1;
     moveX = dx / length; moveY = dy / length;
   }
-  if (sees && nearest < 220) { moveX = -moveX * 0.5 + Math.sin(world.time * 1.3 + tank.id) * 0.6; moveY = -moveY * 0.5 + Math.cos(world.time * 1.1 + tank.id) * 0.6; }
+  const awayX = (tank.x - target.x) / (nearest || 1), awayY = (tank.y - target.y) / (nearest || 1);
+  if (skill.style === 'rammer' && sees) {
+    // Straight at you, and a dash once lined up and close.
+    moveX = -awayX; moveY = -awayY;
+    if (nearest < 260 && tank.dashCooldown <= 0 && Math.abs(angleGap(tank.heading, Math.atan2(-awayY, -awayX))) < 0.35) intent.dash = true;
+  } else if (skill.style === 'bouncer' && nearest < 320) {
+    moveX = awayX + Math.sin(world.time * 1.7 + tank.id) * 0.5; moveY = awayY + Math.cos(world.time * 1.3 + tank.id) * 0.5;
+  } else if (skill.style === 'camper' && sees) {
+    moveX *= 0.25; moveY *= 0.25;
+  } else if (sees && nearest < 220) { moveX = -moveX * 0.5 + Math.sin(world.time * 1.3 + tank.id) * 0.6; moveY = -moveY * 0.5 + Math.cos(world.time * 1.1 + tank.id) * 0.6; }
   if (memory.dodgeLeft > 0 && memory.dodge) { moveX = memory.dodge[0]; moveY = memory.dodge[1]; }
   [moveX, moveY] = avoidPits(world, tank, moveX, moveY);
   intent.x = moveX; intent.y = moveY;
@@ -112,9 +130,11 @@ export function botIntent(world: World, tank: Tank, skill: BotSkill): Intent {
   const aim = blocked && !sees ? Math.atan2((next[1] + 0.5) * TILE - tank.y, (next[0] + 0.5) * TILE - tank.x) : toward;
   intent.ax = Math.cos(aim); intent.ay = Math.sin(aim);
   if (memory.ready > 0) return intent;
+  // In the fog a far tank is only a guess: the bot hunts toward it but does not waste shells on it.
+  if (world.twist.fog && nearest > FOG_RADIUS + 30 && !blocked) return intent;
   const aligned = Math.abs(angleGap(tank.turret, aim)) < 0.14;
   const [x, y] = muzzle(tank);
-  const line = traceShot(world, x, y, tank.turret, skill.bounceShots ? 2 : 1, tank.id);
+  const line = traceShot(world, x, y, tank.turret, skill.bounceShots ? (skill.style === 'bouncer' ? 3 : 2) : 1, tank.id);
   const safe = !line || line.team !== tank.team;
   const wouldHit = line?.team !== undefined && line.team !== tank.team;
   if (safe && ((aligned && (sees || blocked)) || (skill.bounceShots && wouldHit))) {
