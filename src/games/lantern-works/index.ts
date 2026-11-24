@@ -32,6 +32,9 @@ type Play = {
 };
 
 const BEAT = 0.34;
+/** One key per tray slot, printed on the chip: 1-9, then 0, - and = (and ] for a thirteenth part). */
+const TOOL_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', ']'] as const;
+const trayKinds = (level: LevelDef) => PART_ORDER.filter(k => level.tray[k] !== undefined);
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> | null = null, ...children: (Node | string | null | undefined | false)[]) => {
   const el = document.createElement(tag);
   if (props) for (const [k, v] of Object.entries(props)) {
@@ -54,7 +57,7 @@ export const lanternWorks: GameModule = {
   meta: {
     slug: 'lantern-works', title: 'Lantern Works', category: 'puzzle',
     description: 'Lay belts, fold, dye and light: build a little workshop that fills every festival order.',
-    instructions: 'Pick a part from the tray and tap the floor to place it; drag to draw belts. Tap a machine to rotate it or change its setting, then press Run and watch: every machine plays a note on the beat. Keys: arrows move, 1-9 pick, Space places (hold to draw), R rotate, T setting, X remove, Z undo, Enter run, F speed.',
+    instructions: 'Pick a part from the tray and tap the floor to place it; drag to draw belts. Tap a machine to rotate it or change its setting, then press Run and watch: every machine plays a note on the beat. Keys: arrows move, 1-9 0 - = pick (shown on each part), Space places (hold to draw), R rotate, T setting, X remove, Z undo, Enter run, F speed.',
     accent: '#ffb347', mechanic: 'Build conveyor factories that fill orders'
   },
   mount(host: HTMLElement, services: GameServices): GameController {
@@ -341,15 +344,16 @@ export const lanternWorks: GameModule = {
       top.append(titleRow, chips, p.level.endless ? h('p', { class: 'lw-hint', text: t('night.tray') }) : h('p', { class: 'lw-hint', text: i18n.tr(p.level.hint) }));
       const tray = h('div', { class: 'lw-tray', role: 'toolbar', 'aria-label': 'Parts' });
       const tools: { kind: Tool; el: HTMLButtonElement; count?: HTMLElement }[] = [];
-      const kinds = PART_ORDER.filter(k => p.level.tray[k] !== undefined);
+      const kinds = trayKinds(p.level);
       kinds.forEach((kind, i) => {
         const count = h('b');
         const fresh = p.level.introduces === kind && kind !== 'belt';
         const el = h('button', { class: `lw-tool${fresh ? ' fresh' : ''}`, 'aria-label': i18n.tr(PARTS[kind].name), title: `${i18n.tr(PARTS[kind].name)}: ${i18n.tr(PARTS[kind].does)}`, onclick: () => { audio.unlock(); selectTool(kind); } },
-          img(partIcon(kind)), h('i', { text: String(i + 1) }), count) as HTMLButtonElement;
+          img(partIcon(kind)), h('i', { text: TOOL_KEYS[i] ?? '' }), count) as HTMLButtonElement;
         tools.push({ kind, el, count }); tray.append(el);
       });
-      const eraseEl = h('button', { class: 'lw-tool', 'aria-label': t('hud.erase'), title: t('hud.erase'), onclick: () => selectTool('erase') }, h('span', { style: 'font-size:1.5rem', text: '✕' })) as HTMLButtonElement;
+      const eraseKey = kinds.length < 10 ? '0' : '';
+      const eraseEl = h('button', { class: 'lw-tool', 'aria-label': t('hud.erase'), title: t('hud.erase'), onclick: () => selectTool('erase') }, h('span', { style: 'font-size:1.5rem', text: '✕' }), eraseKey ? h('i', { text: eraseKey }) : null) as HTMLButtonElement;
       tools.push({ kind: 'erase', el: eraseEl }); tray.append(eraseEl);
       const runBtn = h('button', { class: 'lw-btn primary run', onclick: () => { audio.unlock(); toggleRun(); } }) as HTMLButtonElement;
       const speedBtn = h('button', { class: 'lw-btn', 'aria-label': t('hud.speed'), onclick: () => cycleSpeed() }) as HTMLButtonElement;
@@ -663,9 +667,9 @@ export const lanternWorks: GameModule = {
       }
       if (k === ' ') { e.preventDefault(); if (!e.repeat) { spaceHeld = true; spaceGesture = { snapped: false }; play.cursor ??= cur; placeTool(play.cursor); } return; }
       const lower = k.length === 1 ? k.toLowerCase() : k;
-      const kinds = PART_ORDER.filter(p => play!.level.tray[p] !== undefined);
-      if (/^[1-9]$/.test(k)) { const kind = kinds[Number(k) - 1]; if (kind) { e.preventDefault(); selectTool(kind); } return; }
-      if (k === '0') { selectTool(kinds[9] ?? 'erase'); return; }
+      const kinds = trayKinds(play.level);
+      const slot = (TOOL_KEYS as readonly string[]).indexOf(k);
+      if (slot >= 0) { const kind = kinds[slot] ?? (k === '0' ? 'erase' : undefined); if (kind) { e.preventDefault(); selectTool(kind); } return; }
       const at = play.cursor ?? play.selected;
       switch (lower) {
         case 'q': case 'e': {
