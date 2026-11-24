@@ -26,8 +26,9 @@ import (
 var validGames = map[string]bool{"merge-2048": true, "block-drop": true, "snake": true, "mines": true, "solitaire": true, "sudoku": true, "word-grid": true, "memory": true, "stack": true, "flap": true, "breakout": true, "invaders": true, "runner": true, "platformer": true, "drive": true, "fruit-merge": true, "bubble": true, "hex-puzzle": true, "knife": true, "arena": true, "ashfall": true}
 
 type server struct {
-	db   *sql.DB
-	auth authConfig
+	db    *sql.DB
+	auth  authConfig
+	rooms *roomHub
 }
 type authConfig struct{ issuer, clientID, secret, callback, frontend string }
 type profile struct {
@@ -48,6 +49,8 @@ func main() {
 		log.Fatal(err)
 	}
 	s := &server{db: db, auth: authConfig{strings.TrimRight(env("INTEG_AUTH_ISSUER", "https://auth.integ.life"), "/"), os.Getenv("INTEG_AUTH_CLIENT_ID"), os.Getenv("INTEG_AUTH_CLIENT_SECRET"), os.Getenv("INTEG_AUTH_REDIRECT_URI"), env("GAMES_FRONTEND_URI", "https://games.integ.life/")}}
+	s.rooms = newRoomHub()
+	go s.rooms.janitor(make(chan struct{}))
 	addr := env("GAMES_ADDR", "127.0.0.1:8104")
 	log.Printf("games backend listening on %s", addr)
 	log.Fatal(http.ListenAndServe(addr, s.routes()))
@@ -65,6 +68,10 @@ func (s *server) routes() http.Handler {
 	m.Handle("POST /api/logout", s.requireUser(http.HandlerFunc(s.logout)))
 	m.Handle("POST /api/scores", s.requireUser(http.HandlerFunc(s.score)))
 	m.HandleFunc("GET /api/leaderboard", s.leaderboard)
+	if s.rooms == nil {
+		s.rooms = newRoomHub()
+	}
+	s.rooms.routes(m)
 	return security(m)
 }
 
@@ -274,10 +281,10 @@ func (s *server) leaderboard(w http.ResponseWriter, _ *http.Request) {
 func security(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "https://games.integ.life" || origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" {
+		if origin == "https://games.integ.life" || origin == "http://localhost:5173" || origin == "http://127.0.0.1:5173" || extraOrigins[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
@@ -289,6 +296,18 @@ func security(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// extraOrigins lets a local dev server on another port talk to a local backend (GAMES_EXTRA_ORIGINS, comma separated).
+var extraOrigins = func() map[string]bool {
+	out := map[string]bool{}
+	for _, o := range strings.Split(os.Getenv("GAMES_EXTRA_ORIGINS"), ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out[o] = true
+		}
+	}
+	return out
+}()
+
 func setCookie(w http.ResponseWriter, n, v string, secure bool) {
 	http.SetCookie(w, &http.Cookie{Name: n, Value: v, Path: "/api/auth/integ", MaxAge: 600, HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode})
 }

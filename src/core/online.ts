@@ -2,7 +2,7 @@ export type Player = { id: number; name: string };
 export type LeaderboardEntry = { name: string; score: number; games: number };
 
 const tokenKey = 'integ-games:session';
-const apiBase = import.meta.env.VITE_GAMES_API || (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://127.0.0.1:8104' : 'https://games-api.integ.life');
+export const apiBase = import.meta.env.VITE_GAMES_API || (['localhost', '127.0.0.1'].includes(location.hostname) ? 'http://127.0.0.1:8104' : 'https://games-api.integ.life');
 let player: Player | undefined;
 
 export function consumeLoginResult(): string | undefined {

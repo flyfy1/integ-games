@@ -27,7 +27,8 @@ export const gamepadProfiles: Record<string, BridgeProfile> = {
   'midnight-kitchen': { ...ARROWS, south: ' ', east: 'Escape', west: 'u', north: 'x', l1: 'q', r1: 'e', select: 'f' },
   'lantern-works': { ...ARROWS, south: ' ', east: 'x', west: 'r', north: 't', l1: 'q', r1: 'e', l2: 'z', r2: 'f', select: 'Enter' },
   'ant-raid': { ...ARROWS, south: ' ', east: 'x', west: 'c', north: 'h', l1: 'q', r1: 'e', r2: 'Enter', select: 'f' },
-  'tide-bell': { ...ARROWS, south: 'Enter', east: 'z', west: 'r', north: 'h', l1: 'z', r1: 'h', select: 'l' }
+  'tide-bell': { ...ARROWS, south: 'Enter', east: 'z', west: 'r', north: 'h', l1: 'z', r1: 'h', select: 'l' },
+  'shove-pond': { ...ARROWS, south: 'Enter', west: ' ', east: 'Backspace', north: '1', l1: '2', r1: '3', select: 'Escape' }
 };
 
 /** Games that act once per key event need a held pad to repeat the way a keyboard does. Held-key games must not repeat. */
@@ -43,6 +44,7 @@ const COMMON_LABELS: Record<string, Label> = { ArrowUp: ['Up', '上'], ArrowDown
 const JUMP: Record<string, Label> = { ' ': ['Jump', '跳'], ArrowUp: ['Jump', '跳'] };
 const numbered = (keys: string, label: Label) => Object.fromEntries([...keys].map((key) => [key, [`${label[0]} ${key}`, `${label[1]} ${key}`] as Label]));
 const GAME_LABELS: Record<string, Record<string, Label>> = {
+  'shove-pond': { Enter: ['Ready / confirm', '准备 / 确认'], ' ': ['Brace', '站稳'], Backspace: ['Undo', '撤销'], '1': ['Emote 😂', '表情 😂'], '2': ['Emote 😱', '表情 😱'], '3': ['Emote 👑', '表情 👑'], Escape: ['Menu', '菜单'] },
   'merge-2048': { u: ['Undo', '撤销'], m: ['Board / mode', '棋盘 / 模式'] },
   'block-drop': { ArrowUp: ['Rotate', '旋转'], ArrowDown: ['Soft drop', '加速下落'], ' ': ['Hard drop', '直接落下'], c: ['Hold', '暂存'], m: ['Modes', '模式'] },
   mines: { Enter: ['Reveal', '翻开'], f: ['Flag', '插旗'] }, solitaire: { ...numbered('1234567', ['Column', '牌列']), d: ['Draw', '翻牌'], w: ['Waste pile', '废牌堆'], Enter: ['To foundation', '收牌'] },

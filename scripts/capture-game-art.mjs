@@ -17,14 +17,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen', 'lantern-works', 'ant-raid', 'tide-bell'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen', 'lantern-works', 'ant-raid', 'tide-bell', 'shove-pond'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
 
 const framing = {
   'merge-2048': { fit: 'contain', position: 'center center' },
-  'midnight-kitchen': { iconPosition: '2% center' }, 'tide-bell': { position: 'center center', iconPosition: 'center center' }, 'ant-raid': { position: 'center center', iconPosition: '64% center' }, 'lantern-works': { position: 'center 55%', iconPosition: 'center center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
+  'midnight-kitchen': { iconPosition: '2% center' }, 'shove-pond': { position: 'center 50%', iconPosition: 'center center' }, 'tide-bell': { position: 'center center', iconPosition: 'center center' }, 'ant-raid': { position: 'center center', iconPosition: '64% center' }, 'lantern-works': { position: 'center 55%', iconPosition: 'center center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
@@ -109,6 +109,12 @@ const safeInteraction = {
     await page.evaluate((selector) => { document.querySelector(selector).__ar.stage('2-4', 2.6); }, root);
     await page.addStyleTag({ content: '.ar-hud{display:none!important}' });
     await page.waitForTimeout(900);
+  },
+  // Stages a mid-match plan through the game's handle: a crowned leader, a wobbling rim and a shove lined up.
+  'shove-pond': async (page) => {
+    await page.waitForFunction(() => !!document.querySelector('[data-shove-pond]')?.__sp);
+    await page.evaluate(() => document.querySelector('[data-shove-pond]').__sp.stage());
+    await page.waitForTimeout(500);
   },
   'pelican-bike': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(2600); await page.keyboard.down('ArrowRight'); await page.waitForTimeout(2300); await page.keyboard.press('Space'); await page.waitForTimeout(260); await page.keyboard.up('ArrowRight'); },
   'capital-quiz': async (page) => { await page.locator('.cq-mode[data-mode]').nth(1).click(); await page.waitForTimeout(900); },
@@ -243,6 +249,7 @@ try {
     const iconSource = slug === 'lantern-works' ? await page.screenshot({ type: 'png', clip: await page.evaluate(() => document.querySelector('[data-lantern-works]').__lw.clip(6, 0, 9, 3)) })
       : slug === 'ant-raid' ? await antRaidIcon(page)
       : slug === 'tide-bell' ? await page.screenshot({ type: 'png', clip: await page.evaluate(() => document.querySelector('[data-tide-bell]').__tb.clip(5, 2, 1.6, -0.1)) })
+      : slug === 'shove-pond' ? await page.screenshot({ type: 'png', clip: await page.evaluate(() => document.querySelector('[data-shove-pond]').__sp.clip()) })
       : (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
     await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' || slug === 'ant-raid' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? 'image/jpeg' : 'image/png' });
     console.log(`Captured ${slug}`);
