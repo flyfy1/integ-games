@@ -1,9 +1,33 @@
 import type { GameController, GameModule } from '../../core/game-types';
+import { dailyKey, dailySeed, dailyShareText, readDaily, recordDaily } from '../_shared/daily';
 import {
   CELEBRATE_FROM, SIZE, TILE_STYLES, TOP_TILE_STYLE, UNDO_REWARD_FROM, WIN_TILE,
-  boardFromTiles, canMove, cloneBoard, maxTile, nextGoal, resolveMove, restore, spawnTile, tileStyle, tilesFromBoard, undosAfterPeak,
-  type Direction, type SavedState, type Snapshot, type Tile
+  boardFromTiles, canMove, cloneBoard, emptyBoard, maxTile, nextGoal, resolveMove, restore, seededSpawn, spawnTile, tileStyle, tilesFromBoard, undosAfterPeak,
+  type Cell, type Direction, type SavedState, type Snapshot, type Tile
 } from './logic';
+import { MOVE_PUZZLES, puzzleStars, twoStarMoves } from './puzzles';
+
+type ModeId = 'classic' | 'small' | 'large' | 'stones' | 'daily' | 'puzzle';
+/** Each board keeps its own save and best; only the classic 4×4 keeps the original keys and reports to the leaderboard. */
+const MODES: Record<ModeId, { label: string; size: number; save: string; best: string }> = {
+  classic: { label: '4×4', size: 4, save: 'save', best: 'best' },
+  small: { label: '3×3', size: 3, save: 'save-3', best: 'best-3' },
+  large: { label: '5×5', size: 5, save: 'save-5', best: 'best-5' },
+  stones: { label: 'Stones', size: 4, save: 'save-stones', best: 'best-stones' },
+  daily: { label: 'Daily', size: 4, save: 'save-daily', best: 'best-daily' },
+  puzzle: { label: 'Puzzles', size: 4, save: '', best: '' }
+};
+const MODE_ORDER: readonly ModeId[] = ['classic', 'small', 'large', 'stones', 'daily', 'puzzle'];
+const DAILY_MOVES = 150;
+/** Stones variant: two blockers on inner cells, never touching each other, picked per game. */
+function pickStones(random: () => number): Cell[] {
+  const inner = [1, 2].flatMap((y) => [0, 1, 2, 3].map((x) => ({ x, y })));
+  const first = inner[Math.floor(random() * inner.length)];
+  const rest = inner.filter((c) => Math.abs(c.x - first.x) + Math.abs(c.y - first.y) > 1);
+  return [first, rest[Math.floor(random() * rest.length)]];
+}
+type PanelId = 'none' | 'won' | 'lost' | 'daily' | 'solved' | 'failed' | 'picker';
+type ModeSave = SavedState & { stones?: Cell[]; moves?: number; key?: string };
 
 const MOTION_MS = 150;
 /** A swipe fires as soon as the finger has travelled this far, without waiting for it to lift. */
@@ -14,10 +38,22 @@ const FLICK_PX = 14;
 const PANEL_LOCK_MS = 700;
 
 const STYLE_ID = 'merge-2048-style';
-const CELL = '((100% - 5 * var(--g)) / 4)';
+const CELL = '((100% - (var(--n, 4) + 1) * var(--g)) / var(--n, 4))';
 const CSS = `
 .merge-game{--g:9px;align-content:center;justify-items:center;gap:12px}
-.merge-game>.game-hud,.merge-game>.m48-bar,.merge-game>.game-status{width:min(100%,440px)}
+.merge-game>.game-hud,.merge-game>.m48-bar,.merge-game>.game-status,.merge-game>.m48-modes{width:min(100%,440px)}
+.merge-game .m48-modes{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.merge-game .m48-modes button{flex:1 1 0;min-height:38px;min-width:0;padding:4px 2px;border:1px solid #273149;border-radius:10px;background:#12192A;color:#A8B1C5;font-weight:800;font-size:.85rem;touch-action:manipulation}
+@media(pointer:coarse){.merge-game .m48-modes{padding:0 54px}.merge-game .m48-modes button{flex:1 1 28%;min-height:34px}}
+.merge-game .m48-modes button[aria-pressed=true]{background:#70F0C2;border-color:#70F0C2;color:#071712}
+.merge-game .m48-modes button:focus-visible{outline:3px solid #70F0C2;outline-offset:2px}
+.merge-game .m48-stone{position:absolute;width:calc(${CELL});height:calc(${CELL});left:calc(var(--g) + var(--x) * (${CELL} + var(--g)));top:calc(var(--g) + var(--y) * (${CELL} + var(--g)));border-radius:10px;z-index:1;background:repeating-linear-gradient(135deg,#3a4566 0 6px,#323c5a 6px 12px);box-shadow:inset 0 0 0 2px #52617f}
+.merge-game .m48-picker{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;width:100%}
+.merge-game .m48-picker button{min-height:44px;padding:2px 0;border:1px solid #52617f;border-radius:10px;background:#182039;color:#F7F9FF;font-weight:900;line-height:1.1}
+.merge-game .m48-picker button small{display:block;font-size:.62rem;color:#FFDA74;letter-spacing:-.05em}
+.merge-game .m48-picker button:disabled{opacity:.4}
+.merge-game .m48-picker button:focus-visible,.merge-game .m48-picker button.is-current{outline:3px solid #70F0C2;outline-offset:1px}
+.merge-game .m48-stars{font-size:2.2rem;line-height:1;color:#FFD34D;letter-spacing:.05em}.merge-game .m48-stars span{color:#273149}
 .merge-game>.game-hud>span{position:relative}
 .merge-game>.game-hud strong{font-variant-numeric:tabular-nums}
 .merge-game [data-delta]{position:absolute;left:100%;bottom:3px;margin-left:8px;color:#70F0C2;font-style:normal;font-weight:800;font-size:1rem;letter-spacing:0;white-space:nowrap;pointer-events:none}
@@ -37,12 +73,12 @@ const CSS = `
 .merge-game .merge-board{display:block;position:relative;width:100%;padding:0;container-type:inline-size}
 .merge-game .m48-cell,.merge-game .merge-tile{position:absolute;width:calc(${CELL});height:calc(${CELL});left:calc(var(--g) + var(--x) * (${CELL} + var(--g)));top:calc(var(--g) + var(--y) * (${CELL} + var(--g)));border-radius:10px}
 .merge-game .m48-cell{background:#1c2542}
-.merge-game .merge-tile{z-index:1;line-height:1;letter-spacing:-.04em;box-shadow:inset 0 -3px 0 #00000022;font-size:clamp(1.15rem,7vw,2.4rem);font-size:10.5cqw;user-select:none;-webkit-user-select:none}
+.merge-game .merge-tile{z-index:1;line-height:1;letter-spacing:-.04em;box-shadow:inset 0 -3px 0 #00000022;font-size:clamp(1.15rem,7vw,2.4rem);font-size:calc(42cqw / var(--n, 4));user-select:none;-webkit-user-select:none}
 .merge-game .merge-tile.merge-merge{z-index:2}
-.merge-game .merge-tile.d3{font-size:clamp(1rem,6vw,2rem);font-size:8.4cqw}
-.merge-game .merge-tile.d4{font-size:clamp(.9rem,4.8vw,1.6rem);font-size:6.7cqw}
-.merge-game .merge-tile.d5{font-size:clamp(.8rem,4vw,1.3rem);font-size:5.5cqw}
-.merge-game .merge-tile.d6{font-size:clamp(.72rem,3.4vw,1.1rem);font-size:4.6cqw}
+.merge-game .merge-tile.d3{font-size:clamp(1rem,6vw,2rem);font-size:calc(33.6cqw / var(--n, 4))}
+.merge-game .merge-tile.d4{font-size:clamp(.9rem,4.8vw,1.6rem);font-size:calc(26.8cqw / var(--n, 4))}
+.merge-game .merge-tile.d5{font-size:clamp(.8rem,4vw,1.3rem);font-size:calc(22cqw / var(--n, 4))}
+.merge-game .merge-tile.d6{font-size:clamp(.72rem,3.4vw,1.1rem);font-size:calc(18.4cqw / var(--n, 4))}
 ${Object.entries(TILE_STYLES).map(([value, s]) => `.merge-game .tile-${value}{background:${s.bg};color:${s.fg}${s.glow ? `;box-shadow:inset 0 -3px 0 #00000022,0 0 16px ${s.glow}88` : ''}}`).join('\n')}
 .merge-game .tile-top{background:${TOP_TILE_STYLE.bg};color:${TOP_TILE_STYLE.fg};box-shadow:inset 0 0 0 2px ${TOP_TILE_STYLE.fg},0 0 16px ${TOP_TILE_STYLE.glow}88}
 .merge-game .merge-board[data-state=lost] .merge-tile{filter:saturate(.6) brightness(.85)}
@@ -80,10 +116,20 @@ const game: GameModule = {
     if (!document.getElementById(STYLE_ID)) { const style = document.createElement('style'); style.id = STYLE_ID; style.textContent = CSS; document.head.append(style); }
     let nextTileId = 1;
     const nextId = () => nextTileId++;
-    let state = restore(services.storage.get<SavedState | null>('save', null), services.random, services.storage.get('best', 0));
-    let tiles = tilesFromBoard(state.board, nextId);
-    let paused = false, completed = state.won, lost = !canMove(state.board), animating = false, destroyed = false;
-    let panel: 'none' | 'won' | 'lost' = lost ? 'lost' : 'none', shownPanel = '', panelAt = 0;
+    const store = services.storage;
+    /** Split-screen versus mounts two boards; a seat has no pointer of its own, so it gets keyboard-only shortcuts. */
+    const inVersus = () => Boolean(host.closest('[data-versus-seat]'));
+    // Split-screen seats always play the classic 4×4 and never read or write the solo mode settings.
+    let mode: ModeId = 'classic';
+    if (!inVersus()) { const saved = store.get<string>('mode', 'classic'); if ((MODE_ORDER as readonly string[]).includes(saved)) mode = saved as ModeId; }
+    let puzzleIndex = Math.min(MOVE_PUZZLES.length - 1, Math.max(0, Math.floor(store.get<number>('puzzle-index', 0)) || 0));
+    let size = SIZE, stones: Cell[] = [], moves = 0, dayKey = dailyKey(), seed = 0;
+    /** Puzzles allow any number of undos (spawns are fixed, so nothing can be re-rolled); this is their history. */
+    let history: Snapshot[] = [];
+    let state = restore(null, services.random, 0);
+    let tiles: Tile[] = [];
+    let paused = false, completed = false, lost = false, animating = false, destroyed = false;
+    let panel: PanelId = 'none', shownPanel = '', panelAt = 0;
     /** One-line message under the board for the thing that just happened; cleared by the next move. */
     let note = '';
     /** A move asked for while the previous slide is still animating; it runs the moment that slide lands. */
@@ -92,27 +138,79 @@ const game: GameModule = {
     let transitionTimer: number | undefined;
     let feedbackTimer: number | undefined;
     let activeAnimations: Animation[] = [];
+    let shareLine = '';
     const reduced = services.isReducedMotion;
-    /** Split-screen versus mounts two boards; a seat has no pointer of its own, so it gets keyboard-only shortcuts. */
-    const inVersus = () => Boolean(host.closest('[data-versus-seat]'));
+    const seeded = () => mode === 'daily' || mode === 'puzzle';
+    const info = () => MODES[mode];
+    const bestFor = () => (mode === 'puzzle' ? 0 : mode === 'daily' ? (readDaily(store).scores[dayKey] ?? 0) : store.get(info().best, 0));
     host.classList.add('merge-game'); host.classList.toggle('is-motion', !reduced);
     host.innerHTML = `
-      <div class="game-hud" aria-live="polite"><span>Score <strong data-score></strong><i data-delta aria-hidden="true"></i></span><span data-best-box>Best <strong data-best></strong></span></div>
-      <div class="m48-bar"><span class="m48-goal">Next goal <b data-goal></b></span><button type="button" class="m48-undo" data-m48="undo">${UNDO_ICON} Undo <b data-undos></b></button></div>
+      <div class="m48-modes" data-modes${inVersus() ? ' hidden' : ''}>${MODE_ORDER.map((m) => `<button type="button" data-mode="${m}" aria-pressed="false">${MODES[m].label}</button>`).join('')}</div>
+      <div class="game-hud" aria-live="polite"><span><span data-score-label>Score</span> <strong data-score></strong><i data-delta aria-hidden="true"></i></span><span data-best-box><span data-best-label>Best</span> <strong data-best></strong></span></div>
+      <div class="m48-bar"><span class="m48-goal"><span data-goal-label>Next goal</span> <b data-goal></b></span><button type="button" class="m48-undo" data-m48="undo">${UNDO_ICON} Undo <b data-undos></b></button></div>
       <div class="m48-wrap"><div class="merge-board" role="application" aria-label="Merge 2048 board. Use arrow keys or swipe to move tiles. Press U to undo." tabindex="0"></div><div class="m48-fx" aria-hidden="true"></div><div class="m48-panel" data-panel hidden></div></div>
       <p class="game-status" data-status role="status"></p>`;
     const boardEl = requireElement(host, '.merge-board');
     const scoreEl = requireElement(host, '[data-score]');
+    const scoreLabel = requireElement(host, '[data-score-label]');
     const bestEl = requireElement(host, '[data-best]');
+    const bestLabel = requireElement(host, '[data-best-label]');
     const bestBox = requireElement(host, '[data-best-box]');
     const deltaEl = requireElement(host, '[data-delta]');
     const statusEl = requireElement(host, '[data-status]');
     const goalEl = requireElement(host, '[data-goal]');
+    const goalLabel = requireElement(host, '[data-goal-label]');
     const undoEl = requireElement(host, '[data-m48="undo"]') as HTMLButtonElement;
     const undosEl = requireElement(host, '[data-undos]');
     const fxEl = requireElement(host, '.m48-fx');
     const panelEl = requireElement(host, '[data-panel]');
-    const cells = Array.from({ length: SIZE * SIZE }, (_, index) => { const cell = document.createElement('div'); cell.className = 'm48-cell'; place(cell, index % SIZE, Math.floor(index / SIZE)); return cell; });
+    const modesEl = requireElement(host, '[data-modes]');
+    let cells: HTMLElement[] = [];
+    const buildCells = () => {
+      host.style.setProperty('--n', String(size));
+      cells = Array.from({ length: size * size }, (_, index) => {
+        const x = index % size, y = Math.floor(index / size), stone = stones.some((c) => c.x === x && c.y === y);
+        const cell = document.createElement('div'); cell.className = stone ? 'm48-stone' : 'm48-cell';
+        if (stone) cell.setAttribute('aria-label', 'Stone');
+        place(cell, x, y); return cell;
+      });
+      boardEl.setAttribute('aria-label', `Merge 2048 board, ${size} by ${size}${stones.length ? ' with two stones' : ''}. Use arrow keys or swipe to move tiles.${seeded() && mode === 'daily' ? '' : ' Press U to undo.'}`);
+      modesEl.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    };
+
+    /** Loads (or starts) the game for the current mode. Each mode keeps its own save; classic uses the original keys. */
+    const loadMode = (fresh = false) => {
+      size = mode === 'puzzle' ? MOVE_PUZZLES[puzzleIndex].rows.length : info().size;
+      history = []; moves = 0; stones = []; note = ''; shareLine = '';
+      if (mode === 'puzzle') {
+        const p = MOVE_PUZZLES[puzzleIndex];
+        stones = p.stones ? p.stones.map((c) => ({ ...c })) : []; seed = p.seed;
+        state = { board: cloneBoard(p.rows), score: 0, won: false, undos: 0, peak: maxTile(p.rows), rec: 0, prev: null };
+      } else if (mode === 'daily') {
+        dayKey = dailyKey(); seed = dailySeed('merge-2048', dayKey);
+        const saved = fresh ? null : store.get<ModeSave | null>(info().save, null);
+        if (saved && saved.key === dayKey && Number.isFinite(saved.moves)) { state = restore(saved, services.random, 0, 4); moves = Math.max(0, Math.floor(saved.moves!)); }
+        else {
+          // The opening two tiles come from the same seeded rule, so the Daily starts identically for everyone.
+          let board = emptyBoard(4);
+          for (const m of [-2, -1]) { const t = seededSpawn(board, seed, m)!; board = cloneBoard(board); board[t.y][t.x] = t.value; }
+          state = { board, score: 0, won: false, undos: 0, peak: maxTile(board), rec: bestFor(), prev: null };
+        }
+      } else {
+        const saved = fresh ? null : store.get<ModeSave | null>(info().save, null);
+        if (mode === 'stones') stones = saved?.stones?.length === 2 ? saved.stones.map((c) => ({ x: c.x, y: c.y })) : pickStones(services.random);
+        state = restore(saved, services.random, store.get(info().best, 0), size, stones);
+        if (stones.length && state.board.some((row, y) => row.some((v, x) => v && stones.some((c) => c.x === x && c.y === y)))) { stones = pickStones(services.random); state = restore(null, services.random, state.rec, size, stones); }
+      }
+      tiles = tilesFromBoard(state.board, nextId);
+      completed = mode === 'puzzle' || mode === 'daily' ? false : state.won;
+      lost = !canMove(state.board, stones);
+      // Force the panel to redraw (or hide) after a mode change or a new game.
+      panel = 'none'; shownPanel = '-';
+      if (mode === 'daily' && (moves >= DAILY_MOVES || lost)) panel = 'daily';
+      else if (lost) panel = mode === 'puzzle' ? 'failed' : 'lost';
+      buildCells();
+    };
 
     const stopVisuals = () => {
       if (transitionTimer !== undefined) window.clearTimeout(transitionTimer);
@@ -156,51 +254,90 @@ const game: GameModule = {
         if (starId) celebrate(boardEl.querySelector<HTMLElement>(`[data-tile-id="${starId}"]`), tiles.find((tile) => tile.id === starId)?.value ?? 0);
       }
     };
+    const stars = (n: number) => `<div class="m48-stars" aria-label="${n} of 3 stars">${'★'.repeat(n)}<span>${'★'.repeat(3 - n)}</span></div>`;
+    const puzzleStarList = () => { const list = store.get<number[]>('puzzle-stars', []); return MOVE_PUZZLES.map((_, i) => Math.max(0, Math.min(3, Number(list[i]) || 0))); };
+    const puzzleOpen = (i: number, list = puzzleStarList()) => i < 3 || list[i - 1] > 0 || list[i] > 0;
     const renderPanel = () => {
-      const key = panel === 'none' ? '' : `${panel}:${state.score}:${state.undos}:${Boolean(state.prev)}`;
+      const key = panel === 'none' ? '' : `${panel}:${state.score}:${state.undos}:${Boolean(state.prev)}:${moves}:${puzzleIndex}:${history.length}`;
       if (key === shownPanel) return;
       const opening = !shownPanel.startsWith(panel); shownPanel = key;
       panelEl.hidden = panel === 'none';
       if (panel === 'none') { panelEl.replaceChildren(); return; }
-      panelEl.className = `m48-panel is-${panel}`;
-      const best = Math.max(state.score, services.storage.get('best', 0)), top = maxTile(state.board), canUndo = Boolean(state.prev) && state.undos > 0;
+      panelEl.className = `m48-panel is-${panel === 'solved' || panel === 'daily' ? 'won' : panel === 'failed' ? 'lost' : panel}`;
+      const best = Math.max(state.score, bestFor()), top = maxTile(state.board), canUndo = Boolean(state.prev) && state.undos > 0;
       if (panel === 'won') {
         panelEl.innerHTML = `<div class="m48-card"><h2>${WIN_TILE}!</h2><p>You built the ${WIN_TILE} tile with ${fmt(state.score)} points.<br>How much further can you take it?</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="keep">Keep going</button><button type="button" class="m48-btn is-alt" data-m48="retry">New game</button></div></div>`;
-      } else {
+      } else if (panel === 'lost') {
         const record = state.score > state.rec && state.score > 0;
         panelEl.innerHTML = `<div class="m48-card"><h2>No moves left</h2><p>Score ${fmt(state.score)} · biggest tile ${top}</p><p class="${record ? 'is-record' : ''}">${record ? 'New best score!' : `Best ${fmt(best)} · ${fmt(best - state.score)} more to beat it`}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="retry">Try again</button>${canUndo ? `<button type="button" class="m48-btn is-alt" data-m48="undo">${UNDO_ICON} Undo (${state.undos})</button>` : ''}</div>${inVersus() ? '<p>Or move to start a new board.</p>' : ''}</div>`;
+      } else if (panel === 'daily') {
+        const d = readDaily(store);
+        panelEl.innerHTML = `<div class="m48-card"><h2>Daily done</h2><p>${dayKey} · ${moves} moves · biggest tile ${top}</p><p class="is-record">Score ${fmt(state.score)} · today's best ${fmt(d.scores[dayKey] ?? state.score)}</p><p>Streak ${d.streak} · played ${d.played}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="share">Copy result</button><button type="button" class="m48-btn is-alt" data-m48="retry">Replay daily</button><button type="button" class="m48-btn is-alt" data-mode="classic">Classic</button></div></div>`;
+      } else if (panel === 'solved' || panel === 'failed') {
+        const p = MOVE_PUZZLES[puzzleIndex], n = panel === 'solved' ? puzzleStars(p, moves) : 0, more = puzzleIndex + 1 < MOVE_PUZZLES.length;
+        panelEl.innerHTML = `<div class="m48-card"><h2>${panel === 'solved' ? `Puzzle ${puzzleIndex + 1} solved` : lost ? 'Stuck!' : 'Out of moves'}</h2>${stars(n)}<p>${panel === 'solved' ? `${p.target} in ${moves} move${moves === 1 ? '' : 's'}` : `Make ${p.target} within ${p.moves} moves`} · ★★★ ≤ ${p.par} · ★★ ≤ ${twoStarMoves(p)}</p><div class="m48-actions">${panel === 'solved' && more ? '<button type="button" class="m48-btn" data-m48="next">Next puzzle</button>' : ''}${panel === 'failed' && history.length ? `<button type="button" class="m48-btn" data-m48="undo">${UNDO_ICON} Undo</button>` : ''}<button type="button" class="m48-btn${panel === 'solved' && more ? ' is-alt' : ''}" data-m48="retry">Retry</button><button type="button" class="m48-btn is-alt" data-m48="picker">All puzzles</button></div><p>${panel === 'solved' && more ? 'Or press an arrow for the next one.' : 'U undoes the last move.'}</p></div>`;
+      } else {
+        const list = puzzleStarList(), total = list.reduce((a, b) => a + b, 0);
+        panelEl.innerHTML = `<div class="m48-card"><h2>Move puzzles</h2><p>Make the target tile in as few moves as you can. New tiles always land in the same place. ★ ${total}/${MOVE_PUZZLES.length * 3}</p><div class="m48-picker">${MOVE_PUZZLES.map((p, i) => `<button type="button" data-puzzle="${i}"${puzzleOpen(i, list) ? '' : ' disabled'} class="${i === puzzleIndex ? 'is-current' : ''}" aria-label="Puzzle ${i + 1}, make ${p.target}${p.stones ? ', stones' : ''}, ${list[i]} stars">${puzzleOpen(i, list) ? i + 1 : '🔒'}<small>${'★'.repeat(list[i]) || p.target}</small></button>`).join('')}</div><div class="m48-actions"><button type="button" class="m48-btn is-alt" data-m48="close">Back</button></div></div>`;
       }
-      if (opening) { panelAt = performance.now(); if (!inVersus() && !paused) panelEl.querySelector<HTMLElement>('.m48-btn')?.focus({ preventScroll: true }); }
+      if (opening) {
+        panelAt = performance.now();
+        if (!inVersus() && !paused) (panelEl.querySelector<HTMLElement>(panel === 'picker' ? '.m48-picker .is-current:not(:disabled), .m48-picker button:not(:disabled)' : '.m48-btn') ?? panelEl.querySelector<HTMLElement>('.m48-btn'))?.focus({ preventScroll: true });
+      }
     };
     const renderHud = (gain = 0) => {
-      const best = Math.max(state.score, services.storage.get('best', 0)), goal = nextGoal(maxTile(state.board)), goalStyle = tileStyle(goal);
-      scoreEl.textContent = fmt(state.score);
-      bestEl.textContent = fmt(best);
-      bestBox.classList.toggle('is-record', state.rec > 0 && state.score > state.rec);
-      deltaEl.textContent = gain ? `+${gain}` : '';
-      if (gain && !reduced) animate(deltaEl, [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'translateY(-7px)', opacity: 1, offset: .35 }, { transform: 'translateY(-15px)', opacity: 0 }], { duration: 420, easing: 'ease-out' });
+      const best = Math.max(state.score, bestFor()), goal = mode === 'puzzle' ? MOVE_PUZZLES[puzzleIndex].target : nextGoal(maxTile(state.board)), goalStyle = tileStyle(goal);
+      if (mode === 'puzzle') {
+        const p = MOVE_PUZZLES[puzzleIndex];
+        scoreLabel.textContent = 'Moves'; scoreEl.textContent = `${moves}/${p.moves}`;
+        bestLabel.textContent = 'Puzzle'; bestEl.textContent = `${puzzleIndex + 1} · ${'★'.repeat(puzzleStarList()[puzzleIndex]) || '—'}`;
+        goalLabel.textContent = 'Make';
+      } else {
+        scoreLabel.textContent = 'Score'; scoreEl.textContent = fmt(state.score);
+        bestLabel.textContent = mode === 'daily' ? 'Today' : 'Best'; bestEl.textContent = fmt(best);
+        goalLabel.textContent = mode === 'daily' ? `Moves left ${DAILY_MOVES - moves} · next` : 'Next goal';
+      }
+      bestBox.classList.toggle('is-record', mode !== 'puzzle' && state.rec > 0 && state.score > state.rec);
+      deltaEl.textContent = gain && mode !== 'puzzle' ? `+${gain}` : '';
+      if (gain && !reduced && mode !== 'puzzle') animate(deltaEl, [{ transform: 'translateY(8px)', opacity: 0 }, { transform: 'translateY(-7px)', opacity: 1, offset: .35 }, { transform: 'translateY(-15px)', opacity: 0 }], { duration: 420, easing: 'ease-out' });
       if (goalEl.textContent !== String(goal)) {
         const first = goalEl.textContent === '';
         goalEl.textContent = String(goal); goalEl.style.background = goalStyle.bg; goalEl.style.color = goalStyle.fg;
         if (!first) animate(goalEl, [{ transform: 'scale(1)' }, { transform: 'scale(1.3)', offset: .4 }, { transform: 'scale(1)' }], { duration: 360, easing: 'ease-out' });
       }
-      undosEl.textContent = `×${state.undos}`;
-      undoEl.disabled = !state.prev || state.undos <= 0;
-      undoEl.setAttribute('aria-label', `Undo last move, ${state.undos} left`);
-      undoEl.title = `Take back your last move (U). New best tiles from ${UNDO_REWARD_FROM} up earn another.`;
-      if (lost) statusEl.textContent = 'No moves left. Restart to try again.';
+      if (mode === 'puzzle') {
+        undosEl.textContent = history.length ? `${history.length}` : ''; undosEl.hidden = !history.length;
+        undoEl.disabled = !history.length; undoEl.hidden = false;
+        undoEl.setAttribute('aria-label', 'Undo last move'); undoEl.title = 'Take back a move (U). Puzzles allow any number.';
+      } else {
+        undoEl.hidden = mode === 'daily';
+        undosEl.textContent = `×${state.undos}`; undosEl.hidden = false;
+        undoEl.disabled = !state.prev || state.undos <= 0;
+        undoEl.setAttribute('aria-label', `Undo last move, ${state.undos} left`);
+        undoEl.title = `Take back your last move (U). New best tiles from ${UNDO_REWARD_FROM} up earn another.`;
+      }
+      if (lost && mode !== 'puzzle') statusEl.textContent = 'No moves left. Restart to try again.';
       else if (note) statusEl.textContent = note;
+      else if (mode === 'puzzle') statusEl.textContent = `Puzzle ${puzzleIndex + 1}: make ${MOVE_PUZZLES[puzzleIndex].target} in ${MOVE_PUZZLES[puzzleIndex].par} moves for three stars.`;
+      else if (mode === 'daily') statusEl.textContent = moves === 0 ? `Daily ${dayKey}: the same tiles for everyone, ${DAILY_MOVES} moves.` : '';
       else if (completed) statusEl.textContent = '2048 reached — keep building!';
-      else statusEl.textContent = state.score === 0 ? HINT : '';
+      else statusEl.textContent = state.score === 0 ? (mode === 'stones' ? 'Stones never move. Tiles stop against them.' : HINT) : '';
       boardEl.dataset.state = completed ? 'won' : lost ? 'lost' : '';
       if (lost) boardEl.dataset.state = 'lost';
       renderPanel();
     };
     const render = (gain = 0, spawnId?: number, merges: number[] = [], starId?: number) => { renderTiles(spawnId, merges, starId); renderHud(gain); };
     const persist = () => {
-      services.storage.set('save', state); services.storage.set('best', Math.max(state.score, services.storage.get('best', 0)));
-      if (state.peak > services.storage.get('best-tile', 0)) services.storage.set('best-tile', state.peak);
-      services.reportScore(state.score);
+      if (mode === 'puzzle') return;
+      const extra: Partial<ModeSave> = mode === 'stones' ? { stones } : mode === 'daily' ? { moves, key: dayKey } : {};
+      store.set(info().save, { ...state, ...extra });
+      if (mode === 'daily') return;
+      store.set(info().best, Math.max(state.score, store.get(info().best, 0)));
+      // The classic 4×4 alone keeps the original best tile and feeds the shared leaderboard; other sizes score on another scale.
+      if (mode === 'classic') {
+        if (state.peak > store.get('best-tile', 0)) store.set('best-tile', state.peak);
+        services.reportScore(state.score);
+      }
     };
     const terminalFeedback = (won: boolean, gameOver: boolean) => {
       if (won) { services.sound.play('success'); animate(boardEl, [{ boxShadow: '0 0 0 #70f0c200' }, { boxShadow: '0 0 38px #70f0c2' }, { boxShadow: '0 0 0 #70f0c200' }], { duration: 520 }); }
@@ -212,42 +349,78 @@ const game: GameModule = {
       if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer);
       feedbackTimer = window.setTimeout(() => { if (!destroyed && !lost) boardEl.dataset.state = completed ? 'won' : ''; }, reduced ? 0 : 130);
     };
-    type Landing = { gain: number; spawnId: number; merges: number[]; won: boolean; gameOver: boolean; starId?: number };
+    type Landing = { gain: number; spawnId: number; merges: number[]; won: boolean; gameOver: boolean; starId?: number; next?: PanelId };
     const finishMove = (landing: Landing) => {
       if (destroyed) return;
       transitionTimer = undefined; animating = false;
-      if (landing.won) panel = 'won'; else if (landing.gameOver) panel = 'lost';
-      render(landing.gain, landing.spawnId, landing.merges, landing.starId); terminalFeedback(landing.won, landing.gameOver);
-      if (landing.starId && !landing.won && !landing.gameOver) services.sound.play('upgrade');
+      if (landing.next) panel = landing.next;
+      else if (landing.won) panel = 'won'; else if (landing.gameOver) panel = 'lost';
+      render(landing.gain, landing.spawnId, landing.merges, landing.starId); terminalFeedback(landing.won || landing.next === 'solved' || landing.next === 'daily', landing.gameOver || landing.next === 'failed');
+      if (landing.starId && !landing.won && !landing.gameOver && !landing.next) services.sound.play('upgrade');
       const next = queued; queued = undefined;
       if (next && panel === 'none') move(next);
     };
-    const newGame = () => {
-      stopVisuals(); state = restore(null, services.random, services.storage.get('best', 0)); tiles = tilesFromBoard(state.board, nextId);
-      completed = false; lost = false; paused = false; panel = 'none'; note = ''; touchStart = undefined; persist(); render(); boardEl.focus({ preventScroll: true });
+    const newGame = (fresh = true) => {
+      stopVisuals(); loadMode(fresh);
+      if (mode !== 'puzzle' && mode !== 'daily') state.rec = store.get(info().best, 0);
+      paused = false; touchStart = undefined; persist(); render(); boardEl.focus({ preventScroll: true });
     };
+    const switchMode = (next: ModeId) => {
+      if (inVersus()) return;
+      mode = next; store.set('mode', mode);
+      services.sound.play('tap');
+      if (mode === 'puzzle') { stopVisuals(); loadMode(true); render(); panel = 'picker'; renderPanel(); return; }
+      stopVisuals(); loadMode(false); paused = false; render(); if (panel === 'none') boardEl.focus({ preventScroll: true });
+    };
+    const startPuzzle = (index: number) => { puzzleIndex = index; store.set('puzzle-index', index); mode = 'puzzle'; store.set('mode', mode); services.sound.play('tap'); newGame(true); };
     function move(direction: Direction) {
       // In split-screen there is no pointer for the second seat: once the "no moves" panel has been seen, a move starts a new board.
       if (lost && !paused && panel === 'lost' && inVersus() && performance.now() - panelAt > PANEL_LOCK_MS) { newGame(); return; }
+      // Controllers only send arrows here: after a puzzle result has been seen, an arrow goes on to the next puzzle or retries.
+      if (!paused && (panel === 'solved' || panel === 'failed') && performance.now() - panelAt > PANEL_LOCK_MS) {
+        startPuzzle(panel === 'solved' && puzzleIndex + 1 < MOVE_PUZZLES.length ? puzzleIndex + 1 : puzzleIndex); return;
+      }
+      if (panel === 'picker' || panel === 'daily' || panel === 'solved' || panel === 'failed') { if (panel === 'picker') movePickerFocus(direction); return; }
       if (paused || lost) return;
       if (animating) { queued = direction; return; }
       if (panel === 'won') { if (performance.now() - panelAt < PANEL_LOCK_MS) return; panel = 'none'; renderPanel(); }
+      // Stones read as 0 here, so this guard is looser on a stones board; the end of every move checks with the stones.
       if (!canMove(state.board)) { lost = true; services.sound.play('fail'); render(); return; }
-      const result = resolveMove(tiles, direction, nextId);
+      const result = resolveMove(tiles, direction, nextId, size, stones);
       if (!result.changed) { noOp(); return; }
       const prev: Snapshot = { board: state.board, score: state.score, won: completed };
-      const spawned = spawnTile(result.tiles, services.random, nextId);
+      let spawned: Tile;
+      if (seeded()) {
+        const at = seededSpawn(boardFromTiles(result.tiles, size), seed, moves + 1, stones, mode === 'puzzle' ? 0 : 0.1)!;
+        spawned = { id: nextId(), value: at.value, x: at.x, y: at.y }; result.tiles.push(spawned);
+      } else spawned = spawnTile(result.tiles, services.random, nextId, size, stones);
       tiles = result.tiles;
-      const board = boardFromTiles(tiles), top = maxTile(board), undos = undosAfterPeak(state.undos, state.peak, top);
+      if (mode === 'puzzle') history.push({ board: state.board, score: state.score, won: false });
+      moves++;
+      const board = boardFromTiles(tiles, size), top = maxTile(board), undos = seeded() ? state.undos : undosAfterPeak(state.undos, state.peak, top);
       const star = top > state.peak && top >= CELEBRATE_FROM ? tiles.find((tile) => tile.value === top && result.merges.includes(tile.id)) : undefined;
-      const won = !completed && top >= WIN_TILE;
-      const gameOver = !canMove(board);
-      note = star ? `New best tile: ${top}!${undos > state.undos ? ' +1 undo' : ''}` : result.merges.length >= 3 ? `${result.merges.length} merges in one move!` : '';
-      completed ||= won; lost ||= gameOver;
-      state = { ...state, board, score: state.score + result.gained, won: completed, undos, peak: Math.max(state.peak, top), prev };
+      const won = !seeded() && !completed && top >= WIN_TILE;
+      const gameOver = !canMove(board, stones);
+      let next: Landing['next'];
+      if (mode === 'puzzle') {
+        const p = MOVE_PUZZLES[puzzleIndex];
+        if (top >= p.target) {
+          next = 'solved';
+          const list = puzzleStarList(), got = puzzleStars(p, moves);
+          if (got > list[puzzleIndex]) { list[puzzleIndex] = got; store.set('puzzle-stars', list); }
+        } else if (moves >= p.moves || gameOver) next = 'failed';
+      } else if (mode === 'daily' && (moves >= DAILY_MOVES || gameOver)) {
+        next = 'daily';
+        const rec = recordDaily(store, state.score + result.gained, '', dayKey);
+        shareLine = dailyShareText('Merge 2048', state.score + result.gained, rec.streak, dayKey);
+      }
+      note = star && !seeded() ? `New best tile: ${top}!${undos > state.undos ? ' +1 undo' : ''}` : result.merges.length >= 3 ? `${result.merges.length} merges in one move!` : '';
+      completed ||= won; lost ||= gameOver && mode !== 'puzzle' && mode !== 'daily';
+      if (mode === 'puzzle' && gameOver && next === 'failed') lost = true;
+      state = { ...state, board, score: state.score + result.gained, won: completed, undos, peak: Math.max(state.peak, top), prev: seeded() ? null : prev };
       persist(); renderHud(result.gained);
       if (result.gained) services.sound.play('merge'); else services.sound.play('move');
-      const landing: Landing = { gain: result.gained, spawnId: spawned.id, merges: result.merges, won, gameOver, starId: star?.id };
+      const landing: Landing = { gain: result.gained, spawnId: spawned.id, merges: result.merges, won, gameOver: gameOver && !next, starId: star?.id, next };
       if (reduced) { finishMove(landing); return; }
       animating = true;
       result.motions.forEach((motion) => {
@@ -258,9 +431,26 @@ const game: GameModule = {
       });
       transitionTimer = window.setTimeout(() => finishMove(landing), MOTION_MS);
     }
+    const movePickerFocus = (direction: Direction) => {
+      const buttons = [...panelEl.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+      if (!buttons.length) return;
+      const at = Math.max(0, buttons.indexOf(document.activeElement as HTMLButtonElement));
+      const step = direction === 'left' ? -1 : direction === 'right' ? 1 : direction === 'up' ? -6 : 6;
+      buttons[Math.max(0, Math.min(buttons.length - 1, at + step))].focus({ preventScroll: true });
+    };
     /** Puts the board back to how it was before the last move. Costs one undo; the spawn that follows the redo is rolled again. */
     const undo = () => {
       if (paused || animating) return;
+      if (mode === 'puzzle') {
+        const previous = history.pop();
+        if (!previous) { note = 'Nothing to undo yet.'; renderHud(); return; }
+        stopVisuals();
+        state = { ...state, board: cloneBoard(previous.board), score: previous.score }; moves = Math.max(0, moves - 1);
+        lost = false; panel = 'none'; tiles = tilesFromBoard(state.board, nextId); note = 'Move undone';
+        services.sound.play('tap'); render(); boardEl.focus({ preventScroll: true });
+        return;
+      }
+      if (mode === 'daily') { note = 'The Daily has no undo: everyone plays the same tiles.'; renderHud(); return; }
       if (!state.prev || state.undos <= 0) {
         if (!lost) { note = state.undos <= 0 ? `No undos left — a new best tile (${UNDO_REWARD_FROM}+) earns one.` : 'Nothing to undo yet.'; renderHud(); }
         return;
@@ -282,13 +472,14 @@ const game: GameModule = {
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const direction = directions[key];
       if (direction) { event.preventDefault(); move(direction); return; }
+      if (key === 'Escape' && panel === 'picker') { event.preventDefault(); panel = 'none'; renderPanel(); boardEl.focus({ preventScroll: true }); return; }
       // Undo: only for a solo board, or a seat that was addressed directly (a bare key press would hit both seats).
       if ((key === 'u' || key === 'z' || key === 'Backspace') && !event.altKey && (seat || !inVersus())) { event.preventDefault(); undo(); }
     };
     const swipe = (dx: number, dy: number) => move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
     const onPointerDown = (event: PointerEvent) => {
       if (paused) return;
-      if ((event.target as Element | null)?.closest?.('button,a')) return;
+      if ((event.target as Element | null)?.closest?.('button,a,.m48-panel:not([hidden])')) return;
       touchStart = { x: event.clientX, y: event.clientY, id: event.pointerId };
     };
     const onPointerMove = (event: PointerEvent) => {
@@ -300,15 +491,24 @@ const game: GameModule = {
     const onPointerUp = (event: PointerEvent) => { if (paused) return; if (!touchStart) return; const dx = event.clientX - touchStart.x, dy = event.clientY - touchStart.y; touchStart = undefined; if (Math.max(Math.abs(dx), Math.abs(dy)) < FLICK_PX) return; swipe(dx, dy); };
     const onPointerCancel = () => { touchStart = undefined; };
     const onClick = (event: MouseEvent) => {
-      const action = (event.target as Element | null)?.closest?.<HTMLElement>('[data-m48]')?.dataset.m48;
-      if (!action || paused) return;
+      const target = (event.target as Element | null)?.closest?.<HTMLElement>('[data-m48],[data-mode],[data-puzzle]');
+      if (!target || paused) return;
+      if (target.dataset.mode) { switchMode(target.dataset.mode as ModeId); return; }
+      if (target.dataset.puzzle) { startPuzzle(Number(target.dataset.puzzle)); return; }
+      const action = target.dataset.m48;
       if (action === 'undo') undo();
       else if (action === 'retry') { services.sound.play('tap'); newGame(); }
       else if (action === 'keep') { services.sound.play('tap'); panel = 'none'; note = ''; renderHud(); boardEl.focus({ preventScroll: true }); }
+      else if (action === 'next') startPuzzle(Math.min(MOVE_PUZZLES.length - 1, puzzleIndex + 1));
+      else if (action === 'picker') { services.sound.play('tap'); panel = 'picker'; renderPanel(); }
+      else if (action === 'close') { panel = lost ? (mode === 'puzzle' ? 'failed' : 'lost') : 'none'; renderPanel(); boardEl.focus({ preventScroll: true }); }
+      else if (action === 'share') void globalThis.navigator?.clipboard?.writeText(shareLine || dailyShareText('Merge 2048', state.score, readDaily(store).streak, dayKey)).then(() => { target.textContent = 'Copied!'; }, () => { target.textContent = shareLine; });
     };
     window.addEventListener('keydown', onKey, { passive: false });
     host.addEventListener('pointerdown', onPointerDown); host.addEventListener('pointermove', onPointerMove); host.addEventListener('pointerup', onPointerUp); host.addEventListener('pointercancel', onPointerCancel);
     host.addEventListener('click', onClick);
+    loadMode(false);
+    if (mode === 'puzzle' && !inVersus()) panel = 'picker';
     render(); if (panel === 'none') boardEl.focus({ preventScroll: true });
     return {
       pause() { paused = true; touchStart = undefined; stopVisuals(); render(); },
@@ -317,7 +517,7 @@ const game: GameModule = {
       destroy() {
         destroyed = true; stopVisuals(); window.removeEventListener('keydown', onKey);
         host.removeEventListener('pointerdown', onPointerDown); host.removeEventListener('pointermove', onPointerMove); host.removeEventListener('pointerup', onPointerUp); host.removeEventListener('pointercancel', onPointerCancel);
-        host.removeEventListener('click', onClick); host.classList.remove('merge-game', 'is-motion'); host.replaceChildren();
+        host.removeEventListener('click', onClick); host.classList.remove('merge-game', 'is-motion'); host.style.removeProperty('--n'); host.replaceChildren();
       }
     };
   }
