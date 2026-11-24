@@ -6,6 +6,7 @@ import { loadRecords, medalFor, recordMark, recordTime, rushTargets, stageTarget
 type State = Record<string, any>;
 let controller: GameController;
 let frames: FrameRequestCallback[] = [];
+const reportScore = vi.fn(), reportComplete = vi.fn();
 const flush = () => { for (let i = 0; i < 4; i++) { const f = frames; frames = []; f.forEach(cb => cb(performance.now())); } };
 function boot(param: string, stored: State) {
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => frames.push(cb));
@@ -14,7 +15,7 @@ function boot(param: string, stored: State) {
   const host = document.createElement('div'); document.body.append(host);
   controller = createAshfall(host, { random: () => 0.5, isReducedMotion: true,
     storage: { get: (k: string, f: unknown) => stored[k] ?? f, set: (k: string, v: unknown) => { stored[k] = structuredClone(v); }, remove: vi.fn() },
-    reportScore: vi.fn(), reportComplete: vi.fn() } as any);
+    reportScore, reportComplete } as any);
   const d = (globalThis as any).__ashfall; d.manual(true); return d;
 }
 const select = (control: string, value: string) => {
@@ -29,13 +30,19 @@ function slay(d: State) {
   const m = d.challenge.mutator; d.challenge.mutator = 'none'; // the finishing shot must land even in a no-shotgun replay
   d.press('shoot'); d.step(10); d.challenge.mutator = m; d.step(600);
 }
+function slay2(d: State) { // campaign finish (no challenge state)
+  d.warp(d.level.ARENA.trigger + 70); d.step(240); d.enemies.forEach((e: State) => e.dead = true);
+  Object.assign(d.boss, { phase: 2, armor: 0, hp: 1, state: 'idle', cd: 100 });
+  Object.assign(d.player, { x: d.boss.x - 160, y: d.boss.y, face: 1, ammo: 4, shootCd: 0, invuln: true });
+  d.press('shoot'); d.step(600);
+}
 const campaignSave = (): State => ({
   'ashfall-campaign-v3-normal': { version: 3, cleared: [1, 2, 3, 4, 5] },
   'ashfall-bests-v3-normal': { 1: { score: 999, time: 300 } },
   'ashfall-resume-v3-normal': { sentinel: 'keep me' }
 });
 const v3 = (s: State) => JSON.stringify(Object.keys(s).filter(k => k.includes('-v3-')).sort().map(k => [k, s[k]]));
-afterEach(() => { controller?.destroy(); document.body.replaceChildren(); frames = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { controller?.destroy(); document.body.replaceChildren(); frames = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 
 it('time attack and mutator clears record medals and marks under new keys and never touch the campaign save', () => {
   const stored = campaignSave(), before = v3(stored), d = boot('4', stored);
@@ -53,18 +60,50 @@ it('time attack and mutator clears record medals and marks under new keys and ne
   controller.destroy(); const d2 = boot('4', stored); expect(document.querySelector('select[data-control=mode]') as HTMLSelectElement).toHaveProperty('value', 'campaign');
   d2.start(); expect(d2.challenge).toBeNull();
 });
-it('boss rush fights the act guardians back to back and records the act time', () => {
-  const stored = campaignSave(), before = v3(stored), d = boot('2', stored);
+it.each([0, 1, 2, 3, 4])('boss rush of act %i fights the guardians back to back and records the act time', act => {
+  const ids = LEVELS.filter(l => l.act === act).map(l => l.id);
+  const stored = campaignSave(), before = v3(stored), d = boot(String(ids[0]), stored);
   select('mode', 'rush'); click('start'); flush();
-  const ids = LEVELS.filter(l => l.act === 0).map(l => l.id);
   for (const id of ids) {
     expect(d.g.level).toBe(id); expect(d.player.x).toBeGreaterThan(d.level.ARENA.left);
     slay(d); flush();
   }
   expect(d.g.mode).toBe('victory'); expect(d.challengeResult.fights.map((f: State) => f.id)).toEqual(ids);
   expect(document.querySelector('.af-eyebrow')?.textContent).toContain('BOSS RUSH');
-  expect(stored['ashfall-rush-v1-normal']['0']).toBeGreaterThan(0); expect(v3(stored)).toBe(before);
-  expect(d.g.forge ? JSON.stringify(d.g.forge) : '').not.toContain('3');
+  expect(stored['ashfall-rush-v1-normal'][String(act)]).toBeGreaterThan(0); expect(v3(stored)).toBe(before);
+  expect(d.g.forge).toEqual({ edge: 0, guard: 0, reload: 0 });
+  expect(reportScore).not.toHaveBeenCalled(); expect(reportComplete).not.toHaveBeenCalled();
+  click('replay'); flush(); expect(d.g.level).toBe(ids[0]); expect(d.challenge.kind).toBe('rush'); expect(d.challenge.idx).toBe(0);
+});
+it('a real campaign resume survives a time attack with deaths, restarts and a menu exit, and still resumes', () => {
+  const stored: State = {}, d = boot('1', stored); d.start(); slay2(d); // campaign clear of level I writes progress + resume
+  expect(d.g.mode).toBe('interlude'); click('menu');
+  const before = v3(stored); expect(stored['ashfall-resume-v3-normal']?.level).toBe(2);
+  select('mode', 'time'); (document.querySelector('[data-level="1"]') as HTMLButtonElement).click(); select('mutator', 'glass'); click('start'); flush();
+  d.warp(d.level.CHECKPOINTS[1] + 10); d.step(30);
+  Object.assign(d.player, { hp: 100, iframe: 0, invuln: false, rolling: false }); d.player.hp = 0; d.step(1);
+  d.warp(d.level.ARENA.trigger + 40); d.step(240); d.enemies.forEach((e: State) => e.dead = true);
+  Object.assign(d.boss, { state: 'idle', next: 'slam', cd: 0, phase: 1 }); d.step();
+  Object.assign(d.player, { x: d.boss.slamX, y: 450, hp: 100, iframe: 0, invuln: false, rolling: false, grounded: true });
+  while (d.boss.state === 'windup') d.step();
+  expect(d.player.dead).toBe(true); d.step(400); expect(d.player.dead).toBe(false);
+  controller.restart(); expect(d.challenge.kind).toBe('time'); slay(d); expect(d.g.mode).toBe('victory');
+  click('menu'); expect(v3(stored)).toBe(before); expect(reportScore).not.toHaveBeenCalled(); expect(reportComplete).not.toHaveBeenCalled();
+  select('mode', 'campaign'); expect(document.querySelector('[data-control=resume]')).not.toBeNull();
+  click('resume'); flush(); expect(d.challenge).toBeNull(); expect(d.g.level).toBe(2); expect(d.runStartLevelId).toBe(1);
+});
+it.each(['2', '3', '13', '17'])('double enemies on level %s keeps every copy off the pits', id => {
+  const save = campaignSave(); save['ashfall-campaign-v3-normal'].cleared = LEVELS.map(l => l.id);
+  const d = boot(id, save); const base = d.enemies.length;
+  select('mode', 'time'); select('mutator', 'double'); click('start'); flush();
+  expect(d.enemies.length).toBe(base * 2);
+  // Originals keep their authored spots (drones may hover over a pit); the added copies never stand over one.
+  // (when no nearby spot is clear, the copy shares its original's authored spot).
+  d.enemies.slice(base).forEach((e: State, i: number) => {
+    const overPit = d.level.PITS.some((p: State) => e.x > p.x - 20 && e.x < p.x + p.w + 20);
+    expect(overPit && e.x !== d.level.ENEMIES[i][1]).toBe(false);
+  });
+  d.step(240); expect(d.g.mode).toBe('play');
 });
 it('mutators change the rules only inside the replay', () => {
   const stored = campaignSave(), d = boot('4', stored);
@@ -72,7 +111,7 @@ it('mutators change the rules only inside the replay', () => {
   select('mode', 'time'); select('mutator', 'double'); click('start'); flush();
   expect(d.enemies.length).toBe(base * 2);
   controller.restart(); expect(d.challenge.mutator).toBe('double'); expect(d.enemies.length).toBe(base * 2);
-  for (const e of d.enemies) expect(d.level.PITS.some((p: State) => e.x > p.x && e.x < p.x + p.w)).toBe(false);
+  for (const e of d.enemies.slice(base)) expect(d.level.PITS.some((p: State) => e.x > p.x && e.x < p.x + p.w)).toBe(false);
   d.challenge.mutator = 'noshot'; Object.assign(d.player, { ammo: 4, shootCd: 0 }); d.press('shoot'); d.step(2);
   expect(d.player.ammo).toBe(4);
   // Glass: the same slam that costs 18 health in a normal run fells the rider.

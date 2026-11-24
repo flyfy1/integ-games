@@ -19,8 +19,9 @@ export const MEDALS = [['—', '—'], ['Bronze', '铜牌'], ['Silver', '银牌'
 export const MEDAL_ICON = ['', '🥉', '🥈', '🥇'];
 
 // Reference times in seconds from the seeded ordinary-input bot (2026-11-24, this branch). Stages 1-3 use the
-// content-matrix campaign times; later stages are the matrix times x1.12, which matched fresh single-stage bot clears
-// (no forge ranks) within about 10%. Bosses are timed from entering the arena to the guardian falling.
+// content-matrix campaign times; later stages are the matrix times x1.12 (a sample of fresh single-stage bot clears,
+// with no forge ranks, landed within about 15%; stage 19 was not cleared by the fresh bot, so its medals are a guess).
+// Bosses are timed from entering the arena to the guardian falling.
 const STAGE_REF = [155, 165, 204, 62, 71, 75, 75, 90, 92, 86, 97, 122, 76, 111, 109, 105, 101, 86, 150, 109];
 const BOSS_REF = [51, 49, 42, 36, 39, 31, 32, 31, 33, 46, 35, 32, 46, 40, 60, 35, 45, 37, 42, 38];
 const validId = id => Number.isInteger(id) && id >= 1 && id <= 20;
