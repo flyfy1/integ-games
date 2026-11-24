@@ -231,6 +231,18 @@ describe('lantern works simulation rules', () => {
   });
 });
 
+describe('lantern works star choices', () => {
+  // On these levels the fewest-parts build and the fastest build are different machines: one run cannot earn both.
+  it.each(['3-2', '3-5', '4-1'])('%s: Tidy and Swift need different builds', (id) => {
+    const level = levelById(id)!;
+    const results = Object.values(SOLUTIONS[id]).map(lines => runScript(level, lines, 3000));
+    for (const r of results) expect(r.won).toBe(true);
+    expect(results.some(r => r.maxParts <= level.parTidy)).toBe(true);
+    expect(results.some(r => (r.wonAt ?? Infinity) <= level.parSwift)).toBe(true);
+    for (const r of results) expect(r.maxParts <= level.parTidy && (r.wonAt ?? Infinity) <= level.parSwift).toBe(false);
+  });
+});
+
 describe('lantern works night shift', () => {
   it('can make every order the queue can ask for with the Night Shift tray and chutes', () => {
     const tray = NIGHT_LEVEL.tray, has = (k: keyof typeof tray) => (tray[k] ?? 0) > 0;

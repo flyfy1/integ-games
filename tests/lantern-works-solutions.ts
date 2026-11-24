@@ -49,7 +49,8 @@ export const SOLUTIONS: Record<string, Record<string, string[]>> = {
   },
   '3-2': {
     line: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'belt 4,3 >', 'wick 5,3 >', 'belt 5,1 vv', 'belt 6,3 >'],
-    tucked: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'wick 4,3 >', 'belt 5,1 v<', 'belt 4,2 v', 'belt 5,3 >>']
+    tucked: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'wick 4,3 >', 'belt 5,1 v<', 'belt 4,2 v', 'belt 5,3 >>'],
+    bothCandles: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'belt 4,3 >', 'wick 5,3 >', 'belt 5,1 vv', 'belt 6,3 >', 'belt 5,4 ^']
   },
   '3-3': {
     oneGate: ['gate 1,0 > 3', 'belt 2,0 >v', 'belt 3,1 v', 'belt 3,2 >>', 'belt 1,4 >>^', 'belt 3,3 ^', 'belt 6,2 v', 'belt 6,3 v', 'joiner 6,4 >', 'belt 7,4 >'],
