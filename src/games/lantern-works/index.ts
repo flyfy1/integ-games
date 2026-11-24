@@ -52,7 +52,7 @@ export const lanternWorks: GameModule = {
   meta: {
     slug: 'lantern-works', title: 'Lantern Works', category: 'puzzle',
     description: 'Lay belts, fold, dye and light: build a little workshop that fills every festival order.',
-    instructions: 'Pick a part from the tray and tap the floor to place it; drag to draw belts. Tap a machine to rotate it or change its setting. Press Run and watch: every machine plays a note on the beat. Keys: arrows, 1-9, Space, R, T, X, Z, Enter, F.',
+    instructions: 'Pick a part from the tray and tap the floor to place it; drag to draw belts. Tap a machine to rotate it or change its setting, then press Run and watch: every machine plays a note on the beat. Keys: arrows move, 1-9 pick, Space places (hold to draw), R rotate, T setting, X remove, Z undo, Enter run, F speed.',
     accent: '#ffb347', mechanic: 'Build conveyor factories that fill orders'
   },
   mount(host: HTMLElement, services: GameServices): GameController {
@@ -748,6 +748,11 @@ export const lanternWorks: GameModule = {
     Object.defineProperty(root, '__lw', { configurable: true, value: {
       get play() { return play; }, get save() { return save; }, get layout() { return renderer.layout; }, get screen() { return screenName; }, get card() { return !!card; },
       openLevel, openNight, mapScreen, titleScreen, closeCard, edit: (e: Edit) => edit(e), run: () => toggleRun(), levels: LEVELS.map(l => l.id),
+      /** Page-space rectangle around cells (x0,y0)-(x1,y1) inclusive, for the art capture's icon crop. */
+      clip(x0: number, y0: number, x1: number, y1: number) {
+        const r = canvas.getBoundingClientRect(), L = renderer.layout, k = r.width / L.width;
+        return { x: r.left + window.scrollX + (L.ox + x0 * L.cell) * k, y: r.top + window.scrollY + (L.oy + y0 * L.cell) * k, width: (x1 - x0 + 1) * L.cell * k, height: (y1 - y0 + 1) * L.cell * k };
+      },
       unlockAll() { for (const l of LEVELS) save.levels[l.id] ??= { stars: [true, false, false], bestParts: null, bestBeats: null }; persist(); }
     } });
 
