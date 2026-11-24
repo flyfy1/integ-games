@@ -637,3 +637,17 @@ export function drawMitts(ctx: Ctx, layout: BoardLayout, mitts: number[], time: 
     ctx.restore();
   }
 }
+
+/** Plughole night: an open drain grate in the given column of every lane in play (pests climb out of it). */
+export function drawPlugholes(ctx: Ctx, layout: BoardLayout, col: number, lanes: number[]): void {
+  const r = layout.unit * 0.2;
+  for (const lane of lanes) {
+    const p = layout.point(col + 0.5, lane);
+    ctx.save(); ctx.translate(p.x, p.y + layout.unit * 0.18);
+    ctx.fillStyle = '#1a1d2b'; ctx.strokeStyle = '#9aa3b8'; ctx.lineWidth = Math.max(2, r * 0.18);
+    ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.62, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(154,163,184,0.8)'; ctx.lineWidth = Math.max(1.5, r * 0.1);
+    ctx.beginPath(); for (const dx of [-0.45, 0, 0.45]) { ctx.moveTo(dx * r, -r * 0.5); ctx.lineTo(dx * r, r * 0.5); } ctx.stroke();
+    ctx.restore();
+  }
+}

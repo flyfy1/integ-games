@@ -1,4 +1,4 @@
-import { CHAPTERS, DEFENDERS, ENDLESS_LEVEL, RECIPES } from '../data';
+import { AFTER_HOURS_BY_ID, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, modeOf, RECIPES } from '../data';
 import { clock, type Key } from '../i18n';
 import { spriteIcon } from '../render/sprites';
 import type { Screen, UiContext } from './context';
@@ -21,7 +21,10 @@ const stat = (label: string, value: string | number) => h('div', { class: 'mk-st
 export const resultsScreen: Screen = (ui, params) => {
   const { t, tr } = ui.i18n, data = params.results;
   if (!data) return h('div', { class: 'mk-screen', 'data-screen': 'results' });
-  const { level, won, flags, reward } = data, endless = level.id === ENDLESS_LEVEL.id, stats = data.stats;
+  const { level, won, flags, reward } = data, endless = level.id === ENDLESS_LEVEL.id, stats = data.stats, mode = modeOf(level);
+  /** The campaign's very last night gets the dawn ending; side nights never do. */
+  const lastNight = mode === 'campaign' && LEVEL_LIST[LEVEL_LIST.length - 1]?.id === level.id;
+  const eyebrow = mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : t('map.chapter', { n: level.chapter });
   const box = h('div', { class: `mk-results${won || endless ? '' : ' lost'}`, 'data-result': endless ? 'endless' : won ? 'won' : 'lost' });
   const element = h('div', { class: 'mk-screen', 'data-screen': 'results' }, box);
   let d = 0.35;
@@ -40,12 +43,12 @@ export const resultsScreen: Screen = (ui, params) => {
     if (best) chime(ui, element, [0.3]);
   } else if (won) {
     // The campaign's last level gets its own heading; remembering the Bloom (not beating it) gets its own line.
-    const last = !data.nextLevel, head = last ? t('results.finaleHead') : t('results.win'), sub = last && stats?.remembered ? t('results.rememberedSub') : t('results.winSub');
+    const last = lastNight, head = last ? t('results.finaleHead') : t('results.win'), sub = last && stats?.remembered ? t('results.rememberedSub') : t('results.winSub');
     const before = reward.prior ?? [false, false, false], list: [boolean, string][] = [[flags.win, t('results.star.win')], [flags.flawless, t('results.star.flawless')], [flags.bonus, bonusText(ui, level.bonus)]];
     // Stars already earned on an earlier run sit still; the new ones pop in one by one with a chime.
     const delays: number[] = [];
     box.append(
-      h('div', { class: 'mk-eyebrow' }, `${t('map.chapter', { n: level.chapter })} · ${tr(level.name)}`),
+      h('div', { class: 'mk-eyebrow' }, `${eyebrow} · ${tr(level.name)}`),
       h('h2', null, head), h('p', { class: 'mk-tag' }, sub),
       h('div', { class: 'mk-bigstars', role: 'img', 'aria-label': t('results.starsAria', { n: list.filter(([on], i) => on || before[i]).length }) }, list.map(([on, label], i) => {
         if (on && !before[i]) {
@@ -86,7 +89,12 @@ export const resultsScreen: Screen = (ui, params) => {
       h('div', null, h('div', { class: 'mk-eyebrow' }, t('results.chapterOpen')), h('h3', null, plan ? tr(plan.name) : t('map.chapter', { n: data.chapterOpened })))));
   }
   // The campaign's last level: a proper ending line and a door straight into Endless Night.
-  const finale = won && !endless && !data.nextLevel;
+  for (const id of data.ahOpened ?? []) {
+    const night = AFTER_HOURS_BY_ID[id];
+    if (night) box.append(h('div', { class: 'mk-panel mk-reward', 'data-ah-opened': id, style: `--d:${next()}s` }, h('span', { class: 'mk-door-ico', style: 'font-size:26px' }, '☾'),
+      h('div', null, h('div', { class: 'mk-eyebrow' }, t('ah.title')), h('h3', null, t('ah.opened', { name: tr(night.name) })))));
+  }
+  const finale = won && lastNight;
   if (finale) box.append(h('div', { class: 'mk-panel paper mk-reward mk-finale', style: `--d:${next()}s` }, h('span', { class: 'mk-door-ico', style: 'font-size:28px' }, '☀'),
     h('div', null, h('h3', null, t('results.finaleTitle')), h('p', null, t('results.finale')))));
 

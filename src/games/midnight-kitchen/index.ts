@@ -1,6 +1,6 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createAudio } from './audio';
-import { CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelById, META_UPGRADES, nextLevelId } from './data';
+import { AFTER_HOURS, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelById, META_UPGRADES, modeOf, nextLevelId } from './data';
 import { createI18n, defaultLang, type Lang } from './i18n';
 import { attachInput } from './input';
 import { createRenderer, type ViewState } from './render/renderer';
@@ -212,6 +212,7 @@ export const midnightKitchen: GameModule = {
       if (!session || pendingResults) return;
       const sim = session.sim, level = session.level, flags = starFlags(sim), endless = level.id === ENDLESS_LEVEL.id;
       const hadEndless = !!save.levels[ENDLESS_UNLOCK]?.win;
+      const openNights = new Set(AFTER_HOURS.filter(item => isUnlocked(save, item.id)).map(item => item.id));
       const openChapters = new Set(CHAPTERS.filter(chapter => chapter.levels[0] && isUnlocked(save, chapter.levels[0])).map(chapter => chapter.id));
       const reward = applyOutcome(save, level, { won: flags.win, flawless: flags.flawless, bonus: flags.bonus, time: sim.time, score: sim.score, wave: sim.wave + 1, recipes: sim.stats.recipes, enemiesSeen: sim.stats.enemiesSeen, defendersUsed: sim.stats.defendersUsed, difficulty: sim.difficulty });
       if (flags.win && level.tutorial) for (let i = 0; i < level.tutorial.length; i++) if (!save.coach.seen.includes(`${level.id}:${i}`)) save.coach.seen.push(`${level.id}:${i}`);
@@ -222,7 +223,8 @@ export const midnightKitchen: GameModule = {
       const opened = CHAPTERS.find(chapter => chapter.levels[0] && !openChapters.has(chapter.id) && isUnlocked(save, chapter.levels[0]));
       pendingResults = {
         level, won: flags.win, flags, reward, time: sim.time, kills: sim.stats.kills, score: sim.score, wave: sim.wave + 1, stats: { ...sim.stats, recipes: [...sim.stats.recipes] },
-        nextLevel: flags.win ? nextLevelId(level.id) ?? null : null, endlessUnlocked: !hadEndless && !!save.levels[ENDLESS_UNLOCK]?.win, chapterOpened: opened?.id ?? null
+        nextLevel: flags.win && modeOf(level) === 'campaign' ? nextLevelId(level.id) ?? null : null, endlessUnlocked: !hadEndless && !!save.levels[ENDLESS_UNLOCK]?.win, chapterOpened: opened?.id ?? null,
+        ahOpened: AFTER_HOURS.filter(item => !openNights.has(item.id) && isUnlocked(save, item.id)).map(item => item.id)
       };
     }
     function finishNight(): void {
@@ -256,7 +258,7 @@ export const midnightKitchen: GameModule = {
         if (!level) return;
         audio.sfx('ui');
         // A fixed-hand lesson nobody has won yet goes straight onto the counter: no picker to understand first.
-        const direct = !!level.cards && !save.levels[level.id]?.win && !grannyOffered(save, level.id);
+        const direct = modeOf(level) === 'campaign' && !!level.cards && !save.levels[level.id]?.win && !grannyOffered(save, level.id);
         playScene(level.intro, () => (direct ? startNight(levelId, level.cards!) : go('loadout', { level: levelId })));
       },
       startNight(levelId, loadout, gift) { audio.sfx('ui'); startNight(levelId, loadout, gift); },
@@ -267,7 +269,8 @@ export const midnightKitchen: GameModule = {
           if (choice === 'retry' && night) startNight(night.level, night.loadout, night.gift);
           else if (choice === 'next' && results.nextLevel) { endNight(); ui.openLevel(results.nextLevel); }
           else if (choice === 'endless') { endNight(); ui.openLevel(ENDLESS_LEVEL.id); }
-          // A boss win that opened the next kitchen lands on that kitchen's tab.
+          // A boss win that opened the next kitchen lands on that kitchen's tab; side nights go back to their own list.
+          else if (modeOf(results.level) === 'afterhours') go('afterhours');
           else go('map', { chapter: results.chapterOpened ?? (results.level.chapter || undefined) });
         };
         // The outro belongs to the first win; retrying a won level should not sit through it again.
@@ -275,7 +278,7 @@ export const midnightKitchen: GameModule = {
       },
       resume() { resumeLevel(); audio.sfx('ui'); },
       retry() { if (night) startNight(night.level, night.loadout, night.gift); },
-      quitToMap() { go('map', { chapter: session?.level.chapter || undefined }); },
+      quitToMap() { if (session && modeOf(session.level) === 'afterhours') go('afterhours'); else go('map', { chapter: session?.level.chapter || undefined }); },
       setLang(lang: Lang) {
         save.lang = lang; persist();
         ui.i18n = createI18n(lang);

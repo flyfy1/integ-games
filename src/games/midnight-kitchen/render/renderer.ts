@@ -1,7 +1,7 @@
 import { cellFree, defenderAt, enemyDef, waveProgress } from '../sim';
 import type { AttackDef, Cell, Defender, Enemy, LevelDef, Sim, SimEvent } from '../types';
 import { Ambient } from './ambient';
-import { drawCake, drawMitts, moodFor, paintBackdrop, type BoardInfo } from './board';
+import { drawCake, drawMitts, drawPlugholes, moodFor, paintBackdrop, type BoardInfo } from './board';
 import { bodySize, Effects } from './effects';
 import { computeLayout, type BoardLayout, type Insets } from './layout';
 import { Lighting, type LightSource } from './lighting';
@@ -854,6 +854,7 @@ export function createRenderer(reduced: boolean): Renderer {
 
     drawCake(ctx, L, sim ? sim.slices : 3, sim ? sim.maxSlices : 3, t, effects.cakeHit, reduced);
     if (sim?.mitts.length) drawMitts(ctx, L, sim.mitts, t, reduced);
+    if (sim?.rules.plughole) drawPlugholes(ctx, L, sim.rules.plughole.col, sim.activeLanes);
 
     if (!sim) {
       const cast = [...MENU_CAST.map(([id, col, lane, tier]) => ({ kind: 'defender' as const, id, x: col + 0.5, lane, tier })), ...MENU_PESTS.map(([id, x, lane]) => ({ kind: 'enemy' as const, id, x, lane, tier: 0 }))].sort((a, b) => L.feet(a.x, a.lane).y - L.feet(b.x, b.lane).y);

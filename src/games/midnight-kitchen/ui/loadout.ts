@@ -1,4 +1,4 @@
-import { DEFENDERS, ENDLESS_LEVEL, ENEMIES, levelById, RECIPES } from '../data';
+import { DEFENDERS, ENDLESS_LEVEL, ENEMIES, levelById, modeOf, RECIPES } from '../data';
 import * as ENDLESS from '../data/endless';
 import { clock, type Key } from '../i18n';
 import { spriteIcon } from '../render/sprites';
@@ -109,8 +109,11 @@ function grannyPanel(ui: UiContext, hand: () => string[], picked: { gift: string
 export const loadoutScreen: Screen = (ui, params) => {
   const { t, tr } = ui.i18n, level = levelById(params.level ?? '');
   if (!level) return h('div', { class: 'mk-screen', 'data-screen': 'loadout' });
-  const endless = level.id === ENDLESS_LEVEL.id;
-  const fixed = !!level.cards, pool = fixed ? level.cards!.filter(id => DEFENDERS[id]) : ui.save.owned.filter(id => DEFENDERS[id]);
+  const endless = level.id === ENDLESS_LEVEL.id, mode = modeOf(level), rules = level.rules ?? {};
+  // A conveyor night shows what rides the belt; a leftovers night deals from everything owned when it starts.
+  const belt = rules.conveyor ? [...new Set(rules.conveyor.pool)].filter(id => DEFENDERS[id]) : null;
+  const fixed = !!level.cards || !!belt || !!rules.leftovers;
+  const pool = belt ?? (level.cards ? level.cards.filter(id => DEFENDERS[id]) : ui.save.owned.filter(id => DEFENDERS[id]));
   const choosing = !fixed && pool.length > level.slots;
   const suggested = recommend(level, pool);
   const remembered = ui.save.loadout.filter(id => pool.includes(id));
@@ -120,7 +123,7 @@ export const loadoutScreen: Screen = (ui, params) => {
   const counter = h('span', { class: 'mk-chip' }), note = h('p', { role: 'status', 'aria-live': 'polite' });
   const recipeList = h('div', { class: 'mk-recipe-hints' });
   const granny = !endless && grannyOffered(ui.save, level.id), picked: { gift: string | null } = { gift: null };
-  const start = h('button', { class: 'mk-btn primary big', 'data-action': 'start', onclick: () => ui.startNight(level.id, ordered(), granny && picked.gift ? picked.gift : undefined) }, endless ? t('endless.start') : t('loadout.start'));
+  const start = h('button', { class: 'mk-btn primary big', 'data-action': 'start', onclick: () => ui.startNight(level.id, belt ? [] : ordered(), granny && picked.gift ? picked.gift : undefined) }, endless ? t('endless.start') : t('loadout.start'));
   const buttons = pool.map(id => {
     const def = DEFENDERS[id];
     return h('button', { class: `mk-pick${rec.has(id) ? ' rec' : ''}`, 'data-card': id, 'aria-pressed': String(chosen.includes(id)), 'aria-label': `${tr(def.name)}, ${def.cost}. ${tr(def.desc)}`, title: tr(def.desc), onclick: () => {
@@ -152,7 +155,7 @@ export const loadoutScreen: Screen = (ui, params) => {
   const seen = visitors(level), newEnemies = new Set(level.introduces?.enemies ?? []);
   const facts = endless ? [] : [t('loadout.waves', { n: level.waves.length }), t('loadout.lanes', { n: (level.activeLanes ?? Array.from({ length: level.lanes })).length }), t('loadout.heat', { n: level.startHeat }), t('loadout.slicesFact', { n: level.slices })];
   const brief = h('div', { class: 'mk-panel paper' },
-    h('div', { class: 'mk-eyebrow' }, endless ? '∞' : level.boss ? `${t('map.chapter', { n: level.chapter })} · ${t('map.boss')}` : `${t('map.chapter', { n: level.chapter })} · ${t('map.level', { n: level.index })}`),
+    h('div', { class: 'mk-eyebrow' }, endless ? '∞' : mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : level.boss ? `${t('map.chapter', { n: level.chapter })} · ${t('map.boss')}` : `${t('map.chapter', { n: level.chapter })} · ${t('map.level', { n: level.index })}`),
     h('p', { class: 'mk-lead', style: 'margin-top:4px' }, tr(level.blurb)),
     facts.length ? h('div', { class: 'mk-facts' }, facts.map(fact => h('span', { class: 'mk-chip' }, fact))) : null,
     endless ? null : h('div', { class: 'mk-goal', style: 'color:var(--ink);background:rgba(255,180,84,.18);border-color:rgba(181,101,13,.5)' }, `${t('loadout.bonus')}: ${bonusText(ui, level.bonus)}`),
@@ -170,12 +173,13 @@ export const loadoutScreen: Screen = (ui, params) => {
   const picker = h('div', { class: 'mk-panel' },
     h('div', { class: 'mk-row', style: 'margin-bottom:10px' }, h('h3', { class: 'mk-grow', style: 'margin:0' }, choosing ? t('loadout.pick') : t('loadout.fixed')), counter,
       choosing ? h('button', { class: 'mk-btn small ghost', 'data-action': 'suggest', onclick: () => { chosen = [...suggested]; ui.audio.sfx('select'); sync(); note.textContent = t('loadout.suggested'); } }, `✦ ${t('loadout.suggest')}`) : null),
-    h('div', { class: 'mk-picks' }, buttons),
+    belt ? h('p', null, t('ah.belt')) : null,
+    rules.leftovers ? h('p', { class: 'mk-lead', 'data-leftovers': '' }, t('ah.leftovers')) : h('div', { class: 'mk-picks' }, buttons),
     endless ? h('div', { style: 'margin-top:10px' }, h('div', { class: 'mk-eyebrow' }, t('loadout.recipes')), recipeList) : null);
   // On a wide stage the picker and Start form a sticky right column (both always in view); on a phone that wrapper
   // dissolves (display:contents) so Start stays a sticky bar across the whole screen.
   return h('div', { class: 'mk-screen', 'data-screen': 'loadout' },
-    head(ui, tr(level.name), () => ui.go(endless ? 'title' : 'map', endless ? {} : { chapter: level.chapter })),
+    head(ui, tr(level.name), () => (mode === 'afterhours' ? ui.go('afterhours') : ui.go(endless ? 'title' : 'map', endless ? {} : { chapter: level.chapter }))),
     h('div', { class: 'mk-body mk-loadout' },
       h('div', { class: 'mk-brief' }, brief, grannyBox, endless ? endlessPanel(ui) : pests),
       endless ? pests : null,

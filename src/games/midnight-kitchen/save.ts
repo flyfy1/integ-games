@@ -1,5 +1,5 @@
 import type { GameStorage } from '../../core/game-types';
-import { DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, STARTING_DEFENDERS } from './data';
+import { AFTER_HOURS, AFTER_HOURS_STARS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, STARTING_DEFENDERS } from './data';
 import { isLang, type Lang } from './i18n';
 import { isDifficulty } from './sim';
 import type { Difficulty, LevelDef, MetaState, MetaUpgradeDef } from './types';
@@ -143,8 +143,13 @@ export function resetSave(storage: GameStorage, keep: Save): Save {
 
 export const starsOf = (record: LevelRecord | undefined): number => (record ? Number(record.win) + Number(record.flawless) + Number(record.bonus) : 0);
 export const totalStars = (save: Save): number => LEVEL_LIST.reduce((sum, level) => sum + starsOf(save.levels[level.id]), 0);
+/** Stars from the side nights (After Hours) plus a fourth star per Chef's Challenge won. */
+export const afterHoursStars = (save: Save): number => AFTER_HOURS.reduce((sum, level) => sum + starsOf(save.levels[level.id]), 0);
+/** Every star the player owns: what opens the After Hours nights. */
+export const allStars = (save: Save): number => totalStars(save) + afterHoursStars(save) + save.challenges.length;
 /** A level opens once the one before it has been won. */
 export function isUnlocked(save: Save, levelId: string): boolean {
+  if (levelId in AFTER_HOURS_STARS) return allStars(save) >= AFTER_HOURS_STARS[levelId];
   const index = LEVEL_LIST.findIndex(level => level.id === levelId);
   return index <= 0 ? index === 0 : !!save.levels[LEVEL_LIST[index - 1].id]?.win;
 }

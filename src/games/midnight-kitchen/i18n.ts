@@ -120,7 +120,17 @@ export const EN = {
   'fail.cooking': 'The night is cooking: no more changes',
   'fail.fixed': 'That one is part of the puzzle',
   'results.chefWin': 'First win on Chef!',
-  'results.on': 'on {d}'
+  'results.on': 'on {d}',
+  'ah.title': 'After Hours',
+  'ah.door': 'After Hours',
+  'ah.intro': 'Ten odd nights, each with one rule of its own. They open as you collect stars anywhere in the kitchen.',
+  'ah.need': 'Collect {n} stars to open',
+  'ah.count': '{n} of 10 open',
+  'ah.eyebrow': 'After Hours · Night {n}',
+  'ah.rule': 'Tonight\'s rule',
+  'ah.leftovers': 'Six cards are dealt at random from everything you own when the night starts (always a Burner).',
+  'ah.belt': 'These ride in on the belt, in turn:',
+  'ah.opened': 'New After Hours night: {name}'
 } as const;
 export type Key = keyof typeof EN;
 
@@ -233,7 +243,17 @@ export const ZH: Record<Key, string> = {
   'fail.cooking': '已经开火了：不能再改了',
   'fail.fixed': '这个是题目自带的，不能动',
   'results.chefWin': '首次以主厨难度获胜！',
-  'results.on': '{d}难度'
+  'results.on': '{d}难度',
+  'ah.title': '加班夜',
+  'ah.door': '加班夜',
+  'ah.intro': '十个古怪的夜晚，每晚一条特别规则。在厨房里任何地方攒星星，它们就会一个个开放。',
+  'ah.need': '集齐 {n} 颗星开放',
+  'ah.count': '已开放 {n}/10',
+  'ah.eyebrow': '加班夜 · 第 {n} 晚',
+  'ah.rule': '今晚的规则',
+  'ah.leftovers': '开局时从你拥有的卡牌里随机发六张（一定有炉头）。',
+  'ah.belt': '这些卡牌会轮流坐着传送带过来：',
+  'ah.opened': '新的加班夜开放：{name}'
 };
 
 const TABLES: Record<Lang, Record<Key, string>> = { en: EN, zh: ZH };

@@ -141,8 +141,8 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
   /** Conveyor nights: cards come and go, so the tray is rebuilt from the sim's hand (existing buttons are kept). */
   const rebuildHand = () => {
     handVersion = sim.handVersion;
-    const old = new Map(cards.map(card => [card.def, card]));
-    cards = sim.cards.map((card, index) => old.get(card.def) ?? cardView(card, index));
+    // Fresh buttons each time, so the number keys on them stay in hand order.
+    cards = sim.cards.map(cardView);
     hand.replaceChildren(...cards.map(card => card.button), spatula);
     if (view.card && !sim.cards.some(card => card.def === view.card)) session.selectCard(null);
   };

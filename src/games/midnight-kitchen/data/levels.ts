@@ -3,6 +3,7 @@ import type { ChapterDef, LevelDef, SpawnRow, WaveDef } from '../types';
 import { CAMPAIGN, tuned } from './campaign';
 import { STARTING_DEFENDERS } from './defenders';
 import { endlessWave } from './endless';
+import { AFTER_HOURS_BY_ID } from './afterhours';
 
 /**
  * Campaign levels. A level is a row: board, economy, a wave script, a bonus goal and its story hooks.
@@ -171,7 +172,10 @@ export const ENDLESS_LEVEL: LevelDef = {
   bonus: { kind: 'noRemove' }, reward: 0, barks: BARKS.endless, music: 'endless', polish: true
 };
 
-export const levelById = (id: string): LevelDef | undefined => (id === ENDLESS_LEVEL.id ? ENDLESS_LEVEL : LEVELS[id]);
+/** Side nights (After Hours, Chef's Table, Daily) register here so `levelById` finds them; campaign lists stay untouched. */
+const EXTRA_LEVELS: Record<string, LevelDef> = { ...AFTER_HOURS_BY_ID };
+export const registerLevels = (levels: LevelDef[]): void => { for (const level of levels) EXTRA_LEVELS[level.id] = level; };
+export const levelById = (id: string): LevelDef | undefined => (id === ENDLESS_LEVEL.id ? ENDLESS_LEVEL : LEVELS[id] ?? EXTRA_LEVELS[id]);
 /** Defender ids a player owns when they first reach `levelId` (starting cards plus every earlier unlock). */
 export function ownedAt(levelId: string): string[] {
   const owned = [...STARTING_DEFENDERS];
@@ -183,3 +187,13 @@ export function ownedAt(levelId: string): string[] {
 }
 /** The level after `id` in campaign order, if any. */
 export const nextLevelId = (id: string): string | undefined => { const index = LEVEL_LIST.findIndex(level => level.id === id); return index >= 0 ? LEVEL_LIST[index + 1]?.id : undefined; };
+
+/** Which kind of night a level is: decides saving, rewards, menus and what the arcade is told. */
+export type NightMode = 'campaign' | 'endless' | 'afterhours' | 'puzzle' | 'daily';
+export function modeOf(level: LevelDef): NightMode {
+  if (level.id === ENDLESS_LEVEL.id) return 'endless';
+  if (level.id.startsWith('daily')) return 'daily';
+  if (level.rules?.puzzle) return 'puzzle';
+  if (level.id.startsWith('ah-')) return 'afterhours';
+  return 'campaign';
+}
