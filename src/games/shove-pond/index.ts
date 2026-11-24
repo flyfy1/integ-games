@@ -99,6 +99,7 @@ export const shovePond: GameModule = {
     let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let advanceTimer: ReturnType<typeof setTimeout> | null = null;
     let readySeats = new Set<number>();
+    let resumeFromMenu: (() => void) | null = null;
     let awaySeats = new Set<number>();
     let pendingPlans: Plan[] | null = null;
     const online = createOnline({
@@ -397,12 +398,17 @@ export const shovePond: GameModule = {
       }
       beginPlanning(scene.state.round === 1 ? FIRST_SECONDS : PLAN_SECONDS);
     }
+    /** One short cue when the rim starts to wobble (rounds 3 and 5). */
+    function roundCue() {
+      if (scene?.kind === 'match' && scene.state.pads.includes(2) && (scene.state.round === 3 || scene.state.round === 5)) say(`🌊 ${t('hud.sink')}`, 1300);
+    }
     function beginPlanning(seconds: number, keepDraft = false) {
       phase = 'plan'; ready = false;
       if (!keepDraft) draft = [];
       deadline = seconds > 0 ? renderer.clock + seconds : 0;
       lastTick = -1;
       readySeats = new Set();
+      roundCue();
       refreshHud();
       root.focus({ preventScroll: true });
     }
@@ -488,7 +494,8 @@ export const shovePond: GameModule = {
       if (seat === undefined) { resolveLocalRound(); return; }
       s.passing = seat;
       phase = 'card';
-      draft = [];
+      draft = []; deadline = 0;
+      refreshHud(); // clear the last player's plan from the tray before the phone changes hands
       const name = s.seats[seat].name;
       const sw = h('i', { style: `display:inline-block;width:18px;height:18px;border-radius:50%;background:${PALETTE[seat % 6].body};vertical-align:-3px;margin-right:6px` });
       showCard(t('pass.handTo'), t('pass.hidden'), [{ label: t('pass.imReady', { name }), primary: true, fn: () => { closePanel(); beginPlanning(s.state.round === 1 ? FIRST_SECONDS : PLAN_SECONDS); } }], h('h2', null, sw, name));
@@ -572,7 +579,7 @@ export const shovePond: GameModule = {
 
     // ---------------------------------------------------------------- panels
     type CardButton = { label: string; sub?: string; primary?: boolean; disabled?: boolean; fn: () => void };
-    function closePanel() { panel?.remove(); panel = null; if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; } }
+    function closePanel() { panel?.remove(); panel = null; resumeFromMenu = null; if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; } }
     function showCard(title: string, text: string, buttons: CardButton[], extra?: HTMLElement) {
       closePanel();
       phase = 'card'; root.dataset.phase = phase; deadline = 0;
@@ -582,22 +589,31 @@ export const shovePond: GameModule = {
       root.append(panel);
       (card.querySelector('button.primary') as HTMLButtonElement | null)?.focus({ preventScroll: true });
     }
-    function openMenu() {
-      if (scene?.kind === 'match' && scene.mode === 'online' && online.inMatch) {
-        // Leaving an online match: a bot keeps the seat.
-      }
+    function openMenu(fresh = false) {
+      const prior = panel ? resumeFromMenu : null; // re-opened from inside the menu (language, relay check)
+      const resumable = !fresh && !!scene && !(scene.kind === 'match' && scene.state.over) && (phase === 'plan' || phase === 'idle' || phase === 'reveal');
+      const left = deadline ? deadline - renderer.clock : 0;
+      const resume = resumable ? () => {
+        closePanel();
+        phase = renderer.busy() ? 'reveal' : 'plan';
+        // Local timers wait while the menu is open; online rounds keep the room's clock.
+        if (left > 0 && !(scene?.kind === 'match' && scene.mode === 'online')) deadline = renderer.clock + Math.max(left, 3);
+        refreshHud();
+      } : prior;
       phase = 'card';
       const relay = online.relayState();
       const relayText = relay === 'checking' ? t('menu.checking') : relay === 'down' ? t('menu.offline') : t('menu.onlineSub');
       showCard(t('title.name'), t('title.tag'), [
-        { label: t('menu.play'), sub: t('menu.playSub'), primary: save.school >= LESSONS.length, fn: () => startLocalMatch('quick') },
-        { label: t('menu.school'), sub: `${t('menu.schoolSub')} · ${save.school}/5`, primary: save.school < LESSONS.length, fn: () => startScenario('lesson', save.school < LESSONS.length ? save.school : 0) },
+        ...(resume ? [{ label: `▶ ${t('menu.resume')}`, primary: true, fn: resume }] : []),
+        { label: t('menu.play'), sub: t('menu.playSub'), primary: !resumable && save.school >= LESSONS.length, fn: () => startLocalMatch('quick') },
+        { label: t('menu.school'), sub: `${t('menu.schoolSub')} · ${save.school}/5`, primary: !resumable && save.school < LESSONS.length, fn: () => startScenario('lesson', save.school < LESSONS.length ? save.school : 0) },
         { label: t('menu.puzzles'), sub: t('menu.puzzlesSub', { n: save.puzzles.length }), fn: () => openPuzzles() },
         { label: t('menu.ladder'), sub: save.ladder >= 3 ? t('menu.ladderDone') : t('menu.ladderSub', { n: save.ladder + 1 }), fn: () => startLocalMatch('ladder') },
         { label: t('menu.pass'), sub: t('menu.passSub'), fn: () => openPass() },
         { label: t('menu.online'), sub: relayText, disabled: relay !== 'up', fn: () => openOnline() },
         { label: t('menu.lang'), fn: () => { save.lang = i18n.lang === 'zh' ? 'en' : 'zh'; i18n = createI18n(save.lang); persist(); openMenu(); refreshHudOnly(); } }
       ]);
+      resumeFromMenu = resume;
       if (relay === 'checking') void online.checkRelay().then(() => { if (panel && phase === 'card' && !scene?.kind) openMenu(); else if (panel?.textContent?.includes(t('menu.checking'))) openMenu(); });
     }
     function refreshHudOnly() { const p = panel; panel = null; refreshHud(); panel = p; }
@@ -684,7 +700,7 @@ export const shovePond: GameModule = {
       else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); (at >= 0 ? buttons[at] : (panel.querySelector<HTMLButtonElement>('button.primary') ?? buttons[0])).click(); }
       else if (e.key === 'Escape') { e.preventDefault(); closePanelToPlay(); }
     }
-    function closePanelToPlay() { if (scene && (phase === 'card') && !(scene.kind === 'match' && scene.state.over)) { closePanel(); phase = 'plan'; refreshHud(); } }
+    function closePanelToPlay() { if (panel && resumeFromMenu) resumeFromMenu(); }
     root.addEventListener('keydown', onKey);
 
     // ---------------------------------------------------------------- frame loop
@@ -756,7 +772,7 @@ export const shovePond: GameModule = {
       say(t('room.joining'), 1500);
       void online.join(roomParam.toUpperCase()).then(res => { if (res === 'ok') toast.style.opacity = '0'; else { say(res === 'full' ? t('room.full') : res === 'missing' ? t('room.missing') : t('room.error'), 2600); } });
     } else if (save.school < LESSONS.length) startScenario('lesson', save.school);
-    else { startPractice(); openMenu(); }
+    else { startPractice(); openMenu(true); }
     void online.checkRelay();
     layout();
     raf = requestAnimationFrame(frame);
