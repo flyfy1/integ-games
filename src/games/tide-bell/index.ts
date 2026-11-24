@@ -1,8 +1,10 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
+import { dailyKey, dailySeed, dailyShareText, playedToday, readDaily, recordDaily } from '../_shared/daily';
 import { createAudio } from './audio';
+import type { Generated } from './generate';
 import { createI18n, defaultLang, isLang, type I18n, type Lang } from './i18n';
 import { iconSvg } from './icons';
-import { CHAPTERS, LEVELS, levelById, nextLevelId, type LevelDef } from './levels';
+import { CHAPTERS, LEVELS, levelById, nextLevelId, type Icon, type LevelDef } from './levels';
 import { createRenderer } from './render';
 import { DIRS, DXY, initialState, neighbour, parseBoard, step, type Board, type Dir, type MoveEvent, type State } from './rules';
 import { analyze, distanceOf, hintFrom, type Analysis } from './solver';
@@ -42,6 +44,18 @@ export const unlockedIds = (best: Record<string, number>) => {
   return open;
 };
 
+type DailyCache = Generated & { key: string };
+const THEME_IDEA: Record<string, { idea: LevelDef['idea']; icon: Icon }> = {
+  driftwood: { idea: { en: "Today's cove: driftwood and the tide.", zh: '今天的海湾：浮木与潮汐。' }, icon: 'wood' },
+  'three waters': { idea: { en: "Today's cove: three heights of sea.", zh: '今天的海湾：三级潮位。' }, icon: 'tides' },
+  sandcastles: { idea: { en: "Today's cove: sandcastles in the way.", zh: '今天的海湾：挡路的沙堡。' }, icon: 'castle' },
+  currents: { idea: { en: "Today's cove: currents carry the wood.", zh: '今天的海湾：洋流带着木头走。' }, icon: 'current' }
+};
+export function dailyDef(g: Generated, key: string): LevelDef {
+  const t = THEME_IDEA[g.theme] ?? THEME_IDEA.driftwood;
+  return { id: 'daily', name: { en: `Daily tide ${key.slice(5)}`, zh: `每日潮汐 ${key.slice(5)}` }, rows: g.rows, tide: g.tide, par: g.par, solution: g.solution, idea: t.idea, icon: t.icon, ablate: [], trap: '' };
+}
+
 export const tideBell: GameModule = {
   meta: {
     slug: 'tide-bell', title: 'Tide Bell', category: 'puzzle',
@@ -80,6 +94,32 @@ export const tideBell: GameModule = {
     let analysisTimer: ReturnType<typeof setTimeout> | null = null;
     let cardTimer: ReturnType<typeof setTimeout> | null = null;
     let firstMoveAt: number | null = null; const mountedAt = performance.now();
+    // ---------------------------------------------------------------- daily cove (drawn in a worker, cached per day)
+    let dailyWorker: Worker | null = null, dailyWaiting = false, dailyTimer: ReturnType<typeof setTimeout> | null = null;
+    const cachedDaily = (): DailyCache | null => { const c = services.storage.get<DailyCache | null>('daily-cove', null); return c && c.key === dailyKey() && Array.isArray(c.rows) ? c : null; };
+    function drawDaily(then?: () => void) {
+      if (cachedDaily()) { then?.(); return; }
+      if (then) dailyWaiting = true;
+      if (dailyWorker) return;
+      const key = dailyKey(), seed = dailySeed('tide-bell', key);
+      const done = (g: Generated | null) => {
+        dailyWorker?.terminate(); dailyWorker = null;
+        if (destroyed || !g) return;
+        try { services.storage.set('daily-cove', { ...g, key }); } catch { /* ignore */ }
+        if (dailyWaiting) { dailyWaiting = false; if (root.dataset.screen === 'menu') startDaily(); }
+      };
+      try {
+        dailyWorker = new Worker(new URL('./daily-worker.ts', import.meta.url), { type: 'module' });
+        dailyWorker.onmessage = (e: MessageEvent<Generated | null>) => done(e.data);
+        dailyWorker.onerror = () => { dailyWorker = null; void import('./generate').then(m => done(m.dailyLevel(seed))); };
+        dailyWorker.postMessage({ seed });
+      } catch { void import('./generate').then(m => done(m.dailyLevel(seed))); }
+    }
+    function startDaily() {
+      const c = cachedDaily();
+      if (!c) { drawDaily(() => startDaily()); showMenu(); return; }
+      startLevel(dailyDef(c, c.key));
+    }
 
     const labels = () => {
       undoBtn.querySelector('b')!.textContent = i18n.t('undo'); resetBtn.querySelector('b')!.textContent = i18n.t('reset');
@@ -116,10 +156,10 @@ export const tideBell: GameModule = {
     function hud() {
       if (!play) return;
       const lv = play.level, ch = CHAPTERS.find(c => c.levels.includes(lv));
-      title.innerHTML = `<small>${ch ? i18n.t('chapter', { n: ch.id }) : i18n.t('dailyTitle')} · ${lv.id}</small><strong></strong>`;
+      title.innerHTML = `<small>${ch ? `${i18n.t('chapter', { n: ch.id })} · ${lv.id}` : i18n.t('dailyTitle')}</small><strong></strong>`;
       title.querySelector('strong')!.textContent = lv.name[i18n.lang];
       const tideWord = play.board.maxTide === 2 ? (['tideNames0', 'tideNames1of3', 'tideNames2'] as const)[play.state.tide] : (['tideNames0', 'tideNames1'] as const)[play.state.tide];
-      counter.innerHTML = `<span class="tb-tide tide-${play.state.tide}${play.board.maxTide === 2 ? ' three' : ''}" title="${i18n.t('tide')}"><i></i>${i18n.t(tideWord)}</span><span>${i18n.t('moves', { n: play.moves })}</span><span class="tb-par">${i18n.t('par', { n: lv.par })}</span>`;
+      counter.innerHTML = `<span class="tb-tide tide-${play.state.tide}${play.board.maxTide === 2 ? ' three' : ''}" title="${i18n.t('tide')}: ${i18n.t(tideWord)}"><i></i><em>${i18n.t(tideWord)}</em></span><span>${i18n.t('moves', { n: play.moves })}</span><span class="tb-par">${i18n.t('par', { n: lv.par })}</span>`;
       undoBtn.disabled = !play.history.length;
     }
     function showLesson(lv: LevelDef) {
@@ -132,7 +172,7 @@ export const tideBell: GameModule = {
       const board = parseBoard(lv.rows, lv.tide);
       const start = initialState(board);
       play = { level: lv, board, state: start, start, history: [], moves: 0, analysis: null, won: false, stuckShown: false };
-      save.last = lv.id; writeSave();
+      if (lv.id !== 'daily') { save.last = lv.id; writeSave(); }
       showLesson(lv);
       layout();
       renderer.setLevel(board, start);
@@ -209,6 +249,15 @@ export const tideBell: GameModule = {
       if (!play) return;
       play.won = true;
       const lv = play.level, moves = play.moves;
+      if (lv.id === 'daily') {
+        const rec = recordDaily(services.storage, Math.max(1, 100 - (moves - lv.par) * 5), 'cove');
+        hud();
+        const wait = Math.max(0, renderer.busyUntil - performance.now());
+        setTimeout(() => audio.cue('win'), wait);
+        if (cardTimer) clearTimeout(cardTimer);
+        cardTimer = setTimeout(() => showWinCard(lv, moves, rec.streak), wait + (reduced() ? 150 : 520));
+        return;
+      }
       const prevBest = save.best[lv.id];
       if (prevBest === undefined || moves < prevBest) save.best[lv.id] = moves;
       if (!save.ghosts.includes(lv.id)) save.ghosts.push(lv.id);
@@ -236,8 +285,8 @@ export const tideBell: GameModule = {
       card.replaceChildren(el); card.hidden = false; root.dataset.screen = name;
       (card.querySelector<HTMLElement>('.primary, .tb-level.current, button:not(:disabled)') ?? root).focus({ preventScroll: true });
     }
-    function showWinCard(lv: LevelDef, moves: number) {
-      const next = nextLevelId(lv.id);
+    function showWinCard(lv: LevelDef, moves: number, streak?: number) {
+      const next = lv.id === 'daily' ? null : nextLevelId(lv.id);
       const box = h('div', { class: 'tb-panel win' });
       const perfect = moves === lv.par;
       box.innerHTML = `<p class="tb-kicker">${lv.id} · <span></span></p><h2>${i18n.t('clear')}</h2><p class="tb-result">${perfect ? '★ ' + i18n.t('perfect', { n: moves }) : i18n.t('yours', { n: moves, par: lv.par })}</p>${perfect ? '' : `<p class="tb-sub">${i18n.t('tryShorter', { par: lv.par })}</p>`}`;
@@ -247,10 +296,16 @@ export const tideBell: GameModule = {
       const menu = h('button', { class: 'tb-btn2', 'data-act': 'levels' }); menu.textContent = i18n.t('levels');
       row.append(again, menu);
       if (next) { const go = h('button', { class: 'tb-btn2 primary', 'data-act': 'next' }); go.textContent = `${i18n.t('next')} →`; row.append(go); }
+      else if (lv.id === 'daily') {
+        const done = h('p', { class: 'tb-sub' }); done.textContent = i18n.t('dailyDone', { n: streak ?? 1 }); box.append(done);
+        const share = h('button', { class: 'tb-btn2 primary', 'data-act': 'share' }); share.textContent = i18n.t('share'); row.append(share);
+        shareText = dailyShareText(i18n.t('title'), i18n.lang === 'zh' ? `${moves} 步（最短 ${lv.par}）` : `${moves} moves (shortest ${lv.par})`, streak ?? 1, dailyKey(), i18n.lang === 'zh');
+      }
       else { const done = h('p', { class: 'tb-sub' }); done.textContent = i18n.t('allDone'); box.append(done); }
       box.append(row);
       openCard(box, 'win');
     }
+    let shareText = '';
     function showMenu() {
       stopWalk();
       const open = unlockedIds(save.best);
@@ -262,6 +317,12 @@ export const tideBell: GameModule = {
       const backBtn = h('button', { class: 'tb-chip', 'data-act': 'close' }); backBtn.textContent = i18n.t('back');
       const tools = h('div', { class: 'tb-tools' }); tools.append(langBtn, backBtn); head.append(tools);
       box.append(head);
+      const rec = readDaily(services.storage, 'cove'), today = playedToday(services.storage, 'cove');
+      const daily = h('button', { class: `tb-daily${today ? ' done' : ''}`, 'data-act': 'daily' });
+      daily.innerHTML = `${iconSvg('flag')}<span><b></b><small></small></span>`;
+      daily.querySelector('b')!.textContent = i18n.t('daily');
+      daily.querySelector('small')!.textContent = dailyWaiting && !cachedDaily() ? i18n.t('drawing') : today ? i18n.t('dailyDone', { n: rec.streak }) : i18n.t('dailyNew');
+      box.append(daily);
       for (const ch of CHAPTERS) {
         const sec = h('section', { class: 'tb-chapter' });
         const hh = h('h3'); hh.textContent = `${i18n.t('chapter', { n: ch.id })} · ${ch.name[i18n.lang]}`; sec.append(hh);
@@ -287,6 +348,8 @@ export const tideBell: GameModule = {
       else if (act === 'replay' && play) startLevel(play.level);
       else if (act === 'levels') showMenu();
       else if (act === 'close') { closeCard(); root.focus({ preventScroll: true }); }
+      else if (act === 'daily') startDaily();
+      else if (act === 'share') { void navigator.clipboard?.writeText(shareText).then(() => { el.textContent = i18n.t('copied'); }).catch(() => {}); }
       else if (act === 'level') { const lv = levelById(el.dataset.id ?? ''); if (lv) startLevel(lv); }
       else if (act === 'lang') { save.lang = i18n.lang === 'en' ? 'zh' : 'en'; writeSave(); i18n = createI18n(save.lang); labels(); if (play) showLesson(play.level); hud(); showMenu(); layout(); }
     });
@@ -362,6 +425,14 @@ export const tideBell: GameModule = {
     (root as unknown as { __tb: unknown }).__tb = {
       get level() { return play?.level.id; }, get state() { return play?.state; }, get moves() { return play?.moves; }, get won() { return play?.won; },
       center: (x: number, y: number) => (play ? renderer.center(y * play.board.w + x) : null),
+      /** Page coordinates of the tile one step from you in a direction (for touch bots). */
+      tapPoint: (d: Dir) => {
+        if (!play) return null;
+        const r = canvas.getBoundingClientRect(), [dx, dy] = DXY[d];
+        const p = renderer.center(play.state.pos);
+        return { x: r.left + p.x + dx * renderer.cell, y: r.top + p.y + dy * renderer.cell };
+      },
+      get screen() { return root.dataset.screen; },
       playerCenter: () => renderer.playerScreen(performance.now()),
       start: (id: string) => { const lv = levelById(id); if (lv) startLevel(lv); },
       solution: () => play?.level.solution
@@ -371,6 +442,7 @@ export const tideBell: GameModule = {
     startLevel(levelById(save.last ?? '') && save.best[save.last!] === undefined ? levelById(save.last!)! : first ?? LEVELS[0]);
     audio.ambience(true);
     startLoop();
+    dailyTimer = setTimeout(() => { if (!cachedDaily() && typeof Worker !== 'undefined') drawDaily(); }, 2500);
 
     return {
       pause() { paused = true; stopWalk(); audio.pause(); if (raf) cancelAnimationFrame(raf); raf = 0; },
@@ -379,7 +451,8 @@ export const tideBell: GameModule = {
       destroy() {
         destroyed = true; stopWalk();
         if (raf) cancelAnimationFrame(raf);
-        [analysisTimer, cardTimer].forEach(t => t && clearTimeout(t));
+        [analysisTimer, cardTimer, dailyTimer].forEach(t => t && clearTimeout(t));
+        dailyWorker?.terminate(); dailyWorker = null;
         observer?.disconnect(); window.removeEventListener('resize', layout);
         audio.dispose();
         host.replaceChildren();

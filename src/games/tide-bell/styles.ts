@@ -38,6 +38,11 @@ export const STYLES = `
 .tb-menuhead h2{margin:0}
 .tb-menuhead .tb-sub{flex:1}
 .tb-tools{display:flex;gap:6px}
+.tb-daily{display:flex;align-items:center;gap:10px;width:100%;margin-top:12px;padding:8px 12px;border-radius:14px;border:1px solid #1d7a9a;background:#e4f4f7;color:#203040!important;text-align:left}
+.tb-daily svg{flex:none;border-radius:10px;background:#1d5a78}
+.tb-daily b{display:block;font-size:1rem}
+.tb-daily small{color:#4a6a76}
+.tb-daily.done{border-color:#2a9a6a;background:#e6f5ec}
 .tb-chapter h3{margin:14px 0 6px;font-size:.85rem;letter-spacing:.06em;text-transform:uppercase;color:#4a7a8c}
 .tb-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .tb.compact .tb-grid{grid-template-columns:repeat(2,1fr)}
@@ -53,6 +58,9 @@ export const STYLES = `
 .tb.compact .tb-title strong{font-size:1rem}
 .tb.compact .tb-count{font-size:.78rem;gap:5px}
 .tb.compact .tb-count>span{padding:3px 7px}
+.tb.compact .tb-tide em{display:none}
+.tb.compact .tb-count{flex-wrap:nowrap}
+.tb-tide em{font-style:normal}
 .tb.compact .tb-lesson{top:58px;font-size:.88rem}
 .tb.compact .tb-btn{min-width:60px}
 @media (prefers-reduced-motion:reduce){.tb *{transition:none!important;animation:none!important}}
