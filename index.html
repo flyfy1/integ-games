@@ -25,7 +25,18 @@
     <title>Integ Games</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!-- Static fallback for crawlers without JavaScript; the app replaces it on first render. -->
+      <nav aria-label="Stress-relief toys">
+        <h2>Stress-relief toys</h2>
+        <ul>
+          <li><a href="https://charge.integ.life/">Charge Burst</a> — hold to charge, let go to blow it all up</li>
+          <li><a href="https://void.integ.life/">Void Harvest</a> — your cursor is a black hole: swallow every block</li>
+          <li><a href="https://smash.integ.life/">Glass Smash</a> — shatter glass panes of annoying words</li>
+          <li><a href="https://pop.integ.life/">Chain Pop</a> — pop five fast for OVERDRIVE chain reactions</li>
+        </ul>
+      </nav>
+    </div>
     <script type="module" src="https://discuss.integ.life/sdk/v1/comments.js"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
