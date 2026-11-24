@@ -260,10 +260,10 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
     g.save(); g.beginPath(); g.rect(px, py, cs, cs); g.clip();
     g.strokeStyle = 'rgba(190,240,255,0.42)'; g.lineWidth = Math.max(1.5, cs * 0.05); g.lineCap = 'round';
     for (let k = 0; k < 2; k++) {
-      const p = ((time * 0.9 + k * 0.5 + hash(i, 1) * 0.2) % 1);
+      const p = reducedMotion() ? 0.3 + k * 0.4 : ((time * 0.9 + k * 0.5 + hash(i, 1) * 0.2) % 1);
       const cx = px + cs / 2 + dx * (p - 0.5) * cs + dy * (k - 0.5) * cs * 0.35;
       const cy = py + cs / 2 + dy * (p - 0.5) * cs + dx * (k - 0.5) * cs * 0.35;
-      const a = Math.sin(p * Math.PI);
+      const a = reducedMotion() ? 0.8 : Math.sin(p * Math.PI);
       g.globalAlpha = a;
       g.beginPath();
       g.moveTo(cx - dx * cs * 0.12 - dy * cs * 0.1, cy - dy * cs * 0.12 - dx * cs * 0.1);

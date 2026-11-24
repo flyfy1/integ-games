@@ -283,7 +283,7 @@ export const tideBell: GameModule = {
     function closeCard() { if (cardTimer) { clearTimeout(cardTimer); cardTimer = null; } card.hidden = true; card.replaceChildren(); root.dataset.screen = 'play'; }
     function openCard(el: HTMLElement, name: string) {
       card.replaceChildren(el); card.hidden = false; root.dataset.screen = name;
-      (card.querySelector<HTMLElement>('.primary, .tb-level.current, button:not(:disabled)') ?? root).focus({ preventScroll: true });
+      (card.querySelector<HTMLElement>('.primary') ?? card.querySelector<HTMLElement>('.tb-level.current') ?? card.querySelector<HTMLElement>('button:not(:disabled)') ?? root).focus({ preventScroll: true });
     }
     function showWinCard(lv: LevelDef, moves: number, streak?: number) {
       const next = lv.id === 'daily' ? null : nextLevelId(lv.id);
@@ -433,6 +433,9 @@ export const tideBell: GameModule = {
         return { x: r.left + p.x + dx * renderer.cell, y: r.top + p.y + dy * renderer.cell };
       },
       get screen() { return root.dataset.screen; },
+      get cell() { return renderer.cell; },
+      /** Page-space square around a tile, for art capture. */
+      clip: (x: number, y: number, tiles: number, dy = 0) => { if (!play) return null; const r = canvas.getBoundingClientRect(), c = renderer.center(y * play.board.w + x), s = renderer.cell * tiles; return { x: r.left + c.x - s / 2, y: r.top + c.y - s / 2 + dy * renderer.cell, width: s, height: s }; },
       playerCenter: () => renderer.playerScreen(performance.now()),
       start: (id: string) => { const lv = levelById(id); if (lv) startLevel(lv); },
       solution: () => play?.level.solution
