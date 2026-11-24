@@ -133,7 +133,7 @@ export const STYLES = `
 .ar-coach button{pointer-events:auto}
 .ar.rot .ar-coach{bottom:auto;top:var(--ar-top,60px)}
 .ar.rot .ar-toasts{top:auto;bottom:var(--ar-bottom,96px)}
-.ar.is-immersive .ar-top{padding-left:56px}
+.ar.is-immersive .ar-top,.ar.is-immersive .ar-head{padding-left:56px}
 .ar-coach p{font-size:var(--fs-m);font-weight:800}
 .ar-coach footer{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:var(--fs-xs);font-weight:800;color:var(--red2)}
 .ar-coach button{border:0;background:none;text-decoration:underline;font-weight:800;color:var(--ink);min-height:36px;padding:0 4px}

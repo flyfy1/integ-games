@@ -142,7 +142,8 @@ export function createSession(level: LevelDef, options: SessionOptions): Session
       if (sim.status !== 'playing' || !inside(x, y)) return;
       const c = cellIndex(x, y);
       if (view.eraser) { drag = { last: c, erasing: true, moved: false, start: c }; if (isTrail(sim, c)) erase(sim, c); return; }
-      if (view.card) { drag = null; return; }
+      // With a post card in hand, pressing a cell sends that ant there.
+      if (view.card) { drag = null; session.tapCell(x, y); return; }
       if (isTrail(sim, c)) { drag = { last: c, erasing: false, moved: false, start: c }; return; }
       const result = paint(sim, c);
       drag = result.ok ? { last: c, erasing: false, moved: true, start: c } : null;

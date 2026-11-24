@@ -6,6 +6,8 @@ import { makeEndlessLevel } from '../src/games/ant-raid/data/endless';
 import { applyOutcome, buyUpgrade, defaultSave, isUnlocked, loadSave, migrate, respec, SAVE_KEY, writeSave } from '../src/games/ant-raid/save';
 import { createSim, mulberry32, paint, playCard, step } from '../src/games/ant-raid/sim';
 import { idx } from '../src/games/ant-raid/core';
+import { createSession } from '../src/games/ant-raid/session';
+import { levelById } from '../src/games/ant-raid/data';
 
 const storage = (): GameStorage & { values: Map<string, unknown> } => {
   const values = new Map<string, unknown>();
@@ -74,6 +76,26 @@ describe('ant-raid endless and daily', () => {
     for (let i = 0; i < 400 * 30 && sim.status === 'playing'; i++) { if (i % 60 === 0) playCard(sim, 'worker'); step(sim); }
     expect(sim.status).not.toBe('playing');
     expect(sim.time).toBeGreaterThan(60);
+  });
+});
+
+describe('ant-raid session input', () => {
+  it('drags paint a trail, and a press on a cell with a post card in hand sends that ant there', () => {
+    const session = createSession(levelById('1-3')!, { random: mulberry32(1) });
+    session.dragStart(1, 4); for (let x = 2; x <= 6; x++) session.dragTo(x, 4); session.dragEnd();
+    expect(session.sim.trailParent[idx(6, 4)]).not.toBe(-1);
+    session.pressCard('soldier');
+    expect(session.view.card).toBe('soldier');
+    session.dragStart(5, 4); session.dragEnd();
+    expect(session.view.card).toBeNull();
+    expect(session.sim.queue.some(q => q.caste === 'soldier' && q.post === idx(5, 4))).toBe(true);
+  });
+  it('a tap on a starred food cycles its priority', () => {
+    const session = createSession(levelById('1-2')!, { random: mulberry32(1) });
+    session.dragStart(1, 4); for (let x = 2; x <= 7; x++) session.dragTo(x, 4); for (let y = 5; y <= 7; y++) session.dragTo(7, y); session.dragEnd();
+    const bread = session.sim.foods.find(f => f.id === 'bread')!;
+    session.dragStart(7, 7); session.dragEnd();
+    expect(bread.priority).toBe(2);
   });
 });
 
