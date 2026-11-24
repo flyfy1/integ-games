@@ -28,8 +28,19 @@ const framing = {
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
-  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, 'pebble-putt': { position: 'center 55%', iconPosition: 'center 40%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 46%', iconPosition: 'center 50%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
+  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, 'pebble-putt': { position: 'center 50%', iconPosition: '50% 50%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 46%', iconPosition: 'center 50%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
 };
+
+// Pebble Putt's icon: a close square on the raked stone and its rings.
+async function pebblePuttIcon(page) {
+  const clip = await page.evaluate(() => {
+    const el = document.querySelector('[data-pebble-putt]'), pp = el.__pp, r = el.querySelector('canvas').getBoundingClientRect();
+    const c = pp.project(0, 5.4), e = pp.project(0, 7.2);
+    const half = Math.max(40, Math.hypot(e.x - c.x, e.y - c.y) * 1.25);
+    return { x: r.left + window.scrollX + c.x - half, y: r.top + window.scrollY + c.y - half, width: half * 2, height: half * 2 };
+  });
+  return page.screenshot({ type: 'png', clip });
+}
 
 async function clickCanvas(target, x, y, width = 360, height = 560) {
   const box = await target.boundingBox();
@@ -38,14 +49,14 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
-  // Pebble Putt (WebGL): the Maple Garden hollow mid-aim, with the dotted preview bending round the hollow.
+  // Pebble Putt (WebGL): the raked stone of hole 2 at golden hour, mid-aim, the dotted preview banking off the board.
   'pebble-putt': async (page) => {
     const root = '[data-pebble-putt]';
     await page.waitForFunction((selector) => !!document.querySelector(selector)?.__pp?.gl, root, { timeout: 15000 });
     await page.evaluate((selector) => {
       const pp = document.querySelector(selector).__pp;
-      pp.unlockAll(); pp.openHole(7, 'solo');
-      pp.play.kbAim = { angle: 80, power: 0.62 };
+      pp.unlockAll(); pp.openHole(2, 'solo');
+      pp.play.kbAim = { angle: 63, power: 0.875 };
     }, root);
     await page.addStyleTag({ content: '.pp-hud,.pp-caption,.pp-ghost,.pp-toast{display:none!important}' });
     await page.waitForTimeout(1200);
@@ -265,6 +276,7 @@ try {
     // Lantern Works' icon is a close-up of the finale's red stall and its wick, not the whole workshop.
     const iconSource = slug === 'lantern-works' ? await page.screenshot({ type: 'png', clip: await page.evaluate(() => document.querySelector('[data-lantern-works]').__lw.clip(6, 0, 9, 3)) })
       : slug === 'ant-raid' ? await antRaidIcon(page)
+      : slug === 'pebble-putt' ? await pebblePuttIcon(page)
       : (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
     await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' || slug === 'ant-raid' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? 'image/jpeg' : 'image/png' });
     console.log(`Captured ${slug}`);

@@ -176,7 +176,7 @@ export function createGl(canvas: HTMLCanvasElement) {
             const shade = 0.95 + 0.05 * st - 0.13 * groove + 0.05 * (n - 0.5) + hv * 0.18;
             r = sr * shade; g = sg * shade; b = sb * shade;
             for (const z of zoneBoxes) if (x >= z.a && x <= z.b && y >= z.c && y <= z.d && pointIn(z.poly, x, y)) {
-              if (z.kind === 'gravel') { const q = 0.55 + 0.35 * hash(Math.floor(i / 2), Math.floor(j / 2)); r = 150 * q; g = 146 * q; b = 140 * q; }
+              if (z.kind === 'gravel') { const q = 0.62 + 0.3 * vnoise(x * 16, y * 16) + 0.12 * (n - 0.5); r = 158 * q; g = 150 * q; b = 140 * q; }
               else { const q = 0.85 + 0.15 * n; r = 74 * q; g = 128 * q; b = 70 * q; }
               break;
             }

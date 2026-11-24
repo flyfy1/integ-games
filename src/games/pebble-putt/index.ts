@@ -605,6 +605,14 @@ export const pebblePutt: GameModule = {
         return { fps: avg > 0 ? 1 / avg : 0, worstFrameMs: Math.max(...s, 0) * 1000, workMsAvg: w.reduce((a, b) => a + b, 0) / Math.max(1, w.length), workMsP95: sorted[Math.floor(sorted.length * 0.95)] ?? 0, frames: s.length };
       },
       project: (x: number, y: number) => gl?.project(x, y) ?? null,
+      /** The pointer path without the pointer: drag from (sx, sy) to (px, py) in canvas px, and what that shot would do. */
+      dragAim(sx: number, sy: number, px: number, py: number) {
+        const d: Drag = { id: -1, sx, sy, x: sx, y: sy, angle: 90, power: 0, path: null };
+        aimFromDrag(d, px, py);
+        const b = play?.world.balls[play.turn];
+        const r = play && b ? simulateShot(play.hole, b.onCourse ? b.x : play.hole.tee[0], b.onCourse ? b.y : play.hole.tee[1], d.angle, d.power, play.world.t) : null;
+        return { angle: d.angle, power: d.power, sunk: !!r?.sunk };
+      },
       unlockAll() { for (const x of HOLES) save.holes[x.id] ??= { best: x.par + 1, stars: [true, false, false] }; persist(); }
     } });
 
