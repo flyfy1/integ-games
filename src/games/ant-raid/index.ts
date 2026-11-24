@@ -94,6 +94,9 @@ export const antRaid: GameModule = {
       root.style.setProperty('--ar-h', `${height}px`);
       root.classList.toggle('compact', width < 640 || height < 480);
       root.classList.toggle('narrow', width < 520);
+      // Short landscape (a phone on its side): the hand and the Queen calls stand in the side margins, so the
+      // yard gets the full height instead of sharing it with a bottom bar.
+      root.classList.toggle('side', height < 520 && width > height * 1.6);
       const pr = Math.min(2, window.devicePixelRatio || 1);
       const pw = Math.round(width * pr), ph = Math.round(height * pr);
       if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }

@@ -51,7 +51,8 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
   const sun = h('div', { class: 'ar-sun', title: t('hud.sun'), role: 'img', 'aria-label': t('hud.sun') }, sunSvg);
   const speed = h('button', { class: 'ar-icon', 'data-ui': 'speed', 'aria-label': t('hud.speed'), 'aria-pressed': String(session.speed === 2), onclick: () => { actions.toggleSpeed(); speed.setAttribute('aria-pressed', String(session.speed === 2)); speed.textContent = session.speed === 2 ? '»' : '›'; } }, session.speed === 2 ? '»' : '›');
   const pause = h('button', { class: 'ar-icon', 'aria-label': t('hud.pause'), onclick: () => actions.pause() }, 'II');
-  const top = h('div', { class: 'ar-top' }, sugar, scent, goal, alarm, hearts, sun, speed, pause);
+  // On narrow portrait screens the bar is two rows: resources and the sun, then the goal with speed and pause.
+  const top = h('div', { class: 'ar-top' }, sugar, scent, goal, alarm, hearts, sun, h('i', { class: 'ar-brk', 'aria-hidden': 'true' }), speed, pause);
 
   // ------------------------------------------------------------ bottom
   const cardEls = new Map<CasteId, { el: HTMLButtonElement; cd: HTMLElement; stock: HTMLElement; cost: HTMLElement }>();
@@ -86,7 +87,8 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
   const bottom = h('div', { class: 'ar-bottom' }, hand, queens);
 
   // ------------------------------------------------------------ coach + toasts
-  const coachText = h('p'), coachCount = h('span'), coach = h('div', { class: 'ar-coach', role: 'status', hidden: true }, coachText,
+  // Tapping the tip folds it to one line (and back), so it never has to sit over the cells it talks about.
+  const coachText = h('p', { onclick: () => coach.classList.toggle('mini') }), coachCount = h('span'), coach = h('div', { class: 'ar-coach', role: 'status', hidden: true }, coachText,
     h('footer', null, coachCount, h('button', { onclick: () => { session.skipTutorial(); ctx.coach.skipAll(); syncCoach(); } }, t('hud.skip'))));
   const toasts = h('div', { class: 'ar-toasts', 'aria-live': 'polite' });
   const element = h('div', { class: 'ar-hud' }, top, bottom, coach, toasts);
@@ -99,7 +101,7 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
     coachIndex = index;
     element.querySelectorAll('.coach').forEach(el => el.classList.remove('coach'));
     if (!step) { coach.hidden = true; return; }
-    coach.hidden = false;
+    coach.hidden = false; coach.classList.remove('mini');
     text(coachText, i18n.tr(step.text));
     text(coachCount, t('hud.tip', { i: index + 1, n: level.tutorial?.length ?? 1 }));
     lastCoachUi = step.ui;
@@ -120,6 +122,10 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
     element,
     insets() {
       const topH = top.getBoundingClientRect().height || 52, bottomH = bottom.getBoundingClientRect().height || 86;
+      if (element.parentElement?.classList.contains('side')) {
+        const handW = hand.getBoundingClientRect().width, queensW = queens.getBoundingClientRect().width;
+        return { top: topH + 2, right: queensW ? queensW + 12 : 0, bottom: 4, left: handW ? handW + 12 : 0 };
+      }
       return { top: topH + 2, right: 0, bottom: bottomH + 2, left: 0 };
     },
     tick(dt) {

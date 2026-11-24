@@ -31,6 +31,7 @@ export function attachInput(deps: InputDeps): () => void {
     pointer = event.pointerId;
     try { canvas.setPointerCapture(event.pointerId); } catch { /* synthetic events */ }
     session.dragStart(cell.x, cell.y);
+    root.classList.add('touching');
   };
   const onMove = (event: PointerEvent) => {
     const session = deps.session();
@@ -42,6 +43,7 @@ export function attachInput(deps: InputDeps): () => void {
   const onUp = (event: PointerEvent) => {
     if (pointer !== event.pointerId) return;
     pointer = null;
+    root.classList.remove('touching');
     deps.session()?.dragEnd();
   };
   const onLeave = () => deps.session()?.setHover(null);
