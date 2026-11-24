@@ -17,14 +17,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen', 'lantern-works'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
 
 const framing = {
   'merge-2048': { fit: 'contain', position: 'center center' },
-  'midnight-kitchen': { iconPosition: '2% center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
+  'midnight-kitchen': { iconPosition: '2% center' }, 'lantern-works': { position: 'center 55%', iconPosition: 'center center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
@@ -38,6 +38,22 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
+  // Stages the Thousand-Lantern Night finale mid-run from a stored solution: every machine working, lit lanterns on the belts.
+  'lantern-works': async (page) => {
+    const root = '[data-lantern-works]';
+    await page.waitForFunction((selector) => !!document.querySelector(selector)?.__lw, root);
+    await page.evaluate(async (selector) => {
+      const lw = document.querySelector(selector).__lw;
+      lw.unlockAll(); lw.openLevel('4-5'); lw.closeCard();
+      const { parseScript } = await import('/src/games/lantern-works/script.ts');
+      const { SOLUTIONS } = await import('/tests/lantern-works-solutions.ts');
+      for (const t of parseScript(SOLUTIONS['4-5'].market)) if (t.at === 0) lw.edit(t.edit);
+      const { step } = await import('/src/games/lantern-works/sim.ts');
+      lw.run(); lw.run();
+      for (let i = 0; i < 27; i++) step(lw.play.sim);
+    }, root);
+    await page.waitForTimeout(500);
+  },
   // Stages a mid-night countertop through the game's debug handle: a built-up kitchen facing a mixed wave.
   'midnight-kitchen': async (page) => {
     const root = '[data-midnight-kitchen]';
@@ -185,7 +201,9 @@ try {
     await writeComposite(composer, source, coverPath, 640, 360, frame);
     // Fruit Orbit's falling subject occupies a narrow part of a tall board; its
     // cover keeps both fruits legible, so it is the most recognisable icon crop.
-    const iconSource = (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
+    // Lantern Works' icon is a close-up of the finale's red stall and its wick, not the whole workshop.
+    const iconSource = slug === 'lantern-works' ? await page.screenshot({ type: 'png', clip: await page.evaluate(() => document.querySelector('[data-lantern-works]').__lw.clip(6, 0, 9, 3)) })
+      : (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
     await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? 'image/jpeg' : 'image/png' });
     console.log(`Captured ${slug}`);
   }
