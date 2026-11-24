@@ -4,6 +4,9 @@ import { COLS, HIDDEN, ROWS, SHAPES, stackHeight, type Cell, type Game, type Pie
 export const ACCENT = '#8B7CFF';
 /** One colour per piece, I O T S Z J L, chosen to stay distinct on the dark well. */
 export const PIECE_COLORS = ['#3FD0EE', '#FFCF57', '#B58CFF', '#62DC8A', '#FF7388', '#6688FF', '#FF9F52'] as const;
+/** Dig garbage (board value 8, so sprite index 7): a cool slate that reads as "not yours" next to every piece colour. */
+export const GARBAGE_COLOR = '#5E6788';
+const blockColor = (type: number) => (type >= 0 && type < PIECE_COLORS.length ? PIECE_COLORS[type] : GARBAGE_COLOR);
 const INK = '#F7F9FF', MUTED = '#A8B1C5', PANEL = '#0E1326', LINE = '#2A3355';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
@@ -51,8 +54,26 @@ export type Effects = {
   levelUp: number;
   /** Milliseconds left of the small downward nudge after a hard drop. */
   thud: number;
+  /** Milliseconds left of the perfect-clear flash over the well. */
+  flash: number;
 };
-export const newEffects = (): Effects => ({ clear: null, locks: [], trails: [], popups: [], levelUp: 0, thud: 0 });
+export const newEffects = (): Effects => ({ clear: null, locks: [], trails: [], popups: [], levelUp: 0, thud: 0, flash: 0 });
+export const FLASH_MS = 700;
+
+/** The mode card under NEXT: what this mode is chasing, a progress bar and the personal-best pace marker on it. */
+export type ModeCard = {
+  title: string;
+  big: string;
+  /** 0–1 fill of the progress bar; omitted for modes with nothing to fill. */
+  fill?: number;
+  /** 0–1 position of the personal-best pace marker on the bar. */
+  mark?: number | null;
+  /** One short line under the bar (pace delta, split, pieces left…). */
+  note?: string;
+  noteColor?: string;
+  /** Stars to draw (Dig): how many are still possible. */
+  stars?: number;
+};
 export const LOCK_MS = 200, TRAIL_MS = 220, POPUP_MS = 1100, LEVEL_MS = 1400, THUD_MS = 110;
 
 export type View = {
@@ -62,6 +83,13 @@ export type View = {
   /** Lines shown in the empty well before the first piece lands; empty to hide. */
   hint: readonly string[]; hintAlpha: number;
   labels: { hold: string; next: string; score: string; level: string; lines: string; best: string; levelUp: string; faster: string };
+  /** Replaces the level / lines / best column for modes that track something else. */
+  stats?: Array<[string, string]>;
+  /** Replaces the score in the phone strip (Sprint shows its clock there). */
+  headline?: [string, string];
+  card?: ModeCard | null;
+  /** Count-in before a timed mode: the text to show big in the well, empty when running. */
+  countIn?: string;
 };
 
 const mix = (hex: string, target: number, amount: number) => {
@@ -95,7 +123,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       made = document.createElement('canvas');
       made.width = made.height = Math.max(1, Math.round(size * dpr));
       const sctx = made.getContext('2d');
-      if (sctx) { sctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintBlock(sctx, PIECE_COLORS[type], 0, 0, size); }
+      if (sctx) { sctx.setTransform(dpr, 0, 0, dpr, 0, 0); paintBlock(sctx, blockColor(type), 0, 0, size); }
       sprites.set(key, made);
     }
     return made;
@@ -129,6 +157,35 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     ctx.globalAlpha = 1;
   }
 
+  /** The mode card sits under NEXT: title, a big value, a bar with the personal-best marker, and a note. */
+  function modeCard(card: ModeCard, labelSize: number, valueSize: number) {
+    const { next, compact } = layout;
+    const x = next.x, w = next.w, y = next.y + next.h + (compact ? 8 : 12);
+    const barH = 8, h = 24 + valueSize + 8 + (card.fill !== undefined ? barH + 8 : 0) + (card.note ? 20 : 0) + (card.stars !== undefined ? 22 : 0) + 6;
+    panel({ x, y, w, h }, '#3A3F78');
+    text(card.title, x + w / 2, y + 17, compact ? 11 : labelSize, '#C9C2FF', 'center');
+    let cy = y + 22 + valueSize;
+    text(card.big, x + w / 2, cy, valueSize, INK, 'center', 900);
+    cy += 8;
+    if (card.fill !== undefined) {
+      const bx = x + 8, bw = w - 16;
+      ctx.fillStyle = '#1E2547'; ctx.beginPath(); ctx.roundRect(bx, cy, bw, barH, 4); ctx.fill();
+      const fill = clamp(card.fill, 0, 1);
+      if (fill > 0) { ctx.fillStyle = ACCENT; ctx.beginPath(); ctx.roundRect(bx, cy, Math.max(barH, bw * fill), barH, 4); ctx.fill(); }
+      if (card.mark !== undefined && card.mark !== null) {
+        // Personal-best pace: a thin bright tick where the best run was at this moment.
+        const mx = bx + bw * clamp(card.mark, 0, 1);
+        ctx.fillStyle = '#FFCF57'; ctx.fillRect(Math.round(mx) - 1, cy - 4, 2, barH + 8);
+      }
+      cy += barH + 8;
+    }
+    if (card.note) { text(card.note, x + w / 2, cy + 14, compact ? 11 : 13, card.noteColor ?? MUTED, 'center', 800); cy += 20; }
+    if (card.stars !== undefined) {
+      const size = compact ? 15 : 18;
+      text('★★★'.slice(0, card.stars) + '☆☆☆'.slice(0, 3 - card.stars), x + w / 2, cy + size, size, '#FFCF57', 'center', 900);
+    }
+  }
+
   function draw(view: View) {
     const { game, fx, reduced } = view, { well, cell, hold, next, mini, compact } = layout;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -143,17 +200,20 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     text(view.labels.next, next.x + next.w / 2, next.y + 17, labelSize, MUTED, 'center');
     game.queue.slice(0, 3).forEach((type, i) => preview(type, next.x + next.w / 2, next.y + 24 + mini * 3 * (i + 0.5), i === 0 ? mini : Math.max(10, mini - 2), i === 0 ? 1 : 0.8));
 
-    const stats: Array<[string, string]> = [[view.labels.level, String(game.level)], [view.labels.lines, String(game.lines)], [view.labels.best, String(Math.max(view.best, game.score))]];
+    const stats: Array<[string, string]> = view.stats ? [...view.stats] : [[view.labels.level, String(game.level)], [view.labels.lines, String(game.lines)], [view.labels.best, String(Math.max(view.best, game.score))]];
+    const headline = view.headline ?? [view.labels.score, String(view.shownScore)];
     if (compact) {
-      text(view.labels.score, layout.w / 2, 17, labelSize, MUTED, 'center');
-      text(String(view.shownScore), layout.w / 2, 43, 26, INK, 'center');
-    } else stats.unshift([view.labels.score, String(view.shownScore)]);
+      text(headline[0], layout.w / 2, 17, labelSize, MUTED, 'center');
+      text(headline[1], layout.w / 2, 43, 26, INK, 'center');
+    } else stats.unshift(headline);
     const rowH = labelSize + valueSize + (compact ? 13 : 16);
     stats.forEach(([label, value], i) => {
       const y = layout.stats.y + i * rowH;
       text(label, layout.stats.x + 4, y + labelSize, labelSize, MUTED);
       text(value, layout.stats.x + 4, y + labelSize + valueSize + 3, i === 0 && !compact ? valueSize + 4 : valueSize, INK);
     });
+
+    if (view.card) modeCard(view.card, labelSize, valueSize);
 
     // The well.
     const danger = game.over ? 0 : clamp((stackHeight(game) - HIDDEN - 12) / 5, 0, 1);
@@ -252,6 +312,23 @@ export function createRenderer(canvas: HTMLCanvasElement) {
       }
       ctx.restore();
     });
+
+    if (fx.flash > 0) {
+      // Perfect clear: the empty well glows gold and fades.
+      const a = clamp(fx.flash / FLASH_MS, 0, 1);
+      const glowFill = ctx.createRadialGradient(well.x + well.w / 2, well.y + well.h * 0.6, 0, well.x + well.w / 2, well.y + well.h * 0.6, well.h * 0.7);
+      glowFill.addColorStop(0, `rgba(255,214,110,${0.45 * a})`); glowFill.addColorStop(1, 'rgba(255,214,110,0)');
+      ctx.fillStyle = glowFill; ctx.fillRect(well.x, well.y, well.w, well.h);
+    }
+
+    if (view.countIn) {
+      const size = clamp(Math.round(cell * 2.2), 40, 84);
+      ctx.fillStyle = 'rgba(9,12,28,.55)'; ctx.fillRect(well.x, well.y, well.w, well.h);
+      ctx.lineJoin = 'round'; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(7,9,22,.9)';
+      ctx.font = `900 ${size}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.strokeText(view.countIn, well.x + well.w / 2, well.y + well.h * 0.42); ctx.fillStyle = '#FFCF57'; ctx.fillText(view.countIn, well.x + well.w / 2, well.y + well.h * 0.42);
+      ctx.textBaseline = 'alphabetic';
+    }
 
     if (fx.levelUp > 0) {
       const p = 1 - fx.levelUp / LEVEL_MS, a = p < 0.12 ? p / 0.12 : p > 0.75 ? (1 - p) / 0.25 : 1;

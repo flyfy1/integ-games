@@ -47,8 +47,11 @@ const KICKS_I: Record<string, readonly Cell[]> = {
   '3>0': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]], '0>3': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]]
 };
 
+/** Board value of a pre-placed garbage cell (Dig puzzles). Piece cells are piece type + 1, so 1–7. */
+export const GARBAGE = 8;
+
 export type Game = {
-  /** ROWS x COLS; 0 is empty, otherwise piece type + 1. */
+  /** ROWS x COLS; 0 is empty, GARBAGE for dig garbage, otherwise piece type + 1. */
   board: number[][];
   active: Piece | null;
   queue: PieceType[];
@@ -106,6 +109,11 @@ function refill(game: Game) {
   while (game.queue.length < NEXT_COUNT + 1) game.queue.push(...newBag(game.random));
 }
 
+export type GameOptions = {
+  /** Garbage rows, listed bottom-up, '#' filled and '.' open; they sit at the bottom of the well. */
+  garbage?: readonly string[];
+};
+
 /** Brings in a piece (the next one unless `type` is given). Ends the run when the entry cells are taken. */
 export function spawn(game: Game, type?: PieceType): boolean {
   refill(game);
@@ -119,13 +127,26 @@ export function spawn(game: Game, type?: PieceType): boolean {
   return true;
 }
 
-export function createGame(random: () => number): Game {
+export function createGame(random: () => number, options: GameOptions = {}): Game {
   const game: Game = {
     board: Array.from({ length: ROWS }, emptyRow), active: null, queue: [], hold: null, canHold: true,
     score: 0, lines: 0, level: 1, combo: -1, backToBack: false, over: false, pieces: 0, turnedLast: false, clearing: [], random
   };
+  options.garbage?.forEach((row, i) => { game.board[ROWS - 1 - i] = [...row.padEnd(COLS, '.')].slice(0, COLS).map((ch) => (ch === '#' ? GARBAGE : 0)); });
   spawn(game);
   return game;
+}
+
+/** Garbage cells still in the well (a Dig puzzle is solved at 0). */
+export const garbageLeft = (game: Game): number => game.board.reduce((sum, row) => sum + row.filter((v) => v === GARBAGE).length, 0);
+/** Rows that still hold garbage. */
+export const garbageRows = (game: Game): number => game.board.filter((row) => row.includes(GARBAGE)).length;
+
+/** Zen never tops out: the well is emptied, the run (score, lines, queue) carries on with a fresh piece. */
+export function zenRelief(game: Game): void {
+  game.board = Array.from({ length: ROWS }, emptyRow);
+  game.over = false; game.clearing = []; game.combo = -1; game.canHold = true;
+  spawn(game);
 }
 
 /** Moves the active piece; returns false (and changes nothing) when blocked. */

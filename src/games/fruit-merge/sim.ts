@@ -65,6 +65,8 @@ export type World = {
   /** Biggest tier made this run (-1 before the first drop). */
   biggest: number; merges: number; drops: number;
   current: number; next: number; cooldown: number;
+  /** Jar puzzles drop a fixed list of tiers; -1 in `current` / `next` means the list has run out. */
+  sequence?: readonly number[];
 };
 
 const DROP_WEIGHTS = [6, 5, 4, 3, 2];
@@ -78,12 +80,12 @@ export function pickTier(random: () => number, drops: number): number {
   return max;
 }
 
-export function createWorld(random: () => number): World {
-  const current = pickTier(random, 0), next = pickTier(random, 1);
-  return { bodies: [], events: [], time: 0, nextId: 1, score: 0, chain: 0, chainTimer: 0, bestChain: 0, danger: 0, overflowing: false, over: false, biggest: -1, merges: 0, drops: 0, current, next, cooldown: 0 };
+export function createWorld(random: () => number, sequence?: readonly number[]): World {
+  const current = sequence ? sequence[0] ?? -1 : pickTier(random, 0), next = sequence ? sequence[1] ?? -1 : pickTier(random, 1);
+  return { bodies: [], events: [], time: 0, nextId: 1, score: 0, chain: 0, chainTimer: 0, bestChain: 0, danger: 0, overflowing: false, over: false, biggest: -1, merges: 0, drops: 0, current, next, cooldown: 0, ...(sequence ? { sequence } : {}) };
 }
 
-export const clampAim = (x: number, tier: number) => Math.max(BOUNDS.left + RADII[tier], Math.min(BOUNDS.right - RADII[tier], x));
+export const clampAim = (x: number, tier: number) => { const r = RADII[tier] ?? RADII[0]; return Math.max(BOUNDS.left + r, Math.min(BOUNDS.right - r, x)); };
 
 export function addBody(world: World, tier: number, x: number, y: number, settled = false): Body {
   const r = RADII[tier];
@@ -95,7 +97,7 @@ export function addBody(world: World, tier: number, x: number, y: number, settle
 
 /** Releases the held fruit at `x`. Returns false while the dropper is cooling down or the run is over. */
 export function dropFruit(world: World, x: number, random: () => number): boolean {
-  if (world.over || world.cooldown > 0) return false;
+  if (world.over || world.cooldown > 0 || world.current < 0) return false;
   const tier = world.current;
   const body = addBody(world, tier, clampAim(x, tier), BOUNDS.spawnY);
   // A hair of spin and sideways drift, fixed by the drop count, stops perfectly vertical towers from balancing.
@@ -104,7 +106,7 @@ export function dropFruit(world: World, x: number, random: () => number): boolea
   // A chain belongs to one drop: the cascade it sets off, not a run of quick separate merges.
   world.chain = 0; world.chainTimer = 0;
   world.current = world.next;
-  world.next = pickTier(random, world.drops);
+  world.next = world.sequence ? world.sequence[world.drops + 1] ?? -1 : pickTier(random, world.drops);
   world.cooldown = DROP_COOLDOWN;
   return true;
 }
@@ -249,4 +251,38 @@ export function maxOverlap(world: World): number {
     for (let j = i + 1; j < bodies.length; j++) { const b = bodies[j]; worst = Math.max(worst, a.r + b.r - Math.hypot(a.x - b.x, a.y - b.y)); }
   }
   return worst;
+}
+
+/**
+ * Places fruit for a jar puzzle: each one lands where a drop at `x` would come to rest, then the jar settles for a
+ * moment. Anything that merges while settling is part of the puzzle's start; the score and counters start at zero.
+ */
+export function prefill(world: World, fruit: ReadonlyArray<readonly [tier: number, x: number]>, settle = 1.5) {
+  for (const [tier, x] of fruit) {
+    const r = RADII[tier], cx = clampAim(x, tier);
+    addBody(world, tier, cx, landingY(world, cx, r), true);
+    for (let i = 0; i < 6; i++) step(world);
+  }
+  for (let t = 0; t < settle; t += STEP) step(world);
+  world.events = []; world.score = 0; world.merges = 0; world.chain = 0; world.chainTimer = 0; world.bestChain = 0;
+  world.biggest = Math.max(-1, ...world.bodies.map((b) => b.tier)); world.danger = 0; world.time = 0;
+}
+
+/** True once nothing is moving or growing and no chain is still open: a puzzle can be judged. */
+export const isSettled = (world: World) => world.chainTimer <= 0 && world.bodies.every((b) => b.grow >= 1 && Math.abs(b.vx) < 25 && Math.abs(b.vy) < 25);
+
+/** Helper item: every fruit gets a hop and a sideways nudge, alternating by id so piles shuffle instead of jumping as one. */
+export function shake(world: World) {
+  for (const b of world.bodies) {
+    const side = b.id % 2 ? 1 : -1;
+    b.vy -= 520 + (b.id % 3) * 90; b.vx += side * (160 + (b.id % 5) * 40); b.spin += side * 3;
+  }
+}
+
+/** Helper item: removes the smallest fruit (the highest one if several tie). Returns it, or null for an empty jar. */
+export function popSmallest(world: World): Body | null {
+  let pick: Body | null = null;
+  for (const b of world.bodies) if (!pick || b.tier < pick.tier || (b.tier === pick.tier && b.y < pick.y)) pick = b;
+  if (pick) world.bodies = world.bodies.filter((b) => b !== pick);
+  return pick;
 }
