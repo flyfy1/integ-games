@@ -176,3 +176,20 @@ describe('A7 through the session: frame timing and fast-forward never change the
     }
   });
 });
+
+describe('Digger token in the session', () => {
+  it('a tap on the token removes it, a drag starting on it draws on through the dug cells', () => {
+    const level = puzzleById('2-3')!;
+    const s = createSession(level);
+    const drawTo = (pts: [number, number][]) => { s.dragStart(...pts[0]); for (const p of pts.slice(1)) s.dragTo(...p); s.dragEnd(); };
+    drawTo([[1, 4], [1, 0], [12, 0], [12, 4]]);
+    s.tool = 'digger'; drawTo([[12, 4]]);
+    expect(s.plan.digs.length).toBe(1);
+    drawTo([[12, 4]]);
+    expect(s.plan.digs.length).toBe(0);
+    s.tool = 'digger'; drawTo([[12, 4]]);
+    drawTo([[12, 4], [9, 4]]);
+    expect(s.plan.digs.length).toBe(1);
+    expect(s.canGo).toBe(true);
+  });
+});

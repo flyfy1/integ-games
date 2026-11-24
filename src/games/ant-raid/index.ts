@@ -66,7 +66,7 @@ export const antRaid: GameModule = {
     let session: Session | null = null, hud: PuzzleHud | null = null, dialogue: Dialogue | null = null;
     let screen: { name: PScreen; params: PParams; element: HTMLElement } | null = null;
     let current: PuzzleLevel | null = null, resultsShown = false, touched = false;
-    let externalPause = false, destroyed = false, raf = 0, last = 0, clock = 0;
+    let externalPause = false, destroyed = false, raf = 0, last = 0, clock = 0, frozen = false;
     let storageWarned = false, drawFailed = false, noticeTimer: ReturnType<typeof setTimeout> | null = null;
     const notice = h('div', { class: 'ar-notice', role: 'status', hidden: true });
     root.append(notice);
@@ -182,7 +182,7 @@ export const antRaid: GameModule = {
       closeScreen();
       if (dialogue) { dialogue.element.remove(); dialogue = null; }
       if (session) endLevel();
-      current = level; resultsShown = false; touched = false;
+      current = level; resultsShown = false; touched = false; frozen = false;
       session = createSession(level, { reduced: reducedNow() });
       if (tutorial(level)) session.ghost = level.solution.paths[0].slice(1);
       mountHud();
@@ -442,7 +442,7 @@ export const antRaid: GameModule = {
       const dt = Math.min(0.1, Math.max(0, (now - last) / 1000) || 0);
       last = now; clock += dt;
       if (dialogue) dialogue.update(dt);
-      else if (session && (!screen || screen.name === 'results')) {
+      else if (session && !frozen && (!screen || screen.name === 'results')) {
         const events = session.advance(dt);
         for (const event of events) onSessionEvent(event);
         if (session.mode === 'won' && session.beatLeft <= 0 && !resultsShown && pendingResults) { resultsShown = true; go('results', { results: pendingResults }); }
@@ -459,7 +459,7 @@ export const antRaid: GameModule = {
       get session() { return session; }, get save() { return save; }, get screen() { return screen?.name ?? null; }, get renderer() { return renderer; },
       get dialogue() { return !!dialogue; }, levels: PUZZLES.map(level => level.id),
       go: (name: PScreen, params?: PParams) => go(name, params), play: (id: string) => play(id), start: (id: string) => play(id), persist,
-      /** Art capture: draw a level's reference plan and play its run forward `seconds`, frozen there. */
+      /** Art capture: draw a level's reference plan and play its run forward `seconds`, frozen there (until the next level opens). */
       stage(id: string, seconds: number) {
         play(id);
         closeScreen();
@@ -468,6 +468,7 @@ export const antRaid: GameModule = {
         if (!drawn.ok) return false;
         s.go();
         for (let k = 0; k < seconds * 120 && s.run; k++) s.advance(1 / 120);
+        frozen = true;
         return true;
       },
       /** Page-space square of `cells` cells around yard point (x, y), for the art capture's icon close-up. */

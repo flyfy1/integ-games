@@ -140,8 +140,13 @@ export function createSession(level: PuzzleLevel, options: { reduced?: boolean }
       clearFailIfEdited();
     },
     dragTo(x, y) {
-      if (!drag || drag.tap || drag.done || mode !== 'plan' || !inside(x, y)) return;
+      if (!drag || drag.done || mode !== 'plan' || !inside(x, y)) return;
       const target = idx(x, y);
+      // A press on a Digger token is a tap (remove it) unless the finger moves on: then it draws on from there.
+      if (drag.tap) {
+        if (session.tool === 'digger' || target === drag.start) return;
+        drag = { last: drag.start, moved: false, start: drag.start, snap: snapshot(), tap: false };
+      }
       let guard = 0;
       while (drag.last !== target && guard++ < 40) {
         const lx = cx(drag.last), ly = cy(drag.last);
