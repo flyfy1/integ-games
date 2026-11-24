@@ -17,7 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen', 'lantern-works', 'ant-raid'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen', 'lantern-works', 'ant-raid', 'pebble-putt'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
@@ -28,7 +28,7 @@ const framing = {
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
-  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 46%', iconPosition: 'center 50%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
+  'fruit-merge': { fit: 'contain', position: 'center center', iconPosition: 'center 4%' }, 'pebble-putt': { position: 'center 55%', iconPosition: 'center 40%' }, bubble: { position: 'center 45%' }, 'hex-puzzle': { fit: 'contain', position: 'center center' }, knife: { position: 'center 43%' }, arena: { position: 'center 46%', iconPosition: 'center 50%' }, ashfall: { position: 'center 60%', iconPosition: '72% 45%' }
 };
 
 async function clickCanvas(target, x, y, width = 360, height = 560) {
@@ -38,6 +38,18 @@ async function clickCanvas(target, x, y, width = 360, height = 560) {
 }
 
 const safeInteraction = {
+  // Pebble Putt (WebGL): the Maple Garden hollow mid-aim, with the dotted preview bending round the hollow.
+  'pebble-putt': async (page) => {
+    const root = '[data-pebble-putt]';
+    await page.waitForFunction((selector) => !!document.querySelector(selector)?.__pp?.gl, root, { timeout: 15000 });
+    await page.evaluate((selector) => {
+      const pp = document.querySelector(selector).__pp;
+      pp.unlockAll(); pp.openHole(7, 'solo');
+      pp.play.kbAim = { angle: 80, power: 0.62 };
+    }, root);
+    await page.addStyleTag({ content: '.pp-hud,.pp-caption,.pp-ghost,.pp-toast{display:none!important}' });
+    await page.waitForTimeout(1200);
+  },
   // Stages the Thousand-Lantern Night finale mid-run from a stored solution: every machine working, lit lanterns on the belts.
   'lantern-works': async (page) => {
     const root = '[data-lantern-works]';
@@ -225,7 +237,9 @@ let browser;
 try {
   await mkdir(outputDir, { recursive: true });
   await vite.listen();
-  browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
+  // WebGL games need a GL backend in headless Chromium; software SwiftShader is enough for a still frame.
+  const glArgs = selectedSlugs.includes('pebble-putt') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [];
+  browser = await chromium.launch({ headless: true, args: glArgs, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, deviceScaleFactor: 1, reducedMotion: 'reduce' });
   const page = await context.newPage();
   await page.addInitScript(() => {

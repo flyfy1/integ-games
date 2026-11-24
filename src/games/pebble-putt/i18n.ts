@@ -21,11 +21,12 @@ export const EN = {
   'result.garden': '{garden} complete', 'result.final': 'All eighteen holes played. The gardens are quiet; the pebbles rest.',
   'party.title': 'Pass & Play', 'party.sub': 'Share one screen. Pebbles knock each other: bump a rival away, or into the cup for them.',
   'party.players': 'Players', 'party.course': 'Course', 'party.all': 'All 18 holes', 'party.start': 'Start', 'party.card': 'Scorecard', 'party.total': 'Total',
-  'party.win': '{name} wins!', 'party.tie': 'A tie!', 'party.again': 'Play again', 'party.next': 'Next hole', 'party.done': 'Finish', 'party.hole': 'Hole {n}',
+  'party.par': 'Par', 'party.win': '{name} wins!', 'party.tie': 'A tie!', 'party.again': 'Play again', 'party.next': 'Next hole', 'party.done': 'Finish', 'party.hole': 'Hole {n}',
   'settings.title': 'Settings', 'settings.lang': 'Language', 'settings.sound': 'Sound', 'settings.reduced': 'Reduce motion', 'settings.preview': 'Long aim line on every hole',
   'settings.reset': 'Reset progress', 'settings.resetConfirm': 'Erase every star and best score?', 'settings.resetDone': 'Progress reset',
   'common.back': 'Back', 'common.on': 'On', 'common.off': 'Off', 'common.storage': 'Saving is unavailable: progress lasts until you leave.',
   'fallback.title': 'This garden needs 3D', 'fallback.body': 'Pebble Putt draws its garden with WebGL, which this browser has switched off or does not support. Try another browser, or turn on hardware acceleration, then reload.',
+  'fallback.loadTitle': 'The garden did not load', 'fallback.loadBody': 'The 3D part of Pebble Putt could not be downloaded. Check your connection, then try again.',
   'fallback.retry': 'Try again',
   'keys': 'Keys: ←/→ aim (hold Shift for fine) · ↑/↓ power · Space shoot · R retry'
 } as const;
@@ -48,11 +49,12 @@ export const ZH: Record<Key, string> = {
   'result.garden': '{garden}已完成', 'result.final': '十八洞全部打完。庭院静了，石子也歇了。',
   'party.title': '轮流对战', 'party.sub': '同一块屏幕轮流打。石子会互相碰撞：把对手撞开，或者把它撞进洞里。',
   'party.players': '人数', 'party.course': '球场', 'party.all': '全部 18 洞', 'party.start': '开始', 'party.card': '记分卡', 'party.total': '总杆',
-  'party.win': '{name}获胜！', 'party.tie': '平局！', 'party.again': '再来一局', 'party.next': '下一洞', 'party.done': '结束', 'party.hole': '第 {n} 洞',
+  'party.par': '标准杆', 'party.win': '{name}获胜！', 'party.tie': '平局！', 'party.again': '再来一局', 'party.next': '下一洞', 'party.done': '结束', 'party.hole': '第 {n} 洞',
   'settings.title': '设置', 'settings.lang': '语言', 'settings.sound': '音效', 'settings.reduced': '减少动画', 'settings.preview': '每一洞都显示长瞄准线',
   'settings.reset': '重置进度', 'settings.resetConfirm': '清除所有星星和最佳成绩？', 'settings.resetDone': '进度已重置',
   'common.back': '返回', 'common.on': '开', 'common.off': '关', 'common.storage': '无法保存：离开后进度不会保留。',
   'fallback.title': '这座庭院需要 3D', 'fallback.body': '石子推杆用 WebGL 绘制庭院，而这个浏览器关闭了或不支持 WebGL。请换一个浏览器，或打开硬件加速后刷新。',
+  'fallback.loadTitle': '庭院没能加载', 'fallback.loadBody': '石子推杆的 3D 部分没能下载。请检查网络后再试一次。',
   'fallback.retry': '再试一次',
   'keys': '按键：←/→ 瞄准（按住 Shift 微调）· ↑/↓ 力度 · 空格 击球 · R 重打'
 };

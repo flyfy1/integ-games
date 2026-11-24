@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mulberry, pathField, sloppyRound } from '../src/games/pebble-putt/bot';
+import { mulberry, pathField, phasesFor, sloppyRound } from '../src/games/pebble-putt/bot';
 import { GARDENS, HOLES } from '../src/games/pebble-putt/holes';
 import { createWorld, simulateShot, step, strike } from '../src/games/pebble-putt/physics';
 import { PROOFS } from '../src/games/pebble-putt/proofs';
@@ -41,10 +41,11 @@ describe('Pebble Putt course', () => {
     expect(hole.parRoute.length).toBeGreaterThan(1);
   });
 
-  it.each(HOLES.filter(h => h.id > 1 && h.id !== 4).map(h => [h.id, h] as const))('hole %i: aiming straight at the cup never aces', (_id, hole) => {
+  it.each(HOLES.filter(h => h.id > 1).map(h => [h.id, h] as const))('hole %i: aiming straight at the cup (±1°, any power, any gate time) never aces', (_id, hole) => {
     const direct = Math.atan2(hole.cup[1] - hole.tee[1], hole.cup[0] - hole.tee[0]) * 180 / Math.PI;
-    for (let p = 1; p <= 40; p++) for (const at of hole.gates?.length ? [0, 0.5, 1, 1.5] : [0]) {
-      expect(simulateShot(hole, hole.tee[0], hole.tee[1], direct, p / 40, at).sunk, `power ${p}/40 at ${at}`).toBe(false);
+    const times = hole.gates?.length ? phasesFor(hole, 0.1) : [0];
+    for (const d of [-1, -0.5, 0, 0.5, 1]) for (let p = 1; p <= 40; p++) for (const at of times) {
+      expect(simulateShot(hole, hole.tee[0], hole.tee[1], direct + d, p / 40, at).sunk, `angle ${d} power ${p}/40 at ${at}`).toBe(false);
     }
   });
 

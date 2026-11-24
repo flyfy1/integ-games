@@ -20,7 +20,7 @@ export type Palette = {
 
 export const PALETTES: Record<number, Palette> = {
   1: { skyTop: '#f2a65a', skyLow: '#ffe2b0', fog: '#f7d6a4', sun: '#ffc07a', sunI: 2.7, hemiSky: '#ffe2bd', hemiGround: '#8a6a48', hemiI: 0.95,
-    sand: [238, 218, 178], outer: [138, 146, 92], board: '#8a5a33', stone: '#7d7468', water: '#3f8fa6', leaf: '#d9622b', lantern: 0 },
+    sand: [238, 218, 178], outer: [134, 152, 88], board: '#8a5a33', stone: '#7d7468', water: '#3f8fa6', leaf: '#d9622b', lantern: 0 },
   2: { skyTop: '#c4506e', skyLow: '#ffb27a', fog: '#f0a37f', sun: '#ff9a62', sunI: 2.1, hemiSky: '#ffd0b0', hemiGround: '#7a5a48', hemiI: 1.05,
     sand: [230, 200, 160], outer: [120, 138, 84], board: '#6e3f26', stone: '#6f6a62', water: '#3a7f8f', leaf: '#c8322b', lantern: 0.35 },
   3: { skyTop: '#161d44', skyLow: '#4b4f8c', fog: '#363a6c', sun: '#a9bdff', sunI: 1.5, hemiSky: '#8a9cff', hemiGround: '#2a2c3e', hemiI: 0.95,
@@ -140,7 +140,9 @@ export function createGl(canvas: HTMLCanvasElement) {
     }
     geo.computeVertexNormals();
     // texture: about 70 px per unit inside, capped
-    const ppu = Math.min(64, 1400 / Math.max(W, H));
+    const ppu = Math.min(52, 1150 / Math.max(W, H));
+    const box = (poly: readonly Pt[]) => { let a = Infinity, b = -Infinity, c = Infinity, d = -Infinity; for (const [px, py] of poly) { a = Math.min(a, px); b = Math.max(b, px); c = Math.min(c, py); d = Math.max(d, py); } return { poly, a, b, c, d }; };
+    const zoneBoxes = (h.zones ?? []).map(z => ({ ...box(z.poly), kind: z.kind })), waterBoxes = (h.water ?? []).map(box);
     const tw = Math.round(W * ppu), th = Math.round(H * ppu);
     const tex = track(canvasTex(tw, th, (ctx) => {
       const img = ctx.createImageData(tw, th), d = img.data;
@@ -160,11 +162,12 @@ export function createGl(canvas: HTMLCanvasElement) {
             const m = 0.78 + 0.3 * vnoise(x * 0.7, y * 0.7) + 0.12 * vnoise(x * 3.1, y * 3.1) + 0.08 * (n - 0.5);
             r = or * m; g = og * m; b = ob * m;
             const out = Math.max(x0 - x, x - x1, y0 - y, y - y1);
-            if (out < 0.55) { const q = 0.72 + 0.28 * hash(Math.floor(x * 14), Math.floor(y * 14)); r = 176 * q; g = 170 * q; b = 160 * q; }
+            if (out < 0.55) { const q = 0.7 + 0.22 * vnoise(x * 11, y * 11) + 0.1 * n; r = 182 * q; g = 174 * q; b = 162 * q; }
           } else {
             const hv = height(h.slopes, x, y);
             let phase = y / sp + hv * 9 / sp * 0.35 + 0.18 * Math.sin(x * 1.1 + y * 0.15);
             for (const s of stones) {
+              if (Math.abs(x - s.x) > s.r + 0.95 || Math.abs(y - s.y) > s.r + 0.95) continue;
               const dd = Math.hypot(x - s.x, y - s.y);
               if (dd < s.r + 0.95) { phase = (dd - s.r) / sp; break; }
             }
@@ -172,7 +175,7 @@ export function createGl(canvas: HTMLCanvasElement) {
             const groove = Math.pow(1 - st, 5);
             const shade = 0.95 + 0.05 * st - 0.13 * groove + 0.05 * (n - 0.5) + hv * 0.18;
             r = sr * shade; g = sg * shade; b = sb * shade;
-            for (const z of h.zones ?? []) if (pointIn(z.poly, x, y)) {
+            for (const z of zoneBoxes) if (x >= z.a && x <= z.b && y >= z.c && y <= z.d && pointIn(z.poly, x, y)) {
               if (z.kind === 'gravel') { const q = 0.55 + 0.35 * hash(Math.floor(i / 2), Math.floor(j / 2)); r = 150 * q; g = 146 * q; b = 140 * q; }
               else { const q = 0.85 + 0.15 * n; r = 74 * q; g = 128 * q; b = 70 * q; }
               break;
@@ -181,7 +184,7 @@ export function createGl(canvas: HTMLCanvasElement) {
             const edge = Math.min(x - x0, x1 - x, y - y0, y1 - y);
             if (edge < 0.18) { const e = 0.9 + edge * 0.5; r *= e; g *= e; b *= e; }
           }
-          for (const wpoly of h.water ?? []) if (pointIn(wpoly, x, y)) { r = 40; g = 70; b = 80; break; }
+          for (const w of waterBoxes) if (x >= w.a && x <= w.b && y >= w.c && y <= w.d && pointIn(w.poly, x, y)) { r = 40; g = 70; b = 80; break; }
           d[k] = Math.min(255, r); d[k + 1] = Math.min(255, g); d[k + 2] = Math.min(255, b); d[k + 3] = 255;
         }
       }
@@ -487,7 +490,12 @@ export function createGl(canvas: HTMLCanvasElement) {
   const hit = new Vector3();
   let lastLookFrom = new Vector3();
 
-  function setHole(h: Hole, gardenId: number, players: number, colors: string[]) {
+  function setHole(h: Hole, gardenId: number, players: number, colors: string[], rebuild = false) {
+    if (!rebuild && h === hole && players === balls.length) {
+      // a retry of the same hole: keep the baked garden, just reset the pebbles' look
+      balls.forEach((b, i) => { b.sinkT = -1; b.lastX = NaN; b.lastY = NaN; b.q.identity(); b.mat.color.set(colors[i] ?? '#f4f1ea'); });
+      return;
+    }
     scene.remove(holeGroup);
     for (const d of disposables) d.dispose();
     disposables = []; gates = []; koi = []; springs = []; grains = null; glows = []; flag = null; decor = [];

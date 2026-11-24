@@ -109,9 +109,9 @@ export const pebblePutt: GameModule = {
     window.addEventListener('resize', layout);
 
     // ------------------------------------------------------------ WebGL (lazy)
-    function showFallback() {
+    function showFallback(kind: 'webgl' | 'load' = 'webgl') {
       glFailed = true; loading.remove();
-      const el = h('div', { class: 'pp-fallback', role: 'alert' }, h('h2', { text: t('fallback.title') }), h('p', { text: t('fallback.body') }),
+      const el = h('div', { class: 'pp-fallback', role: 'alert' }, h('h2', { text: t(kind === 'webgl' ? 'fallback.title' : 'fallback.loadTitle') }), h('p', { text: t(kind === 'webgl' ? 'fallback.body' : 'fallback.loadBody') }),
         h('button', { class: 'pp-btn primary', onclick: () => { location.reload(); } }, t('fallback.retry')));
       root.append(el);
     }
@@ -123,10 +123,15 @@ export const pebblePutt: GameModule = {
         return !!ctx && (typeof WebGL2RenderingContext !== 'undefined' && ctx instanceof WebGL2RenderingContext || ctx instanceof WebGLRenderingContext);
       } catch { return false; }
     };
+    // A lost GL context (backgrounded phone, GPU reset) is restored by the browser: redraw the current hole then.
+    canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
+    canvas.addEventListener('webglcontextrestored', () => { if (gl && play) gl.setHole(play.hole, gardenOf(play.hole.id).id, play.world.balls.length, PLAYER_COLORS, true); });
     const glReady = (async () => {
       if (!hasWebGl()) { showFallback(); return; }
+      let mod: typeof import('./pebble-putt-gl');
+      try { mod = await import('./pebble-putt-gl'); }
+      catch (err) { if (!destroyed) { console.error('[pebble-putt] 3D module failed to load', err); showFallback('load'); } return; }
       try {
-        const mod = await import('./pebble-putt-gl');
         if (destroyed) return;
         gl = mod.createGl(canvas);
         loading.remove();
@@ -288,7 +293,7 @@ export const pebblePutt: GameModule = {
       hud = {
         el, update() {
           if (!play) return;
-          holeLabel.textContent = `${t('hud.hole', { n: play.hole.id })} · ${i18n.tr(play.hole.name)}`;
+          holeLabel.textContent = root.classList.contains('compact') ? `${play.hole.id} · ${i18n.tr(play.hole.name)}` : `${t('hud.hole', { n: play.hole.id })} · ${i18n.tr(play.hole.name)}`;
           parLabel.textContent = t('hud.par', { n: play.hole.par });
           strokeLabel.textContent = t('hud.strokes', { n: play.strokes[play.turn] });
           chip.style.background = PLAYER_COLORS[play.turn];
@@ -328,7 +333,7 @@ export const pebblePutt: GameModule = {
 
     // ------------------------------------------------------------ shooting
     const canAim = () => !!play && play.phase === 'aim' && !card && !screen && !!gl && !paused;
-    const previewLimit = () => (play && (play.hole.id <= 6 || save.settings.longPreview) ? { bounces: 1, length: 7 } : { bounces: 0, length: 4.2 });
+    const previewLimit = () => (play && (play.hole.id <= 6 || save.settings.longPreview) ? { bounces: 1, length: 5.5 } : { bounces: 0, length: 3.6 });
 
     function previewPath(x: number, y: number, angle: number, power: number): number[] | null {
       if (!play) return null;
@@ -467,6 +472,7 @@ export const pebblePutt: GameModule = {
       for (let k = 1; k <= n; k++) { const j = (play.shooter + k) % n; if (!play.holed[j] && !play.out[j]) { next = j; break; } }
       if (next < 0) { finishPartyHole(); return; }
       play.turn = next; play.kbAim = null;
+      teeUp(next); // the next pebble appears on the tee (and can be knocked) as soon as it is that player's turn
       hud?.update(); showTurn();
     }
 
@@ -531,7 +537,7 @@ export const pebblePutt: GameModule = {
       const leaders = totals.map((v, i) => v === best ? i : -1).filter(i => i >= 0);
       const rows = p.cards.map((c, k) => h('tr', null, h('td', { text: String(p.course[k]) }), ...c.map((s) => h('td', { text: String(s), class: s === Math.min(...c) ? 'lead' : '' })), h('td', { text: String(holeById(p.course[k])!.par) })));
       const table = h('table', { class: 'pp-table' },
-        h('tr', null, h('th', { text: '#' }), ...Array.from({ length: n }, (_, i) => h('th', null, h('span', { class: 'pp-chip', style: `background:${PLAYER_COLORS[i]}` }))), h('th', { text: 'Par' })),
+        h('tr', null, h('th', { text: '#' }), ...Array.from({ length: n }, (_, i) => h('th', null, h('span', { class: 'pp-chip', style: `background:${PLAYER_COLORS[i]}` }))), h('th', { text: t('party.par') })),
         ...rows.slice(-6),
         h('tr', null, h('th', { text: t('party.total') }), ...totals.map((v, i) => h('th', { text: String(v), class: leaders.includes(i) ? 'lead' : '' })), h('th', { text: String(p.cards.reduce((s, _c, k) => s + holeById(p.course[k])!.par, 0)) })));
       const headline = final ? (leaders.length === 1 ? t('party.win', { name: i18n.tr(PLAYER_NAMES[leaders[0]]) }) : t('party.tie')) : t('party.card');
@@ -549,9 +555,11 @@ export const pebblePutt: GameModule = {
     // ------------------------------------------------------------ frame loop
     const MAX_STEPS = 120 * 4 / 10; // at most 0.4 s of sim per frame (4× fast-forward at 10 fps)
     const events: SimEvent[] = [];
+    const workMs: number[] = [];
     const frame = (now: number) => {
       raf = 0;
       if (destroyed || paused) return;
+      const t0 = performance.now();
       const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
       last = now; clock += dt;
       if (frameTimes.length > 240) frameTimes.shift();
@@ -582,6 +590,8 @@ export const pebblePutt: GameModule = {
         catch (err) { if (!frameFailed) { frameFailed = true; console.error('[pebble-putt] frame failed', err); } }
         if (ghost) placeGhost();
       }
+      if (workMs.length > 240) workMs.shift();
+      workMs.push(performance.now() - t0);
       raf = requestAnimationFrame(frame);
     };
     const startLoop = () => { if (!raf && !destroyed && !paused) { last = typeof performance !== 'undefined' ? performance.now() : 0; raf = requestAnimationFrame(frame); } };
@@ -589,7 +599,11 @@ export const pebblePutt: GameModule = {
     Object.defineProperty(root, '__pp', { configurable: true, value: {
       get play() { return play; }, get save() { return save; }, get screen() { return screenName; }, get card() { return !!card; }, get gl() { return gl; }, get glFailed() { return glFailed; }, glReady,
       openHole, shoot, titleScreen, mapScreen, partyScreen, startParty, closeCard, holes: HOLES.map(x => x.id),
-      fps() { const s = frameTimes.slice(-120); const avg = s.reduce((a, b) => a + b, 0) / Math.max(1, s.length); return { fps: avg > 0 ? 1 / avg : 0, worst: Math.max(...s, 0) }; },
+      fps(n = 120) {
+        const s = frameTimes.slice(-n), w = workMs.slice(-n), avg = s.reduce((a, b) => a + b, 0) / Math.max(1, s.length);
+        const sorted = [...w].sort((a, b) => a - b);
+        return { fps: avg > 0 ? 1 / avg : 0, worstFrameMs: Math.max(...s, 0) * 1000, workMsAvg: w.reduce((a, b) => a + b, 0) / Math.max(1, w.length), workMsP95: sorted[Math.floor(sorted.length * 0.95)] ?? 0, frames: s.length };
+      },
       project: (x: number, y: number) => gl?.project(x, y) ?? null,
       unlockAll() { for (const x of HOLES) save.holes[x.id] ??= { best: x.par + 1, stars: [true, false, false] }; persist(); }
     } });
