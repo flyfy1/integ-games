@@ -743,7 +743,7 @@ function cleanScenes(raw: unknown): Placed[][] {
 export const game: GameModule = {
   meta: {
     slug: 'pad-pals', title: 'Pad Pals', category: 'arcade',
-    description: 'Thirteen playful levels that teach a child every button, stick and trigger on a real game controller.',
+    description: 'Seventeen playful levels in five worlds that teach a child every button, stick and trigger on a real game controller, plus party games, sticker scenes and a daily Surprise Remix.',
     instructions: 'Plug in a controller and press any button; a Twin USB 2-in-1 receiver needs the Connect button in Chrome or Edge. The glowing part of the on-screen pad and a helping hand show what to press. Keyboard: WASD or arrows move, TFGH right stick, I J K L buttons, Q E shoulders, Z C triggers. You can also tap the on-screen pad; on a phone, play in full screen and hold it sideways. Nobody loses: mistakes only cost stars, and every three stars earn a sticker. Three difficulties, plus a two-player Tug of War (second player: a second controller, or the arrow keys).',
     accent: ACCENT, mechanic: 'Learn every button, level by level'
   },

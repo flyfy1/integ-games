@@ -227,7 +227,7 @@ const game: GameModule = {
   meta: {
     slug: 'capital-quiz', title: 'Geo Quiz', category: 'puzzle', accent: '#59C9FF',
     description: 'Name capitals, flags and country outlines from every continent.',
-    instructions: 'Pick a mode: capitals, flags, outlines or the mixed World tour. Tap the right answer out of four; answer in a row for a streak bonus. Every country you get right joins your atlas, and missed ones come back sooner.',
+    instructions: 'Pick a mode: capitals, flags, outlines or the mixed World tour, or a challenge: the Daily Ten (same ten for everyone, a streak that waits), the continent Journey with passport stamps, Blitz 60, Survival with three lives, and type-in capitals. Tap the right answer out of four; answer in a row for a streak bonus. Every country you get right joins your atlas, and missed ones come back sooner.',
     mechanic: 'Pick capitals, flags or outlines'
   },
   mount(host, services): GameController {
