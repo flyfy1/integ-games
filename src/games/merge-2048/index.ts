@@ -7,15 +7,19 @@ import {
 } from './logic';
 import { MOVE_PUZZLES, puzzleStars, twoStarMoves } from './puzzles';
 
+/** English or Chinese, picked from the browser language like the other cabinets; evaluated at render time. */
+const zh = () => /^zh\b/i.test(globalThis.navigator?.language || '');
+const tr = (en: string, cn: string) => (zh() ? cn : en);
+
 type ModeId = 'classic' | 'small' | 'large' | 'stones' | 'daily' | 'puzzle';
 /** Each board keeps its own save and best; only the classic 4×4 keeps the original keys and reports to the leaderboard. */
-const MODES: Record<ModeId, { label: string; size: number; save: string; best: string }> = {
-  classic: { label: '4×4', size: 4, save: 'save', best: 'best' },
-  small: { label: '3×3', size: 3, save: 'save-3', best: 'best-3' },
-  large: { label: '5×5', size: 5, save: 'save-5', best: 'best-5' },
-  stones: { label: 'Stones', size: 4, save: 'save-stones', best: 'best-stones' },
-  daily: { label: 'Daily', size: 4, save: 'save-daily', best: 'best-daily' },
-  puzzle: { label: 'Puzzles', size: 4, save: '', best: '' }
+const MODES: Record<ModeId, { label: readonly [string, string]; size: number; save: string; best: string }> = {
+  classic: { label: ['4×4', '4×4'], size: 4, save: 'save', best: 'best' },
+  small: { label: ['3×3', '3×3'], size: 3, save: 'save-3', best: 'best-3' },
+  large: { label: ['5×5', '5×5'], size: 5, save: 'save-5', best: 'best-5' },
+  stones: { label: ['Stones', '石块'], size: 4, save: 'save-stones', best: 'best-stones' },
+  daily: { label: ['Daily', '每日'], size: 4, save: 'save-daily', best: 'best-daily' },
+  puzzle: { label: ['Puzzles', '谜题'], size: 4, save: '', best: '' }
 };
 const MODE_ORDER: readonly ModeId[] = ['classic', 'small', 'large', 'stones', 'daily', 'puzzle'];
 const DAILY_MOVES = 150;
@@ -102,7 +106,7 @@ ${Object.entries(TILE_STYLES).map(([value, s]) => `.merge-game .tile-${value}{ba
 @media(max-height:640px){.game-stage.is-immersive.merge-game>.game-hud{padding-left:54px}.game-stage.is-immersive.merge-game>.m48-modes:not([hidden])+.game-hud{padding-left:0}}
 `;
 
-const HINT = 'Swipe or press the arrow keys. Matching tiles merge.';
+const hint = () => tr('Swipe or press the arrow keys. Matching tiles merge.', '滑动或按方向键，相同的数字会合并。');
 const UNDO_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>';
 const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -146,10 +150,10 @@ const game: GameModule = {
     const bestFor = () => (mode === 'puzzle' ? 0 : mode === 'daily' ? (readDaily(store).scores[dayKey] ?? 0) : store.get(info().best, 0));
     host.classList.add('merge-game'); host.classList.toggle('is-motion', !reduced);
     host.innerHTML = `
-      <div class="m48-modes" data-modes${inVersus() ? ' hidden' : ''}>${MODE_ORDER.map((m) => `<button type="button" data-mode="${m}" aria-pressed="false">${MODES[m].label}</button>`).join('')}</div>
-      <div class="game-hud" aria-live="polite"><span><span data-score-label>Score</span> <strong data-score></strong><i data-delta aria-hidden="true"></i></span><span data-best-box><span data-best-label>Best</span> <strong data-best></strong></span></div>
-      <div class="m48-bar"><span class="m48-goal"><span data-goal-label>Next goal</span> <b data-goal></b></span><button type="button" class="m48-undo" data-m48="undo">${UNDO_ICON} Undo <b data-undos></b></button></div>
-      <div class="m48-wrap"><div class="merge-board" role="application" aria-label="Merge 2048 board. Use arrow keys or swipe to move tiles. Press U to undo." tabindex="0"></div><div class="m48-fx" aria-hidden="true"></div><div class="m48-panel" data-panel hidden></div></div>
+      <div class="m48-modes" data-modes${inVersus() ? ' hidden' : ''}>${MODE_ORDER.map((m) => `<button type="button" data-mode="${m}" aria-pressed="false">${tr(...MODES[m].label)}</button>`).join('')}</div>
+      <div class="game-hud" aria-live="polite"><span><span data-score-label>${tr('Score', '得分')}</span> <strong data-score></strong><i data-delta aria-hidden="true"></i></span><span data-best-box><span data-best-label>${tr('Best', '最佳')}</span> <strong data-best></strong></span></div>
+      <div class="m48-bar"><span class="m48-goal"><span data-goal-label>${tr('Next goal', '下一目标')}</span> <b data-goal></b></span><button type="button" class="m48-undo" data-m48="undo">${UNDO_ICON} ${tr('Undo', '撤销')} <b data-undos></b></button></div>
+      <div class="m48-wrap"><div class="merge-board" role="application" aria-label="${tr('Merge 2048 board. Use arrow keys or swipe to move tiles. Press U to undo.', '合并 2048 棋盘。用方向键或滑动移动方块，按 U 撤销。')}" tabindex="0"></div><div class="m48-fx" aria-hidden="true"></div><div class="m48-panel" data-panel hidden></div></div>
       <p class="game-status" data-status role="status"></p>`;
     const boardEl = requireElement(host, '.merge-board');
     const scoreEl = requireElement(host, '[data-score]');
@@ -172,10 +176,11 @@ const game: GameModule = {
       cells = Array.from({ length: size * size }, (_, index) => {
         const x = index % size, y = Math.floor(index / size), stone = stones.some((c) => c.x === x && c.y === y);
         const cell = document.createElement('div'); cell.className = stone ? 'm48-stone' : 'm48-cell';
-        if (stone) cell.setAttribute('aria-label', 'Stone');
+        if (stone) cell.setAttribute('aria-label', tr('Stone', '石块'));
         place(cell, x, y); return cell;
       });
-      boardEl.setAttribute('aria-label', `Merge 2048 board, ${size} by ${size}${stones.length ? ' with two stones' : ''}. Use arrow keys or swipe to move tiles.${seeded() && mode === 'daily' ? '' : ' Press U to undo.'}`);
+      boardEl.setAttribute('aria-label', tr(`Merge 2048 board, ${size} by ${size}${stones.length ? ' with two stones' : ''}. Use arrow keys or swipe to move tiles.${seeded() && mode === 'daily' ? '' : ' Press U to undo.'}`,
+        `合并 2048 棋盘，${size}×${size}${stones.length ? '，有两块石头' : ''}。用方向键或滑动移动方块。${seeded() && mode === 'daily' ? '' : '按 U 撤销。'}`));
       modesEl.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
     };
 
@@ -255,7 +260,7 @@ const game: GameModule = {
         if (starId) celebrate(boardEl.querySelector<HTMLElement>(`[data-tile-id="${starId}"]`), tiles.find((tile) => tile.id === starId)?.value ?? 0);
       }
     };
-    const stars = (n: number) => `<div class="m48-stars" aria-label="${n} of 3 stars">${'★'.repeat(n)}<span>${'★'.repeat(3 - n)}</span></div>`;
+    const stars = (n: number) => `<div class="m48-stars" aria-label="${tr(`${n} of 3 stars`, `${n}/3 星`)}">${'★'.repeat(n)}<span>${'★'.repeat(3 - n)}</span></div>`;
     const puzzleStarList = () => { const list = store.get<number[]>('puzzle-stars', []); return MOVE_PUZZLES.map((_, i) => Math.max(0, Math.min(3, Number(list[i]) || 0))); };
     const puzzleOpen = (i: number, list = puzzleStarList()) => i < 3 || list[i - 1] > 0 || list[i] > 0;
     const renderPanel = () => {
@@ -267,19 +272,21 @@ const game: GameModule = {
       panelEl.className = `m48-panel is-${panel === 'solved' || panel === 'daily' ? 'won' : panel === 'failed' ? 'lost' : panel}`;
       const best = Math.max(state.score, bestFor()), top = maxTile(state.board), canUndo = Boolean(state.prev) && state.undos > 0;
       if (panel === 'won') {
-        panelEl.innerHTML = `<div class="m48-card"><h2>${WIN_TILE}!</h2><p>You built the ${WIN_TILE} tile with ${fmt(state.score)} points.<br>How much further can you take it?</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="keep">Keep going</button><button type="button" class="m48-btn is-alt" data-m48="retry">New game</button></div></div>`;
+        panelEl.innerHTML = `<div class="m48-card"><h2>${WIN_TILE}!</h2><p>${tr(`You built the ${WIN_TILE} tile with ${fmt(state.score)} points.<br>How much further can you take it?`, `你用 ${fmt(state.score)} 分拼出了 ${WIN_TILE}！<br>还能走多远？`)}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="keep">${tr('Keep going', '继续')}</button><button type="button" class="m48-btn is-alt" data-m48="retry">${tr('New game', '新游戏')}</button></div></div>`;
       } else if (panel === 'lost') {
         const record = state.score > state.rec && state.score > 0;
-        panelEl.innerHTML = `<div class="m48-card"><h2>No moves left</h2><p>Score ${fmt(state.score)} · biggest tile ${top}</p><p class="${record ? 'is-record' : ''}">${record ? 'New best score!' : `Best ${fmt(best)} · ${fmt(best - state.score)} more to beat it`}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="retry">Try again</button>${canUndo ? `<button type="button" class="m48-btn is-alt" data-m48="undo">${UNDO_ICON} Undo (${state.undos})</button>` : ''}</div>${inVersus() ? '<p>Or move to start a new board.</p>' : ''}</div>`;
+        panelEl.innerHTML = `<div class="m48-card"><h2>${tr('No moves left', '无路可走')}</h2><p>${tr(`Score ${fmt(state.score)} · biggest tile ${top}`, `得分 ${fmt(state.score)} · 最大方块 ${top}`)}</p><p class="${record ? 'is-record' : ''}">${record ? tr('New best score!', '新纪录！') : tr(`Best ${fmt(best)} · ${fmt(best - state.score)} more to beat it`, `最佳 ${fmt(best)} · 还差 ${fmt(best - state.score)} 分`)}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="retry">${tr('Try again', '再来一局')}</button>${canUndo ? `<button type="button" class="m48-btn is-alt" data-m48="undo">${UNDO_ICON} ${tr('Undo', '撤销')} (${state.undos})</button>` : ''}</div>${inVersus() ? `<p>${tr('Or move to start a new board.', '或者移动一下开新的一局。')}</p>` : ''}</div>`;
       } else if (panel === 'daily') {
         const d = readDaily(store);
-        panelEl.innerHTML = `<div class="m48-card"><h2>Daily done</h2><p>${dayKey} · ${moves} moves · biggest tile ${top}</p><p class="is-record">Score ${fmt(state.score)} · today's best ${fmt(d.scores[dayKey] ?? state.score)}</p><p>Streak ${d.streak} · played ${d.played}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="share">Copy result</button><button type="button" class="m48-btn is-alt" data-m48="retry">Replay daily</button><button type="button" class="m48-btn is-alt" data-mode="classic">Classic</button></div></div>`;
+        panelEl.innerHTML = `<div class="m48-card"><h2>${tr('Daily done', '今日挑战完成')}</h2><p>${tr(`${dayKey} · ${moves} moves · biggest tile ${top}`, `${dayKey} · ${moves} 步 · 最大方块 ${top}`)}</p><p class="is-record">${tr(`Score ${fmt(state.score)} · today's best ${fmt(d.scores[dayKey] ?? state.score)}`, `得分 ${fmt(state.score)} · 今日最佳 ${fmt(d.scores[dayKey] ?? state.score)}`)}</p><p>${tr(`Streak ${d.streak} · played ${d.played}`, `连续 ${d.streak} 天 · 共玩 ${d.played} 次`)}</p><div class="m48-actions"><button type="button" class="m48-btn" data-m48="share">${tr('Copy result', '复制成绩')}</button><button type="button" class="m48-btn is-alt" data-m48="retry">${tr('Replay daily', '重玩今日')}</button><button type="button" class="m48-btn is-alt" data-mode="classic">${tr('Classic', '经典')}</button></div></div>`;
       } else if (panel === 'solved' || panel === 'failed') {
         const p = MOVE_PUZZLES[puzzleIndex], n = panel === 'solved' ? puzzleStars(p, moves) : 0, more = puzzleIndex + 1 < MOVE_PUZZLES.length;
-        panelEl.innerHTML = `<div class="m48-card"><h2>${panel === 'solved' ? `Puzzle ${puzzleIndex + 1} solved` : lost ? 'Stuck!' : 'Out of moves'}</h2>${stars(n)}<p>${panel === 'solved' ? `${p.target} in ${moves} move${moves === 1 ? '' : 's'}` : `Make ${p.target} within ${p.moves} moves`} · ★★★ ≤ ${p.par} · ★★ ≤ ${twoStarMoves(p)}</p><div class="m48-actions">${panel === 'solved' && more ? '<button type="button" class="m48-btn" data-m48="next">Next puzzle</button>' : ''}${panel === 'failed' && history.length ? `<button type="button" class="m48-btn" data-m48="undo">${UNDO_ICON} Undo</button>` : ''}<button type="button" class="m48-btn${panel === 'solved' && more ? ' is-alt' : ''}" data-m48="retry">Retry</button><button type="button" class="m48-btn is-alt" data-m48="picker">All puzzles</button></div><p>${panel === 'solved' && more ? 'Or press an arrow for the next one.' : 'U undoes the last move.'}</p></div>`;
+        const heading = panel === 'solved' ? tr(`Puzzle ${puzzleIndex + 1} solved`, `第 ${puzzleIndex + 1} 题完成`) : lost ? tr('Stuck!', '卡住了！') : tr('Out of moves', '步数用完');
+        const line = panel === 'solved' ? tr(`${p.target} in ${moves} move${moves === 1 ? '' : 's'}`, `${moves} 步拼出 ${p.target}`) : tr(`Make ${p.target} within ${p.moves} moves`, `${p.moves} 步内拼出 ${p.target}`);
+        panelEl.innerHTML = `<div class="m48-card"><h2>${heading}</h2>${stars(n)}<p>${line} · ★★★ ≤ ${p.par} · ★★ ≤ ${twoStarMoves(p)}</p><div class="m48-actions">${panel === 'solved' && more ? `<button type="button" class="m48-btn" data-m48="next">${tr('Next puzzle', '下一题')}</button>` : ''}${panel === 'failed' && history.length ? `<button type="button" class="m48-btn" data-m48="undo">${UNDO_ICON} ${tr('Undo', '撤销')}</button>` : ''}<button type="button" class="m48-btn${panel === 'solved' && more ? ' is-alt' : ''}" data-m48="retry">${tr('Retry', '重试')}</button><button type="button" class="m48-btn is-alt" data-m48="picker">${tr('All puzzles', '全部谜题')}</button></div><p>${panel === 'solved' && more ? tr('Or press an arrow for the next one.', '或按方向键进入下一题。') : tr('U undoes the last move.', '按 U 撤销上一步。')}</p></div>`;
       } else {
         const list = puzzleStarList(), total = list.reduce((a, b) => a + b, 0);
-        panelEl.innerHTML = `<div class="m48-card"><h2>Move puzzles</h2><p>Make the target tile in as few moves as you can. New tiles always land in the same place. ★ ${total}/${MOVE_PUZZLES.length * 3}</p><div class="m48-picker">${MOVE_PUZZLES.map((p, i) => `<button type="button" data-puzzle="${i}"${puzzleOpen(i, list) ? '' : ' disabled'} class="${i === puzzleIndex ? 'is-current' : ''}" aria-label="Puzzle ${i + 1}, make ${p.target}${p.stones ? ', stones' : ''}, ${list[i]} stars">${puzzleOpen(i, list) ? i + 1 : '🔒'}<small>${'★'.repeat(list[i]) || p.target}</small></button>`).join('')}</div><div class="m48-actions"><button type="button" class="m48-btn is-alt" data-m48="close">Back</button></div></div>`;
+        panelEl.innerHTML = `<div class="m48-card"><h2>${tr('Move puzzles', '步数谜题')}</h2><p>${tr('Make the target tile in as few moves as you can. New tiles always land in the same place.', '用尽量少的步数拼出目标方块。新方块总是落在同样的位置。')} ★ ${total}/${MOVE_PUZZLES.length * 3}</p><div class="m48-picker">${MOVE_PUZZLES.map((p, i) => `<button type="button" data-puzzle="${i}"${puzzleOpen(i, list) ? '' : ' disabled'} class="${i === puzzleIndex ? 'is-current' : ''}" aria-label="${tr(`Puzzle ${i + 1}, make ${p.target}${p.stones ? ', stones' : ''}, ${list[i]} stars`, `第 ${i + 1} 题，拼出 ${p.target}${p.stones ? '，有石块' : ''}，${list[i]} 星`)}">${puzzleOpen(i, list) ? i + 1 : '🔒'}<small>${'★'.repeat(list[i]) || p.target}</small></button>`).join('')}</div><div class="m48-actions"><button type="button" class="m48-btn is-alt" data-m48="close">${tr('Back', '返回')}</button></div></div>`;
       }
       if (opening) {
         panelAt = performance.now();
@@ -290,13 +297,13 @@ const game: GameModule = {
       const best = Math.max(state.score, bestFor()), goal = mode === 'puzzle' ? MOVE_PUZZLES[puzzleIndex].target : nextGoal(maxTile(state.board)), goalStyle = tileStyle(goal);
       if (mode === 'puzzle') {
         const p = MOVE_PUZZLES[puzzleIndex];
-        scoreLabel.textContent = 'Moves'; scoreEl.textContent = `${moves}/${p.moves}`;
-        bestLabel.textContent = 'Puzzle'; bestEl.textContent = `${puzzleIndex + 1} · ${'★'.repeat(puzzleStarList()[puzzleIndex]) || '—'}`;
-        goalLabel.textContent = 'Make';
+        scoreLabel.textContent = tr('Moves', '步数'); scoreEl.textContent = `${moves}/${p.moves}`;
+        bestLabel.textContent = tr('Puzzle', '谜题'); bestEl.textContent = `${puzzleIndex + 1} · ${'★'.repeat(puzzleStarList()[puzzleIndex]) || '—'}`;
+        goalLabel.textContent = tr('Make', '目标');
       } else {
-        scoreLabel.textContent = 'Score'; scoreEl.textContent = fmt(state.score);
-        bestLabel.textContent = mode === 'daily' ? 'Today' : 'Best'; bestEl.textContent = fmt(best);
-        goalLabel.textContent = mode === 'daily' ? `Moves left ${DAILY_MOVES - moves} · next` : 'Next goal';
+        scoreLabel.textContent = tr('Score', '得分'); scoreEl.textContent = fmt(state.score);
+        bestLabel.textContent = mode === 'daily' ? tr('Today', '今日') : tr('Best', '最佳'); bestEl.textContent = fmt(best);
+        goalLabel.textContent = mode === 'daily' ? tr(`Moves left ${DAILY_MOVES - moves} · next`, `剩 ${DAILY_MOVES - moves} 步 · 下一目标`) : tr('Next goal', '下一目标');
       }
       bestBox.classList.toggle('is-record', mode !== 'puzzle' && state.rec > 0 && state.score > state.rec);
       deltaEl.textContent = gain && mode !== 'puzzle' ? `+${gain}` : '';
@@ -309,20 +316,20 @@ const game: GameModule = {
       if (mode === 'puzzle') {
         undosEl.textContent = history.length ? `${history.length}` : ''; undosEl.hidden = !history.length;
         undoEl.disabled = !history.length; undoEl.hidden = false;
-        undoEl.setAttribute('aria-label', 'Undo last move'); undoEl.title = 'Take back a move (U). Puzzles allow any number.';
+        undoEl.setAttribute('aria-label', tr('Undo last move', '撤销上一步')); undoEl.title = tr('Take back a move (U). Puzzles allow any number.', '撤销一步（U）。谜题可以无限撤销。');
       } else {
         undoEl.hidden = mode === 'daily';
         undosEl.textContent = `×${state.undos}`; undosEl.hidden = false;
         undoEl.disabled = !state.prev || state.undos <= 0;
-        undoEl.setAttribute('aria-label', `Undo last move, ${state.undos} left`);
-        undoEl.title = `Take back your last move (U). New best tiles from ${UNDO_REWARD_FROM} up earn another.`;
+        undoEl.setAttribute('aria-label', tr(`Undo last move, ${state.undos} left`, `撤销上一步，还剩 ${state.undos} 次`));
+        undoEl.title = tr(`Take back your last move (U). New best tiles from ${UNDO_REWARD_FROM} up earn another.`, `撤销上一步（U）。拼出 ${UNDO_REWARD_FROM} 以上的新最大方块可再得一次。`);
       }
-      if (lost && mode !== 'puzzle') statusEl.textContent = 'No moves left. Restart to try again.';
+      if (lost && mode !== 'puzzle') statusEl.textContent = tr('No moves left. Restart to try again.', '无路可走了，重新开始再试一次。');
       else if (note) statusEl.textContent = note;
-      else if (mode === 'puzzle') statusEl.textContent = `Puzzle ${puzzleIndex + 1}: make ${MOVE_PUZZLES[puzzleIndex].target} in ${MOVE_PUZZLES[puzzleIndex].par} moves for three stars.`;
-      else if (mode === 'daily') statusEl.textContent = moves === 0 ? `Daily ${dayKey}: the same tiles for everyone, ${DAILY_MOVES} moves.` : '';
-      else if (completed) statusEl.textContent = '2048 reached — keep building!';
-      else statusEl.textContent = state.score === 0 ? (mode === 'stones' ? 'Stones never move. Tiles stop against them.' : HINT) : '';
+      else if (mode === 'puzzle') statusEl.textContent = tr(`Puzzle ${puzzleIndex + 1}: make ${MOVE_PUZZLES[puzzleIndex].target} in ${MOVE_PUZZLES[puzzleIndex].par} moves for three stars.`, `第 ${puzzleIndex + 1} 题：${MOVE_PUZZLES[puzzleIndex].par} 步内拼出 ${MOVE_PUZZLES[puzzleIndex].target} 得三星。`);
+      else if (mode === 'daily') statusEl.textContent = moves === 0 ? tr(`Daily ${dayKey}: the same tiles for everyone, ${DAILY_MOVES} moves.`, `每日挑战 ${dayKey}：所有人同一套方块，共 ${DAILY_MOVES} 步。`) : '';
+      else if (completed) statusEl.textContent = tr('2048 reached — keep building!', '已拼出 2048，继续加油！');
+      else statusEl.textContent = state.score === 0 ? (mode === 'stones' ? tr('Stones never move. Tiles stop against them.', '石块不会移动，方块会被它挡住。') : hint()) : '';
       boardEl.dataset.state = completed ? 'won' : lost ? 'lost' : '';
       if (lost) boardEl.dataset.state = 'lost';
       renderPanel();
@@ -413,9 +420,9 @@ const game: GameModule = {
       } else if (mode === 'daily' && (moves >= DAILY_MOVES || gameOver)) {
         next = 'daily';
         const rec = recordDaily(store, state.score + result.gained, '', dayKey);
-        shareLine = dailyShareText('Merge 2048', state.score + result.gained, rec.streak, dayKey);
+        shareLine = dailyShareText('Merge 2048', state.score + result.gained, rec.streak, dayKey, zh());
       }
-      note = star && !seeded() ? `New best tile: ${top}!${undos > state.undos ? ' +1 undo' : ''}` : result.merges.length >= 3 ? `${result.merges.length} merges in one move!` : '';
+      note = star && !seeded() ? tr(`New best tile: ${top}!${undos > state.undos ? ' +1 undo' : ''}`, `新的最大方块：${top}！${undos > state.undos ? ' 撤销 +1' : ''}`) : result.merges.length >= 3 ? tr(`${result.merges.length} merges in one move!`, `一步合并 ${result.merges.length} 次！`) : '';
       completed ||= won; lost ||= gameOver && mode !== 'puzzle' && mode !== 'daily';
       if (mode === 'puzzle' && gameOver && next === 'failed') lost = true;
       state = { ...state, board, score: state.score + result.gained, won: completed, undos, peak: Math.max(state.peak, top), prev: seeded() ? null : prev };
@@ -444,16 +451,16 @@ const game: GameModule = {
       if (paused || animating) return;
       if (mode === 'puzzle') {
         const previous = history.pop();
-        if (!previous) { note = 'Nothing to undo yet.'; renderHud(); return; }
+        if (!previous) { note = tr('Nothing to undo yet.', '还没有可撤销的步。'); renderHud(); return; }
         stopVisuals();
         state = { ...state, board: cloneBoard(previous.board), score: previous.score }; moves = Math.max(0, moves - 1);
-        lost = false; panel = 'none'; tiles = tilesFromBoard(state.board, nextId); note = 'Move undone';
+        lost = false; panel = 'none'; tiles = tilesFromBoard(state.board, nextId); note = tr('Move undone', '已撤销');
         services.sound.play('tap'); render(); boardEl.focus({ preventScroll: true });
         return;
       }
-      if (mode === 'daily') { note = 'The Daily has no undo: everyone plays the same tiles.'; renderHud(); return; }
+      if (mode === 'daily') { note = tr('The Daily has no undo: everyone plays the same tiles.', '每日挑战不能撤销：所有人用同一套方块。'); renderHud(); return; }
       if (!state.prev || state.undos <= 0) {
-        if (!lost) { note = state.undos <= 0 ? `No undos left — a new best tile (${UNDO_REWARD_FROM}+) earns one.` : 'Nothing to undo yet.'; renderHud(); }
+        if (!lost) { note = state.undos <= 0 ? tr(`No undos left — a new best tile (${UNDO_REWARD_FROM}+) earns one.`, `撤销次数用完了，拼出新的最大方块（${UNDO_REWARD_FROM} 以上）可再得一次。`) : tr('Nothing to undo yet.', '还没有可撤销的步。'); renderHud(); }
         return;
       }
       stopVisuals();
@@ -461,7 +468,7 @@ const game: GameModule = {
       state = { ...state, board: cloneBoard(previous.board), score: previous.score, won: previous.won, undos: state.undos - 1, prev: null };
       completed = previous.won; lost = false; panel = 'none';
       tiles = tilesFromBoard(state.board, nextId);
-      note = `Move undone · ${state.undos} undo${state.undos === 1 ? '' : 's'} left`;
+      note = tr(`Move undone · ${state.undos} undo${state.undos === 1 ? '' : 's'} left`, `已撤销 · 还剩 ${state.undos} 次`);
       services.sound.play('tap'); persist(); render();
       boardEl.querySelectorAll('.merge-tile').forEach((element) => animate(element, [{ opacity: .35, transform: 'scale(.9)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 160, easing: 'ease-out' }));
       boardEl.focus({ preventScroll: true });
@@ -505,7 +512,7 @@ const game: GameModule = {
       else if (action === 'next') startPuzzle(Math.min(MOVE_PUZZLES.length - 1, puzzleIndex + 1));
       else if (action === 'picker') { services.sound.play('tap'); panel = 'picker'; renderPanel(); }
       else if (action === 'close') { panel = lost ? (mode === 'puzzle' ? 'failed' : 'lost') : 'none'; renderPanel(); boardEl.focus({ preventScroll: true }); }
-      else if (action === 'share') void globalThis.navigator?.clipboard?.writeText(shareLine || dailyShareText('Merge 2048', state.score, readDaily(store).streak, dayKey)).then(() => { target.textContent = 'Copied!'; }, () => { target.textContent = shareLine; });
+      else if (action === 'share') void globalThis.navigator?.clipboard?.writeText(shareLine || dailyShareText('Merge 2048', state.score, readDaily(store).streak, dayKey, zh())).then(() => { target.textContent = tr('Copied!', '已复制！'); }, () => { target.textContent = shareLine; });
     };
     window.addEventListener('keydown', onKey, { passive: false });
     host.addEventListener('pointerdown', onPointerDown); host.addEventListener('pointermove', onPointerMove); host.addEventListener('pointerup', onPointerUp); host.addEventListener('pointercancel', onPointerCancel);

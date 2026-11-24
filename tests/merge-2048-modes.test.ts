@@ -224,3 +224,31 @@ describe('Merge 2048 cabinet modes', () => {
     g.done();
   });
 });
+
+describe('Merge 2048 in Chinese', () => {
+  it('follows a zh browser for the board picker, Daily, puzzles and Stones, and stays English otherwise', () => {
+    const language = vi.spyOn(navigator, 'language', 'get').mockReturnValue('zh-CN');
+    try {
+      const g = cabinet({ mode: 'stones' });
+      const labels = [...g.host.querySelectorAll<HTMLElement>('[data-mode]')].map((b) => b.textContent);
+      expect(labels).toEqual(['4×4', '3×3', '5×5', '石块', '每日', '谜题']);
+      expect(g.host.querySelector('[data-status]')!.textContent).toContain('石块不会移动');
+      expect(g.host.querySelector('[data-m48="undo"]')!.textContent).toContain('撤销');
+      g.click('[data-mode="daily"]');
+      expect(g.host.querySelector('[data-best-label]')!.textContent).toBe('今日');
+      expect(g.host.querySelector('[data-status]')!.textContent).toContain('每日挑战');
+      g.click('[data-mode="puzzle"]');
+      const picker = g.host.querySelector('[data-panel]')!;
+      expect(picker.querySelector('h2')!.textContent).toBe('步数谜题');
+      expect(picker.querySelector('[data-m48="close"]')!.textContent).toBe('返回');
+      expect(picker.querySelector('[data-puzzle="0"]')!.getAttribute('aria-label')).toContain('第 1 题');
+      g.click('[data-m48="close"]');
+      expect(g.host.querySelector('[data-score-label]')!.textContent).toBe('步数');
+      g.done();
+    } finally { language.mockRestore(); }
+    const en = cabinet({ mode: 'puzzle' });
+    expect(en.host.querySelector('[data-score-label]')!.textContent).toBe('Moves');
+    expect(en.host.querySelector('[data-mode="stones"]')!.textContent).toBe('Stones');
+    en.done();
+  });
+});
