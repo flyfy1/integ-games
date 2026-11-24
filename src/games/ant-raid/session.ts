@@ -34,6 +34,10 @@ export type Session = {
   /** Tab: cycle the priority of the food under the cursor, or jump the cursor to the next food. */
   priorityAtCursor(): void;
   queen(call: QueenCall): void;
+  /** What the contextual bridge button would do now: lift the bridge a dive is aimed at, or lower lifted bridges. */
+  readonly bridgeHint: 'lift' | 'lower' | null;
+  /** L / the bridge button: do what `bridgeHint` says. */
+  bridgeAction(): void;
   cancel(): boolean;
   hideCursor(): void;
   skipTutorial(): void;
@@ -76,6 +80,8 @@ export function createSession(level: LevelDef, options: SessionOptions): Session
   syncTutorial();
 
   const cellIndex = (x: number, y: number) => idx(x, y);
+  /** Finished bridges on the trail that are lifted (ants wait at them). */
+  const liftedBridges = () => { const out: number[] = []; for (let c = 0; c < sim.terrain.length; c++) if (sim.terrain[c] === 'water' && sim.bridge[c] >= 3 && !sim.bridged[c] && isTrail(sim, c)) out.push(c); return out; };
   const foodAt = (c: number) => sim.foods.find(f => f.visible && !f.home && (f.lift ? f.at === c : idx(f.x, f.y) === c) && (f.lift || f.left > 0));
 
   /** Paint a 4-connected run of cells from the last painted cell to (x, y); stops at the first refusal. */
@@ -189,6 +195,16 @@ export function createSession(level: LevelDef, options: SessionOptions): Session
       view.cursor = { x: Math.round(next.lift ? next.px : next.x), y: Math.round(next.lift ? next.py : next.y) };
     },
     queen(call) { check(queenCall(sim, call)); },
+    get bridgeHint() {
+      const dive = sim.hazards.find(h => h.active && h.kind === 'kingfisher' && h.phase === 1);
+      if (dive) return dive.cells.some(c => sim.bridged[c]) ? 'lift' : null;
+      return liftedBridges().length ? 'lower' : null;
+    },
+    bridgeAction() {
+      const dive = sim.hazards.find(h => h.active && h.kind === 'kingfisher' && h.phase === 1);
+      if (dive) { for (const c of dive.cells) if (sim.bridged[c]) check(toggleBridge(sim, c)); return; }
+      for (const c of liftedBridges()) check(toggleBridge(sim, c));
+    },
     cancel() {
       if (!view.card && !view.eraser) return false;
       view.card = null; view.eraser = false;

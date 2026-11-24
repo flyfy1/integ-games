@@ -353,12 +353,12 @@ const CHAPTER3: LevelDef[] = [
       .....~....~.....
       .....~....~.....`),
     nest: [1, 4], foods: [{ id: 'biscuit', kind: 'biscuit', x: 14, y: 1, crumbs: 40, lift: 18 }, { id: 'cookie', kind: 'cookie', x: 3, y: 7, crumbs: 40 }, { id: 'grapes', kind: 'grape', x: 8, y: 1, crumbs: 30 }],
-    hazards: [{ kind: 'kingfisher', x: 8, y: 4, params: { first: 14, period: 8, warn: 2.6 } }],
+    hazards: [{ kind: 'kingfisher', x: 8, y: 4, params: { first: 14, period: 8, warn: 2.6, firstWarn: 5, grace: 1 } }],
     scent: 28, startSugar: 140, sundown: 260, par: 100,
     goal: { kind: 'item', food: 'biscuit' }, bonus: { kind: 'maxLost', n: 8 },
     tutorial: [
-      { text: t('Bluestreak dives at a bridge after a shadow warning. Tap the bridge to lift it: a lifted bridge is safe.', '蓝闪俯冲前会有影子预警。点桥可以收起，收起的桥很安全。'), until: { time: 12 } },
-      { text: t('Ants wait at a lifted bridge. Lower it again once the bird has gone.', '桥收起时蚂蚁会在桥头等。鸟一走就放下来。'), until: { event: 'strike' } }
+      { text: t('Bluestreak dives at a bridge after a shadow warning. When the shadow falls, press Lift (or tap the bridge): a lifted bridge is safe.', '蓝闪俯冲前会有影子预警。影子一出现就按「收桥」（或点桥）：收起的桥很安全。'), until: { time: 12 } },
+      { text: t('Ants wait at a lifted bridge. Press Lower once the bird has gone.', '桥收起时蚂蚁会在桥头等。鸟一走就按「放桥」。'), until: { event: 'strike', n: 2 } }
     ],
     intro: 'boss-kingfisher', outro: 'c3-outro', music: 'boss'
   }

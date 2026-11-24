@@ -304,6 +304,11 @@ export function createRenderer(reduced: boolean): Renderer {
           ctx.beginPath(); ctx.ellipse(P(cx(c)), P(cy(c)), cs * (0.9 - diving * 0.4), cs * (0.6 - diving * 0.2), 0, 0, Math.PI * 2); ctx.fill();
           ctx.strokeStyle = `rgba(230,40,40,${0.5 + diving * 0.5})`; ctx.lineWidth = 2.5;
           ctx.beginPath(); ctx.arc(P(cx(c)), P(cy(c)), cs * 0.45, 0, Math.PI * 2); ctx.stroke();
+          // A lowered bridge under the shadow gets a bouncing "lift me" arrow: the answer, drawn on the target.
+          if (sim.bridged[c]) {
+            const lift = cs * 0.85 + (reduced ? 0 : Math.abs(Math.sin(t * 6)) * cs * 0.15);
+            label(ctx, '⤒', P(cx(c)) + (layout.rot ? lift : 0), P(cy(c)) - (layout.rot ? 0 : lift), cs * 0.7, '#ffe36b');
+          }
         }
         drawKingfisher(ctx, P(h.px), P(h.py) - cs * (1 - diving) * 0.6, cs * 0.8, t, diving);
         return;

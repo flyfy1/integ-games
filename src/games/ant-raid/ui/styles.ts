@@ -136,7 +136,7 @@ export const STYLES = `
 .ar-coach{position:absolute;left:50%;bottom:var(--ar-bottom,96px);z-index:4;transform:translateX(-50%);width:min(440px,calc(100% - 20px));padding:10px 14px;border-radius:16px;background:linear-gradient(var(--paper),var(--paper2));color:var(--ink);border:3px solid var(--ink);box-shadow:0 5px 0 rgba(0,0,0,.35);pointer-events:none;animation:ar-fade .25s}
 .ar-coach button{pointer-events:auto}
 .ar.rot .ar-coach{bottom:auto;top:var(--ar-top,60px)}
-.ar.rot .ar-toasts{top:auto;bottom:var(--ar-bottom,96px)}
+.ar.rot .ar-toasts{top:auto;bottom:calc(var(--ar-bottom,96px) + 62px)}
 .ar.is-immersive .ar-top,.ar.is-immersive .ar-head{padding-left:56px}
 .ar-coach p{font-size:var(--fs-m);font-weight:800}
 .ar-coach footer{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:var(--fs-xs);font-weight:800;color:var(--red2)}
@@ -220,4 +220,8 @@ export const STYLES = `
 .ar.side .ar-coach{bottom:8px;width:min(440px,calc(100% - 180px));padding:6px 12px}
 .ar.side .ar-coach p{font-size:15px;line-height:1.25}
 .ar.side .ar-coach footer{margin-top:2px}
+.ar-bridgebtn{position:absolute;left:50%;bottom:calc(var(--ar-bottom,96px) + 4px);transform:translateX(-50%);z-index:5;min-height:52px;padding:8px 22px;border-radius:999px;border:3px solid var(--ink);background:linear-gradient(#ffe08a,var(--honey) 50%,var(--honey2));color:var(--ink);font-weight:900;font-size:var(--fs-l);box-shadow:0 4px 0 var(--ink);pointer-events:auto;white-space:nowrap}
+.ar-bridgebtn small{font-size:var(--fs-xs);opacity:.7}
+.ar-bridgebtn.urgent{background:linear-gradient(#ff9a8a,var(--red) 60%,var(--red2));color:#fff;animation:ar-glow .45s infinite alternate}
+.ar.reduced .ar-bridgebtn.urgent{animation:none}
 `;
