@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GameServices, GameStorage } from '../src/core/game-types';
 import { catalog } from '../src/core/catalog';
 import lanternWorks, { campaignNumber } from '../src/games/lantern-works';
-import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById } from '../src/games/lantern-works/data/levels';
+import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById, nightTray } from '../src/games/lantern-works/data/levels';
 import { matches, makeGood, mix } from '../src/games/lantern-works/goods';
 import { EN, ZH } from '../src/games/lantern-works/i18n';
-import { TIERS } from '../src/games/lantern-works/data/nightshift';
+import { TIERS, makeable, nextOrder } from '../src/games/lantern-works/data/nightshift';
 import { PARTS, PART_ORDER, dialOptions } from '../src/games/lantern-works/parts';
 import { SAVE_KEY, defaultSave, isUnlocked, loadSave, migrate, recordWin, writeSave } from '../src/games/lantern-works/save';
 import { parseScript, runScript } from '../src/games/lantern-works/script';
-import { T, applyEdit, buildOf, createSim, loadBuild, mulberry32, run, starsOf, step, type Sim } from '../src/games/lantern-works/sim';
+import { T, applyEdit, buildOf, createSim, loadBuild, mulberry32, run, starsOf, step, waitBeat, type Sim } from '../src/games/lantern-works/sim';
 import type { LevelDef } from '../src/games/lantern-works/types';
 import { SOLUTIONS } from './lantern-works-solutions';
 
@@ -266,6 +266,36 @@ describe('lantern works night shift', () => {
     expect(s.strikes).toBe(3);
     expect(s.score).toBe(0);
   });
+  it('Night Shift offers only the parts of cleared chapters, and only orders those parts can make', () => {
+    const ch1 = new Set(CHAPTERS[0].levels);
+    const tray = nightTray(id => ch1.has(id));
+    expect(Object.keys(tray).sort()).toEqual(['belt', 'folder', 'joiner', 'vat']);
+    expect(Object.keys(nightTray(() => true)).sort()).toEqual(Object.keys(NIGHT_LEVEL.tray).sort());
+    const s = createSim({ ...NIGHT_LEVEL, tray }, 11); run(s);
+    const seen: string[] = [];
+    for (let i = 0; i < 3000 && s.status === 'run'; i++) { for (const o of s.orders) if (!seen.includes(o.good)) seen.push(o.good); waitBeat(s); }
+    expect(seen.length).toBeGreaterThan(2);
+    for (const good of seen) expect(makeable(good, tray), good).toBe(true);
+  });
+  it('the Daily Order keeps every part, so its shared queue is unchanged by the tray filter', () => {
+    for (const good of TIERS.flat()) expect(makeable(good, NIGHT_LEVEL.tray), good).toBe(true);
+    const a = mulberry32(5), b = mulberry32(5);
+    for (let i = 0; i < 40; i++) expect(nextOrder(a, i, i * 10, i, i % 2, NIGHT_LEVEL.tray)).toEqual(nextOrder(b, i, i * 10, i, i % 2));
+  });
+  it('pausing mid-shift does not stop the customers: waiting ages orders until they are missed', () => {
+    const s = createSim(NIGHT_LEVEL, 9); run(s);
+    while (!s.orders.length) step(s);
+    const beat = s.beat, first = s.orders[0];
+    for (let i = 0; i <= first.patience; i++) waitBeat(s);
+    expect(s.beat).toBe(beat);
+    expect(s.strikes).toBe(1);
+    expect(s.orders).not.toContain(first);
+    // Before the first Run, and in the campaign, waiting does nothing.
+    const idle = createSim(NIGHT_LEVEL, 9);
+    expect(waitBeat(idle)).toEqual([]);
+    const camp = createSim(LEVELS[0], 1); run(camp);
+    expect(waitBeat(camp)).toEqual([]);
+  });
   it('a simple shell line scores on the first orders', () => {
     const r = runScript({ ...NIGHT_LEVEL }, ['folder 1,1 v round', 'belt 1,2 >>>>>>>>'], 400, 5);
     expect(r.sim.delivered).toBeGreaterThan(0);
@@ -329,5 +359,24 @@ describe('lantern works save and shell', () => {
     game.destroy();
     expect(host.querySelector('[data-lantern-works]')).toBeNull();
     host.remove();
+  });
+  it('every Night Shift part has a key, and its chip shows it', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const game = lanternWorks.mount(host, services());
+    const root = host.querySelector<HTMLElement>('[data-lantern-works]')!;
+    const api = (root as unknown as { __lw: { unlockAll(): void; openNight(mode: string): void; closeCard(): void; play: { tool: string } | null } }).__lw;
+    api.unlockAll();
+    api.openNight('night');
+    api.closeCard();
+    const kinds = PART_ORDER.filter(k => NIGHT_LEVEL.tray[k] !== undefined);
+    expect(kinds).toHaveLength(12);
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+    const chips = [...root.querySelectorAll('.lw-tool i')].map(i => i.textContent);
+    kinds.forEach((kind, i) => {
+      if (kind !== 'belt') { root.dispatchEvent(new KeyboardEvent('keydown', { key: keys[i], bubbles: true })); expect(api.play?.tool, keys[i]).toBe(kind); }
+      expect(chips[i]).toBe(keys[i]);
+    });
+    game.destroy(); host.remove();
   });
 });

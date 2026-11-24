@@ -1,12 +1,12 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { dailyKey, dailySeed, dailyShareText, readDaily, recordDaily } from '../_shared/daily';
 import { createAudio } from './audio';
-import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById, nextLevelId } from './data/levels';
+import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById, nextLevelId, nightTray } from './data/levels';
 import { createI18n, defaultLang, type Key, type Lang } from './i18n';
 import { DIAL_NAMES, PARTS, PART_ORDER, dialOptions } from './parts';
 import { createRenderer, type Tool, type ViewState } from './render/renderer';
 import { isUnlocked, loadSave, nightUnlocked, recordWin, totalStars, writeSave, type Save } from './save';
-import { DX, DY, T, applyEdit, buildOf, createSim, loadBuild, partAt, partsUsed, resetRun, run, starsOf, step, trayLeft, type Sim } from './sim';
+import { DX, DY, T, applyEdit, buildOf, createSim, loadBuild, partAt, partsUsed, resetRun, run, starsOf, step, trayLeft, waitBeat, type Sim } from './sim';
 import type { Dir, Edit, LevelDef, Part, PartKind, SimEvent } from './types';
 import { dialIcon, goodIcon, partIcon } from './ui/icons';
 import { STYLES } from './ui/styles';
@@ -29,6 +29,8 @@ type Play = {
   freshStars?: boolean[];
   /** The first jam of a visit gets an explanation; later ones only the floating "!". */
   jamTold?: boolean;
+  /** Night Shift: real time spent paused mid-shift, paid out as order-ageing beats. */
+  wait?: number;
 };
 
 const BEAT = 0.34;
@@ -306,8 +308,10 @@ export const lanternWorks: GameModule = {
       if (!nightUnlocked(save)) return;
       const key = dailyKey();
       const seed = mode === 'daily' ? dailySeed('lantern-works', key) : (Math.floor(services.random() * 2 ** 31) || 7);
-      // Every part is in the Night Shift tray, so every order on the shared Daily queue can be made by everyone.
-      const p = newPlay(NIGHT_LEVEL, mode, seed, save.night.build);
+      // Night Shift offers the parts of the chapters you have cleared (and only orders they can make). The Daily Order
+      // keeps every part, so every order on the shared queue can be made by everyone.
+      const level = mode === 'daily' ? NIGHT_LEVEL : { ...NIGHT_LEVEL, tray: nightTray(id => !!save.levels[id]?.stars[0]) };
+      const p = newPlay(level, mode, seed, save.night.build);
       p.daily = mode === 'daily' ? key : undefined;
       enterLevel(p);
     }
@@ -399,6 +403,7 @@ export const lanternWorks: GameModule = {
         const list: [string, string][] = [];
         if (level.endless) {
           list.push([t('hud.score', { n: sim.score }), 'good'], [t('hud.strikes', { n: sim.strikes }), sim.strikes ? 'bad' : ''], [t('hud.beat', { n: sim.beat }), 'dim']);
+          if (running && !play.running) list.push([t('night.waiting'), 'bad']);
         } else {
           list.push([t('hud.beat', { n: sim.beat }), running && sim.wonAt === null && sim.beat > level.parSwift ? 'dim' : '']);
           list.push([`${t('hud.parts', { n: parts })} · ${t('hud.tidy', { n: level.parTidy })}`, parts <= level.parTidy ? 'good' : 'dim']);
@@ -766,7 +771,15 @@ export const lanternWorks: GameModule = {
           }
           if (play.acc > beatDur) play.acc = 0;
           beatT = play.acc / beatDur;
-        } else beatT = 1;
+        } else {
+          beatT = 1;
+          // Night Shift paused mid-shift: the belts stop but the orders keep ageing at the normal 1x beat.
+          if (play.mode !== 'campaign' && sim.status === 'run' && !play.running && !card && !screen) {
+            play.wait = (play.wait ?? 0) + dt;
+            let guard = 0;
+            while (play.wait >= BEAT && guard++ < 4) { play.wait -= BEAT; const ev = waitBeat(sim); renderer.onEvents(sim, ev); audio.beat(ev, BEAT); handle(ev); }
+          }
+        }
         hud?.update();
       }
       renderer.update(dt);

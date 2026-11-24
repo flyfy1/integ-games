@@ -238,3 +238,12 @@ export const NIGHT_LEVEL: LevelDef = {
 export const levelById = (id: string) => LEVELS.find(l => l.id === id);
 export const LEVEL_IDS = LEVELS.map(l => l.id);
 export const nextLevelId = (id: string) => { const i = LEVEL_IDS.indexOf(id); return i >= 0 ? LEVEL_IDS[i + 1] : undefined; };
+
+/**
+ * Night Shift's tray: the Night parts that appear in levels the player has cleared (clearing 1-5 opens the shift
+ * with belt, folder, vat and joiner). The Daily Order keeps the full NIGHT_LEVEL tray so its queue stays shared.
+ */
+export function nightTray(cleared: (id: string) => boolean): LevelDef['tray'] {
+  const known = new Set(LEVELS.filter(l => cleared(l.id)).flatMap(l => Object.keys(l.tray)));
+  return Object.fromEntries(Object.entries(NIGHT_LEVEL.tray).filter(([kind]) => known.has(kind)));
+}
