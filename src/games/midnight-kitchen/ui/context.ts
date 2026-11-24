@@ -1,7 +1,7 @@
 import type { Audio } from '../audio';
 import type { I18n, Lang } from '../i18n';
 import type { Reward, Save, Settings } from '../save';
-import type { LevelDef, SimStats } from '../types';
+import type { Difficulty, LevelDef, SimStats } from '../types';
 
 /**
  * What a menu screen gets: the save to read, strings, and the handful of actions it may trigger. Screens are plain
@@ -32,8 +32,10 @@ export type UiContext = {
   go(screen: ScreenName, params?: ScreenParams): void;
   /** Level chosen on the map: plays its intro scene the first time, then opens the loadout (or the level). */
   openLevel(levelId: string): void;
-  /** Loadout confirmed: start playing. */
-  startNight(levelId: string, loadout: string[]): void;
+  /** Loadout confirmed: start playing (with Granny's gift card, when she offered and one was picked). */
+  startNight(levelId: string, loadout: string[], gift?: string): void;
+  /** Difficulty for campaign and After Hours nights (kept in the save). */
+  setDifficulty(difficulty: Difficulty): void;
   /** Leave the results screen for the next step (outro scene, then map or next level). */
   afterResults(results: ResultsData, choice: 'next' | 'retry' | 'map' | 'endless'): void;
   resume(): void;

@@ -120,6 +120,12 @@ export class Effects {
     const u = layout.unit, cell = (col: number, lane: number) => layout.point(col + 0.5, lane), at = (x: number, lane: number) => layout.point(x, lane);
     const fwd = layout.vertical ? { x: 0, y: -1 } : { x: 1, y: 0 };
     switch (event.type) {
+      case 'mitt': {
+        // the Oven Mitt swipes the lane from the cake outward
+        for (let x = 0; x <= layout.cols; x += 0.75) { const p = at(x, event.lane); this.burst(p.x, p.y, x < 1 ? '#e0533d' : '#fff5ea', 4, u * 2, 'puff', u * 0.1, 0); }
+        const p = at(0, event.lane); this.ring(p.x, p.y, u * 0.2, u * 1.1, '#ffb0a0', 0.45, 5);
+        break;
+      }
       case 'place': { const p = cell(event.col, event.lane); this.ring(p.x, p.y + u * 0.3, u * 0.2, u * 0.62, '#fff3d6', 0.3, 3, false, 0.4); this.burst(p.x, p.y + u * 0.3, '#e9d2a6', 8, u * 1.6, 'puff', u * 0.09, 0); break; }
       case 'upgrade': {
         const p = cell(event.col, event.lane);

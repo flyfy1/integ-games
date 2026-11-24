@@ -99,7 +99,28 @@ export const EN = {
   'settings.resetHint': 'Stars, crumbs, upgrades and the Cookbook. Language and sound stay.', 'settings.resetWarn': 'This cannot be undone.',
   'keys.cards': 'Pick a card', 'keys.cycle': 'Previous / next card', 'keys.move': 'Move the cursor', 'keys.place': 'Place, or open a defender', 'keys.upgrade': 'Upgrade', 'keys.remove': 'Remove (spatula)', 'keys.speed': 'Double speed', 'keys.pause': 'Pause / back',
   'dialogue.auto': 'Auto', 'dialogue.log': 'Log', 'dialogue.label': 'Story',
-  'dialogue.skip': 'Skip', 'dialogue.next': 'Tap to continue', 'lang.en': 'EN', 'lang.zh': '中文'
+  'dialogue.skip': 'Skip', 'dialogue.next': 'Tap to continue', 'lang.en': 'EN', 'lang.zh': '中文',
+  'diff.label': 'Difficulty',
+  'diff.gentle': 'Gentle',
+  'diff.standard': 'Standard',
+  'diff.chef': 'Chef',
+  'diff.gentleHint': 'One more slice, extra Heat, softer and slower pests, and an Oven Mitt in every lane that sweeps it clean once.',
+  'diff.standardHint': 'The night as it was cooked.',
+  'diff.chefHint': 'Hardier pests, and bosses that never go easy on you. A first Chef win pays +{n} crumbs.',
+  'granny.title': 'Granny\'s help',
+  'granny.text': 'Two hard nights in a row? Pick a card: the first one you place is free and already at ★★.',
+  'granny.none': 'No thanks',
+  'granny.chosen': 'Granny will bring {name}.',
+  'granny.ask': 'Ask Granny for help',
+  'granny.askHint': 'Lost this one twice: Granny has a free ★★ guard for you.',
+  'hud.free': 'Free ★★',
+  'hud.mitt': 'Oven Mitt! That lane is swept clean.',
+  'hud.mitts': 'Oven Mitts left: {n}',
+  'fail.stock': 'None of those left',
+  'fail.cooking': 'The night is cooking: no more changes',
+  'fail.fixed': 'That one is part of the puzzle',
+  'results.chefWin': 'First win on Chef!',
+  'results.on': 'on {d}'
 } as const;
 export type Key = keyof typeof EN;
 
@@ -191,7 +212,28 @@ export const ZH: Record<Key, string> = {
   'settings.resetHint': '星星、碎屑、升级和菜谱。语言和声音设置会保留。', 'settings.resetWarn': '此操作无法撤销。',
   'keys.cards': '选择卡牌', 'keys.cycle': '上一张 / 下一张卡牌', 'keys.move': '移动光标', 'keys.place': '放置，或打开守卫', 'keys.upgrade': '升级', 'keys.remove': '铲走（锅铲）', 'keys.speed': '两倍速', 'keys.pause': '暂停 / 返回',
   'dialogue.auto': '自动', 'dialogue.log': '记录', 'dialogue.label': '剧情',
-  'dialogue.skip': '跳过', 'dialogue.next': '点击继续', 'lang.en': 'EN', 'lang.zh': '中文'
+  'dialogue.skip': '跳过', 'dialogue.next': '点击继续', 'lang.en': 'EN', 'lang.zh': '中文',
+  'diff.label': '难度',
+  'diff.gentle': '轻松',
+  'diff.standard': '标准',
+  'diff.chef': '主厨',
+  'diff.gentleHint': '多一块蛋糕、更多火候、害虫更弱更慢，每一路还有一只隔热手套，能把这一路扫干净一次。',
+  'diff.standardHint': '原汁原味的一夜。',
+  'diff.chefHint': '害虫更耐打，首领绝不手软。第一次以主厨难度获胜额外 +{n} 碎屑。',
+  'granny.title': '奶奶来帮忙',
+  'granny.text': '连着两晚都不顺？挑一张牌：第一次放下时免费，而且直接是 ★★。',
+  'granny.none': '不用了',
+  'granny.chosen': '奶奶会带来{name}。',
+  'granny.ask': '请奶奶帮忙',
+  'granny.askHint': '这一关输了两次：奶奶给你准备了一个免费的 ★★ 守卫。',
+  'hud.free': '免费★★',
+  'hud.mitt': '隔热手套！这一路被扫干净了。',
+  'hud.mitts': '剩余隔热手套：{n}',
+  'fail.stock': '这张牌用完了',
+  'fail.cooking': '已经开火了：不能再改了',
+  'fail.fixed': '这个是题目自带的，不能动',
+  'results.chefWin': '首次以主厨难度获胜！',
+  'results.on': '{d}难度'
 };
 
 const TABLES: Record<Lang, Record<Key, string>> = { en: EN, zh: ZH };

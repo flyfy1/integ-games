@@ -4,6 +4,7 @@ import { spriteIcon } from '../render/sprites';
 import type { Screen, UiContext } from './context';
 import { crumbs, h, head } from './dom';
 import { bonusText } from './loadout';
+import { grannyOffered } from '../save';
 import { helpPanel, settingsBody } from './settings';
 
 const TIPS: Key[] = ['tip.burners', 'tip.lanes', 'tip.walls', 'tip.upgrade', 'tip.recipes'];
@@ -55,10 +56,15 @@ export const resultsScreen: Screen = (ui, params) => {
       })));
     chime(ui, element, delays);
     if (delays.length) d = delays[delays.length - 1] + 0.2;
+    if (reward.chefWin) box.append(h('div', { class: 'mk-pb', role: 'status', 'data-chef-win': '' }, '♛ ', t('results.chefWin')));
   } else {
     // An early loss is nearly always an economy problem, so say that first; later losses rotate through the rest.
     box.append(h('div', { class: 'mk-eyebrow' }, tr(level.name)), h('h2', null, t('results.lose')), h('p', { class: 'mk-tag' }, t('results.loseSub')),
       h('div', { class: 'mk-panel paper', style: 'width:100%;text-align:left' }, h('p', { class: 'mk-lead' }, t(data.kills < 20 ? 'tip.burners' : TIPS[Math.floor(data.time) % TIPS.length]))));
+    // Two losses in a row: Granny offers a free tier-2 guard on the briefing screen.
+    if (grannyOffered(ui.save, level.id)) box.append(h('div', { class: 'mk-panel paper mk-granny-head', 'data-granny-offer': '', style: 'width:100%;text-align:left' }, spriteIcon('character', 'granny', 48),
+      h('div', { class: 'mk-grow' }, h('b', null, t('granny.title')), h('p', { style: 'margin:2px 0 6px' }, t('granny.askHint')),
+        h('button', { class: 'mk-btn primary', 'data-action': 'granny', onclick: () => ui.go('loadout', { level: level.id }) }, t('granny.ask')))));
   }
 
   if (!endless) box.append(h('div', { class: 'mk-statgrid' }, stat(t('results.time'), clock(data.time)), stat(t('results.kills'), data.kills),

@@ -110,15 +110,17 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
   const top = h('div', { class: 'mk-top' }, heat, waves, boss, score, slices, speed, pause);
 
   // ---- hand ----
-  type CardView = { def: string; button: HTMLButtonElement; sweep: HTMLElement; secs: HTMLElement; state: string; secsText: string };
-  const cards: CardView[] = sim.cards.map((card, index) => {
+  type CardView = { def: string; button: HTMLButtonElement; sweep: HTMLElement; secs: HTMLElement; cost: HTMLElement; costText: string; state: string; secsText: string };
+  const cardView = (card: { def: string }, index: number): CardView => {
     const def = sim.content.defenders[card.def], sweep = h('div', { class: 'mk-card-cd' }), secs = h('div', { class: 'mk-card-cdtext' });
+    const cost = h('span', { class: 'mk-card-cost' }, String(def.cost));
     const button = h('button', { class: 'mk-card', 'data-card': card.def, 'aria-label': `${tr(def.name)}. ${t('hud.cost', { n: def.cost })}. ${tr(def.desc)}` },
       deps.touch ? null : h('span', { class: 'mk-card-key', 'aria-hidden': 'true' }, String(index + 1)),
       fresh.has(card.def) ? h('i', { class: 'mk-tagnew' }, t('common.new')) : null,
-      spriteIcon('defender', card.def, 54), sweep, secs, h('span', { class: 'mk-card-cost' }, String(def.cost)));
-    return { def: card.def, button, sweep, secs, state: '', secsText: '' };
-  });
+      spriteIcon('defender', card.def, 54), sweep, secs, cost);
+    return { def: card.def, button, sweep, secs, cost, costText: String(def.cost), state: '', secsText: '' };
+  };
+  let cards: CardView[] = sim.cards.map(cardView), handVersion = sim.handVersion;
   const spatula = h('button', { class: 'mk-card spatula', 'data-action': 'spatula', 'aria-label': `${t('hud.spatula')}. ${t('hud.spatulaHint')}`, title: `${t('hud.spatula')} (X)` },
     deps.touch ? null : h('span', { class: 'mk-card-key', 'aria-hidden': 'true' }, 'X'), spatulaIcon(54), h('span', { class: 'mk-card-cost' }, t('hud.spatula')));
   const hand = h('div', { class: 'mk-hand', role: 'toolbar', 'aria-label': t('hud.hand') }, cards.map(card => card.button), spatula);
@@ -136,6 +138,14 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
     else if (right + pad > hand.scrollLeft + hand.clientWidth) hand.scrollLeft = right + pad - hand.clientWidth;
   };
   hand.addEventListener('scroll', handEdges, { passive: true });
+  /** Conveyor nights: cards come and go, so the tray is rebuilt from the sim's hand (existing buttons are kept). */
+  const rebuildHand = () => {
+    handVersion = sim.handVersion;
+    const old = new Map(cards.map(card => [card.def, card]));
+    cards = sim.cards.map((card, index) => old.get(card.def) ?? cardView(card, index));
+    hand.replaceChildren(...cards.map(card => card.button), spatula);
+    if (view.card && !sim.cards.some(card => card.def === view.card)) session.selectCard(null);
+  };
 
   // ---- overlays ----
   const banner = h('div', { class: 'mk-banner', role: 'status', hidden: true });
@@ -349,9 +359,15 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
     if (text !== lastLabel) { lastLabel = text; label.textContent = text; waves.setAttribute('aria-valuetext', text); waves.title = endless && sim.modifier ? tr(sim.modifier.desc) : ''; }
     if (endless && sim.score !== lastScore) { lastScore = sim.score; scoreValue.textContent = String(sim.score); }
     if (session.speed !== lastSpeed) { lastSpeed = session.speed; speed.textContent = `×${session.speed}`; speed.classList.toggle('is-on', session.speed === 2); speed.setAttribute('aria-pressed', String(session.speed === 2)); }
+    if (sim.handVersion !== handVersion) rebuildHand();
     for (const card of cards) {
-      const state = sim.cards.find(item => item.def === card.def)!, def = sim.content.defenders[card.def];
-      const cooling = state.cooldown > 0, poor = sim.heat < def.cost, selected = view.card === card.def;
+      const state = sim.cards.find(item => item.def === card.def), def = sim.content.defenders[card.def];
+      if (!state) continue;
+      // Granny's gift and belt / puzzle stock are free: the price tag shows what is on offer instead.
+      const gift = (state.gift ?? 0) > 0, stocked = state.stock !== undefined, free = gift || stocked;
+      const costText = gift ? t('hud.free') : stocked ? `×${state.stock}` : String(def.cost);
+      if (costText !== card.costText) { card.costText = costText; card.cost.textContent = costText; card.button.classList.toggle('is-gift', gift); card.button.classList.toggle('is-stock', stocked); }
+      const cooling = !free && state.cooldown > 0, poor = stocked ? (state.stock ?? 0) <= 0 && !gift : !free && sim.heat < def.cost, selected = view.card === card.def;
       const key = `${cooling}:${poor}:${selected}`;
       if (key !== card.state) {
         card.state = key;
@@ -398,6 +414,7 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
         // The name only: Ladle's bark right under it (sent by the sim with the rule) explains what it does.
         case 'modifier': showBanner(t('hud.rule', { name: tr(event.name) }), 'warn', 4.5, 2); break;
         case 'remembered': showBanner(t('hud.remembered'), 'good', 4, 3); break;
+        case 'mitt': showBanner(t('hud.mitt'), 'good', 2.6, 3); break;
         case 'heat': break;
         case 'cardReady': { const card = cards.find(item => item.def === event.def); if (card) { card.button.classList.remove('is-ready-flash'); void card.button.offsetWidth; card.button.classList.add('is-ready-flash'); } break; }
         case 'bark': showBark(event.speaker, tr(event.line)); break;

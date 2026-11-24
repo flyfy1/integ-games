@@ -148,6 +148,8 @@ export type Defender = {
   chilled?: boolean;
   /** Endless only: extra levels bought past the top tier. */
   polish?: number;
+  /** Chef's Table: part of the puzzle's starting board; the spatula cannot lift it. */
+  fixed?: boolean;
 };
 
 // ---------------------------------------------------------------- enemies
@@ -414,6 +416,10 @@ export type LevelDef = {
   hazards?: HazardDef[];
   /** Endless: top-tier defenders can be polished for ever-rising Heat (the late-game Heat sink). */
   polish?: boolean;
+  /** After Hours / Chef's Table special rules. */
+  rules?: NightRules;
+  /** Chef's Table: guards already on the board when the night starts, `[def, col, lane, tier]` (cannot be removed). */
+  preset?: [def: string, col: number, lane: number, tier: number][];
 };
 
 export type ChapterDef = { id: number; name: Loc; blurb: Loc; levels: string[]; backdrop: string; /** Story scene shown before the chapter's first level (already folded into that level's intro). */ opener?: string };
@@ -447,15 +453,53 @@ export type Content = {
   meta: MetaUpgradeDef[];
 };
 
+/** Player-chosen difficulty. Standard is the tuned campaign; Gentle adds a safety net; Chef is the hard mode. */
+export type Difficulty = 'gentle' | 'standard' | 'chef';
+
+/**
+ * Special rules for the After Hours nights and Chef's Table puzzles (see `data/afterhours.ts`, `data/puzzles.ts`).
+ * Every field is optional and off by default, so campaign nights never see any of them.
+ */
+export type NightRules = {
+  /** Cards arrive on a belt instead of costing Heat: one every `every` seconds from `pool` (in order, looping), at most `max` waiting. */
+  conveyor?: { every: number; pool: string[]; max: number; first?: number };
+  /** Only fixed lamps light a dark board: defenders give no light. */
+  lampsOnly?: boolean;
+  /** Only defenders that are part of a Recipe attack (Burners and other support still work). */
+  recipesOnly?: boolean;
+  /** Heat for every pest sent home (`per` Heat per point of the pest's threat). */
+  bounty?: { per: number; min: number };
+  /** Pests also climb out of a plughole at column `col`: every `every`-th spawn of a wave comes out there instead. */
+  plughole?: { col: number; every: number };
+  /** A random hand of this many cards, dealt at the start from the cards brought (always with a Burner if one was brought). */
+  leftovers?: number;
+  /** Multipliers for the whole night: pest walking speed, card recharge time. */
+  pace?: { enemySpeed?: number; cooldown?: number };
+  /** The slice count is fixed: difficulty and upgrades do not add slices. */
+  fixedSlices?: boolean;
+  /** Puzzle: no Heat, a stock of each card, place everything first and then press Cook. */
+  puzzle?: { pieces: Record<string, number> };
+};
+
 export type SimOptions = {
   random: () => number;
+  /** Defaults to 'standard', which leaves every number exactly as tuned. */
+  difficulty?: Difficulty;
+  /** Granny's help: one free placement of this card that starts at tier 2. */
+  gift?: string;
   /** Cards to bring. Ignored when the level fixes its hand. */
   loadout?: string[];
   meta?: MetaState;
   content?: Content;
 };
 
-export type CardState = { def: string; cooldown: number; total: number };
+export type CardState = {
+  def: string; cooldown: number; total: number;
+  /** Granny's help: free placements left that start at tier 2 (no Heat, no cooldown). */
+  gift?: number;
+  /** Conveyor / puzzle: placements left of this card (no Heat). The card leaves the hand at 0 on a conveyor. */
+  stock?: number;
+};
 
 export type SimStats = {
   kills: number; placed: number; removed: number; upgrades: number; defendersLost: number; slicesLost: number;
@@ -463,6 +507,8 @@ export type SimStats = {
   recipes: string[]; enemiesSeen: string[]; defendersUsed: string[];
   /** Finale: the Bloom was remembered rather than destroyed. */
   remembered?: boolean;
+  /** Gentle: Oven Mitts that swept a lane. */
+  mitts?: number;
 };
 
 export type SimStatus = 'playing' | 'won' | 'lost';
@@ -503,10 +549,24 @@ export type Sim = {
   /** Board flags, so per-step work is skipped on plain counters. */
   board: { dark: boolean; frost: boolean };
   recipeHeat: number;
+  difficulty: Difficulty;
+  /** Gentle: Oven Mitts left per lane (index = lane). Empty on other difficulties. */
+  mitts: number[];
+  /** Health multipliers from the difficulty for pests and for the night's boss (1 on Standard). */
+  hpScale: { pest: number; boss: number };
+  rules: NightRules;
+  /** Puzzle: true while the player is still placing (the night does not run until `cook`). */
+  prep: boolean;
+  /** Bumped whenever cards join or leave the hand (conveyor), so the HUD can rebuild it. */
+  handVersion: number;
+  /** Conveyor: seconds to the next card on the belt, and which pool entry comes next. */
+  belt: { timer: number; next: number };
+  /** Spawns counted this wave (plughole rule). */
+  spawnCount: number;
 };
 
-export type PlaceFail = 'unknown-card' | 'cooldown' | 'heat' | 'occupied' | 'blocked' | 'mold' | 'out-of-bounds' | 'over' | 'wet' | 'dark';
-export type ActionResult = { ok: true } | { ok: false; reason: PlaceFail | 'empty' | 'max-tier' };
+export type PlaceFail = 'unknown-card' | 'cooldown' | 'heat' | 'occupied' | 'blocked' | 'mold' | 'out-of-bounds' | 'over' | 'wet' | 'dark' | 'stock' | 'cooking';
+export type ActionResult = { ok: true } | { ok: false; reason: PlaceFail | 'empty' | 'max-tier' | 'fixed' };
 
 /** Everything that happens, in order. The renderer, the audio facade, the tutorial and the story barks subscribe. */
 export type SimEvent =
@@ -517,7 +577,7 @@ export type SimEvent =
   | { type: 'defenderDown'; id: number; def: string; col: number; lane: number; cause: 'eaten' | 'spent' | 'stolen' }
   | { type: 'defenderHurt'; id: number; def: string; col: number; lane: number; by: string }
   | { type: 'defenderStun'; id: number; col: number; lane: number; duration: number; cause?: 'toss' | 'drip' | 'chill' | 'snap' }
-  | { type: 'heat'; amount: number; col: number; lane: number; source: 'burner' | 'trickle' | 'refund' | 'recipe' | 'recovered' }
+  | { type: 'heat'; amount: number; col: number; lane: number; source: 'burner' | 'trickle' | 'refund' | 'recipe' | 'recovered' | 'bounty' }
   | { type: 'attack'; id: number; def: string; col: number; lane: number; attack: AttackDef['kind']; tag: DamageTag; radius?: number }
   | { type: 'hit'; enemy: number; def: string; x: number; lane: number; damage: number; tag: DamageTag; shield: boolean }
   | { type: 'splash'; x: number; lane: number; radius: number; tag: DamageTag }
@@ -550,6 +610,9 @@ export type SimEvent =
   | { type: 'calm'; enemy: number; def: string; x: number; lane: number }
   | { type: 'remembered'; enemy: number; def: string; x: number; lane: number }
   | { type: 'modifier'; id: string; name: Loc; desc: Loc }
+  | { type: 'mitt'; lane: number; swept: number }
+  | { type: 'belt'; def: string }
+  | { type: 'cook' }
   | { type: 'win' }
   | { type: 'lose' };
 

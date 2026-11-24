@@ -4,7 +4,7 @@ import { CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelBy
 import { createI18n, defaultLang, type Lang } from './i18n';
 import { attachInput } from './input';
 import { createRenderer, type ViewState } from './render/renderer';
-import { applyOutcome, buyUpgrade, isUnlocked, loadSave, metaOf, resetSave, respec, writeSave, type Save } from './save';
+import { applyOutcome, buyUpgrade, grannyOffered, isUnlocked, loadSave, metaOf, resetSave, respec, writeSave, type Save } from './save';
 import { createSession, type Session } from './session';
 import { starFlags } from './sim';
 import { SCENES } from './story';
@@ -63,7 +63,7 @@ export const midnightKitchen: GameModule = {
 
     let session: Session | null = null, hud: Hud | null = null, dialogue: Dialogue | null = null;
     let screen: { name: ScreenName; params: ScreenParams; element: HTMLElement } | null = null;
-    let night: { level: string; loadout: string[] } | null = null;
+    let night: { level: string; loadout: string[]; gift?: string } | null = null;
     let pendingResults: ResultsData | null = null;
     let externalPause = false, destroyed = false, raf = 0, last = 0, clock = 0, endTimer = 0, ending = false, pixelRatio = 1;
     let storageWarned = false, drawFailed = false, noticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -184,16 +184,19 @@ export const midnightKitchen: GameModule = {
       root.classList.remove('hand-side');
       layout();
     }
-    function startNight(levelId: string, loadout: string[]): void {
+    function startNight(levelId: string, loadout: string[], gift?: string): void {
       const level = levelById(levelId);
       if (!level || destroyed) return;
       closeScreen();
       if (session) endNight();
       if (!level.cards) { save.loadout = [...loadout]; persist(); }
-      night = { level: levelId, loadout: [...loadout] };
+      // Granny only helps while the night is still being lost; a retry after a win plays it straight.
+      const help = gift && grannyOffered(save, levelId) ? gift : undefined;
+      night = { level: levelId, loadout: [...loadout], gift: help };
       const steps = level.tutorial?.length ?? 0;
       session = createSession(level, {
         random: services.random, loadout, meta: metaOf(save), speed: save.speed, tutorialFrom: tutorialFrom(level.id, steps),
+        difficulty: level.id === ENDLESS_LEVEL.id ? 'standard' : save.difficulty, gift: help,
         onDeny: reason => { hud?.deny(reason); audio.sfx('deny'); },
         onTutorial: index => { for (let i = 0; i < index; i++) coachStore.see(`${level.id}:${i}`); }
       });
@@ -210,12 +213,12 @@ export const midnightKitchen: GameModule = {
       const sim = session.sim, level = session.level, flags = starFlags(sim), endless = level.id === ENDLESS_LEVEL.id;
       const hadEndless = !!save.levels[ENDLESS_UNLOCK]?.win;
       const openChapters = new Set(CHAPTERS.filter(chapter => chapter.levels[0] && isUnlocked(save, chapter.levels[0])).map(chapter => chapter.id));
-      const reward = applyOutcome(save, level, { won: flags.win, flawless: flags.flawless, bonus: flags.bonus, time: sim.time, score: sim.score, wave: sim.wave + 1, recipes: sim.stats.recipes, enemiesSeen: sim.stats.enemiesSeen, defendersUsed: sim.stats.defendersUsed });
+      const reward = applyOutcome(save, level, { won: flags.win, flawless: flags.flawless, bonus: flags.bonus, time: sim.time, score: sim.score, wave: sim.wave + 1, recipes: sim.stats.recipes, enemiesSeen: sim.stats.enemiesSeen, defendersUsed: sim.stats.defendersUsed, difficulty: sim.difficulty });
       if (flags.win && level.tutorial) for (let i = 0; i < level.tutorial.length; i++) if (!save.coach.seen.includes(`${level.id}:${i}`)) save.coach.seen.push(`${level.id}:${i}`);
       persist();
       if (endless) services.reportScore(sim.score);
       // The arcade wants one campaign-wide number (1..25), not the 1..5 that repeats in every chapter.
-      else if (flags.win) services.reportComplete(campaignNumber(level.id));
+      else if (flags.win && LEVEL_LIST.some(item => item.id === level.id)) services.reportComplete(campaignNumber(level.id));
       const opened = CHAPTERS.find(chapter => chapter.levels[0] && !openChapters.has(chapter.id) && isUnlocked(save, chapter.levels[0]));
       pendingResults = {
         level, won: flags.win, flags, reward, time: sim.time, kills: sim.stats.kills, score: sim.score, wave: sim.wave + 1, stats: { ...sim.stats, recipes: [...sim.stats.recipes] },
@@ -253,14 +256,15 @@ export const midnightKitchen: GameModule = {
         if (!level) return;
         audio.sfx('ui');
         // A fixed-hand lesson nobody has won yet goes straight onto the counter: no picker to understand first.
-        const direct = !!level.cards && !save.levels[level.id]?.win;
+        const direct = !!level.cards && !save.levels[level.id]?.win && !grannyOffered(save, level.id);
         playScene(level.intro, () => (direct ? startNight(levelId, level.cards!) : go('loadout', { level: levelId })));
       },
-      startNight(levelId, loadout) { audio.sfx('ui'); startNight(levelId, loadout); },
+      startNight(levelId, loadout, gift) { audio.sfx('ui'); startNight(levelId, loadout, gift); },
+      setDifficulty(difficulty) { save.difficulty = difficulty; persist(); audio.sfx('select'); },
       afterResults(results, choice) {
         audio.sfx('ui');
         const proceed = () => {
-          if (choice === 'retry' && night) startNight(night.level, night.loadout);
+          if (choice === 'retry' && night) startNight(night.level, night.loadout, night.gift);
           else if (choice === 'next' && results.nextLevel) { endNight(); ui.openLevel(results.nextLevel); }
           else if (choice === 'endless') { endNight(); ui.openLevel(ENDLESS_LEVEL.id); }
           // A boss win that opened the next kitchen lands on that kitchen's tab.
@@ -270,7 +274,7 @@ export const midnightKitchen: GameModule = {
         if (results.won && choice !== 'retry') playScene(results.level.outro, proceed); else proceed();
       },
       resume() { resumeLevel(); audio.sfx('ui'); },
-      retry() { if (night) startNight(night.level, night.loadout); },
+      retry() { if (night) startNight(night.level, night.loadout, night.gift); },
       quitToMap() { go('map', { chapter: session?.level.chapter || undefined }); },
       setLang(lang: Lang) {
         save.lang = lang; persist();

@@ -1,7 +1,8 @@
 import type { GameStorage } from '../../core/game-types';
 import { DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, STARTING_DEFENDERS } from './data';
 import { isLang, type Lang } from './i18n';
-import type { LevelDef, MetaState, MetaUpgradeDef } from './types';
+import { isDifficulty } from './sim';
+import type { Difficulty, LevelDef, MetaState, MetaUpgradeDef } from './types';
 
 /**
  * Persistent progress. One JSON blob under `SAVE_KEY` in the per-game storage the arcade hands us.
@@ -11,7 +12,7 @@ import type { LevelDef, MetaState, MetaUpgradeDef } from './types';
  * To change the schema: bump `SAVE_VERSION`, add the old shape to `migrate`, and extend tests/midnight-kitchen-shell.
  */
 export const SAVE_KEY = 'save';
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export type LevelRecord = { win: boolean; flawless: boolean; bonus: boolean; bestTime: number | null };
 export type Save = {
@@ -35,6 +36,16 @@ export type Save = {
   coach: { seen: string[]; off: boolean };
   /** Player preferences. Volumes are 0..1. */
   settings: Settings;
+  /** v4: difficulty picked on the briefing (applies to campaign and After Hours nights). */
+  difficulty: Difficulty;
+  /** v4: losses in a row per night since its last win (two or more: Granny offers her help). */
+  losses: Record<string, number>;
+  /** v4: nights won on Chef difficulty. */
+  chefWins: string[];
+  /** v4: Chef's Table puzzles solved. */
+  puzzles: string[];
+  /** v4: nights whose Chef's Challenge (the fourth star) has been won. */
+  challenges: string[];
   /** Bumped on every write so a silent storage failure can be detected by reading the value back. */
   w: number;
 };
@@ -45,7 +56,7 @@ export function defaultSave(): Save {
   return {
     v: SAVE_VERSION, lang: null, crumbs: 0, owned: [...STARTING_DEFENDERS], loadout: [...STARTING_DEFENDERS], upgrades: {}, levels: {},
     cookbook: { defenders: [...STARTING_DEFENDERS], enemies: [], recipes: [] }, scenes: [], endless: { bestScore: 0, bestWave: 0, runs: 0 }, speed: 1,
-    coach: { seen: [], off: false }, settings: defaultSettings(), w: 0
+    coach: { seen: [], off: false }, settings: defaultSettings(), difficulty: 'standard', losses: {}, chefWins: [], puzzles: [], challenges: [], w: 0
   };
 }
 
@@ -95,6 +106,12 @@ export function migrate(raw: unknown): Save {
   save.coach = { seen: strings(coach.seen).slice(0, 400), off: coach.off === true };
   const settings = isObject(data.settings) ? data.settings : {}, fallback = defaultSettings();
   save.settings = { music: unit(settings.music, fallback.music), sfx: unit(settings.sfx, fallback.sfx), reducedFx: settings.reducedFx === true, autoAdvance: settings.autoAdvance === true };
+  // v3 -> v4: difficulty, Granny's loss counter, Chef wins, puzzles and challenges are new; a v3 save starts them empty.
+  save.difficulty = isDifficulty(data.difficulty) ? data.difficulty : 'standard';
+  if (isObject(data.losses)) for (const [id, value] of Object.entries(data.losses)) { const n = count(value, 99); if (n && id.length <= 32) save.losses[id] = n; }
+  save.chefWins = strings(data.chefWins).slice(0, 200);
+  save.puzzles = strings(data.puzzles).slice(0, 200);
+  save.challenges = strings(data.challenges).slice(0, 200);
   save.w = count(data.w);
   return save;
 }
@@ -132,13 +149,22 @@ export function isUnlocked(save: Save, levelId: string): boolean {
   return index <= 0 ? index === 0 : !!save.levels[LEVEL_LIST[index - 1].id]?.win;
 }
 export const metaOf = (save: Save): MetaState => ({ upgrades: save.upgrades });
+/** Two losses in a row on a night: Granny offers a free tier-2 guard. */
+export const GRANNY_AFTER = 2;
+export const grannyOffered = (save: Save, levelId: string): boolean => (save.losses[levelId] ?? 0) >= GRANNY_AFTER;
 
 // ---------------------------------------------------------------- progress updates
 
 export const CRUMBS_PER_STAR = 15;
 export const CRUMBS_REPLAY = 5;
+/** First win of a night on Chef difficulty. */
+export const CRUMBS_CHEF = 25;
 
-export type Outcome = { won: boolean; flawless: boolean; bonus: boolean; time: number; score: number; wave: number; recipes: string[]; enemiesSeen: string[]; defendersUsed: string[] };
+export type Outcome = {
+  won: boolean; flawless: boolean; bonus: boolean; time: number; score: number; wave: number; recipes: string[]; enemiesSeen: string[]; defendersUsed: string[];
+  /** Difficulty the night was played on (default Standard). */
+  difficulty?: Difficulty;
+};
 export type Reward = {
   crumbs: number; newStars: number; unlocked: string[]; newRecipes: string[]; firstClear: boolean; newBest: boolean;
   /** Endless only. */
@@ -147,6 +173,8 @@ export type Reward = {
   priorStars?: number;
   /** Which of the three stars were already earned before this run. */
   prior?: [boolean, boolean, boolean];
+  /** First win of this night on Chef difficulty. */
+  chefWin?: boolean;
 };
 
 /** Folds a finished level into the save (mutates it) and reports what was gained, for the results screen. */
@@ -171,11 +199,14 @@ export function applyOutcome(save: Save, level: LevelDef, outcome: Outcome): Rew
     reward.newStars = starsOf(record) - prior;
     reward.crumbs = (reward.firstClear ? level.reward : CRUMBS_REPLAY) + reward.newStars * CRUMBS_PER_STAR;
     save.levels[level.id] = record;
+    if (outcome.difficulty === 'chef' && !save.chefWins.includes(level.id)) { save.chefWins.push(level.id); reward.chefWin = true; reward.crumbs += CRUMBS_CHEF; }
+    delete save.losses[level.id];
     for (const id of level.unlocks ?? []) if (DEFENDERS[id] && !save.owned.includes(id)) {
       save.owned.push(id); reward.unlocked.push(id);
       if (!save.cookbook.defenders.includes(id)) save.cookbook.defenders.push(id);
     }
   }
+  if (!outcome.won && level.id !== ENDLESS_LEVEL.id) save.losses[level.id] = Math.min(99, (save.losses[level.id] ?? 0) + 1);
   save.crumbs += reward.crumbs;
   return reward;
 }

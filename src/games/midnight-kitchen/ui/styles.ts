@@ -544,4 +544,20 @@ export const STYLES = `
 @keyframes mk-bob{0%,100%{transform:translateY(0) rotate(45deg)}50%{transform:translateY(-5px) rotate(45deg)}}
 @keyframes mk-blink{0%,100%{opacity:1}50%{opacity:.45}}
 .mk.reduced *{animation:none!important;transition:none!important}
+.mk-diff{margin-top:10px}
+.mk-diff-switch{display:flex;width:100%;margin-top:4px}
+.mk-diff-switch button{flex:1;min-width:0;color:#ffe9a8}
+.mk-diff-switch button[aria-pressed=true]{color:var(--ink)}
+.mk-granny-cards .mk-pick::after{display:none}
+.mk-diff-hint{margin:6px 0 0;font-size:var(--fs-xs);font-weight:700;opacity:.85}
+.mk-granny-head{display:flex;gap:10px;align-items:center}
+.mk-granny-head h3{margin:0}
+.mk-granny-head p{margin:2px 0 0;font-size:var(--fs-s)}
+.mk-granny-cards{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+.mk-granny-cards .mk-pick{min-width:0;min-height:0;width:auto;height:auto;flex-direction:row;display:inline-flex;align-items:center;gap:4px;padding:4px 10px 4px 4px}
+.mk-granny-cards .mk-pick b{font-size:var(--fs-xs)}
+.mk-granny-note{margin:6px 0 0;font-weight:800;font-size:var(--fs-s)}
+.mk-card.is-gift .mk-card-cost{background:linear-gradient(#c9f5b8,#7fd36a);color:var(--ink);font-size:10px}
+.mk-card.is-gift{box-shadow:0 0 0 3px #9be58a,0 4px 0 var(--ink)}
+.mk-card.is-stock .mk-card-cost{background:linear-gradient(#ffe9a8,#ffc35a);color:var(--ink)}
 `;
