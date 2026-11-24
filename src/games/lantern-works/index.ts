@@ -268,7 +268,7 @@ export const lanternWorks: GameModule = {
       showCard(h('div', { class: 'lw-card', role: 'dialog' },
         h('h2', null, h('small', { text: daily ? `${t('daily.title')} · ${play.daily}` : t('night.title') }), t('night.over')),
         h('p', { text: `${t('night.score', { n: score })} · ${t('night.served', { n: served })}` }),
-        h('p', { text: newBest ? t('night.newBest') : t('night.best', { n: save.night.best }) }),
+        h('p', { text: newBest ? t('night.newBest') : t('night.best', { n: daily ? ((play.daily && rec?.scores[play.daily]) ?? score) : save.night.best }) }),
         daily && rec ? h('p', { text: t('daily.streak', { n: rec.streak }) }) : null,
         h('div', { class: 'row' },
           h('button', { class: 'lw-btn primary', onclick: () => { audio.ui(); openNight(play!.mode as 'night' | 'daily'); } }, t('night.again')),
