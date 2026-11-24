@@ -32,7 +32,11 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: 'index.html',
-        globPatterns: ['**/*.{js,css,html,svg,woff2}']
+        globPatterns: ['**/*.{js,css,html,svg,woff2}'],
+        // Pebble Putt's 3D engine (Three.js, ~150 KB gzipped) is only fetched by that game, so it is not precached
+        // for everyone; once a player opens the game it is kept for offline play.
+        globIgnores: ['**/pebble-putt-gl-*.js'],
+        runtimeCaching: [{ urlPattern: /\/assets\/pebble-putt-gl-[\w-]+\.js$/, handler: 'CacheFirst', options: { cacheName: 'pebble-putt-3d', expiration: { maxEntries: 2 } } }]
       }
     })
   ],
