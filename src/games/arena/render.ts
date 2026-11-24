@@ -4,29 +4,29 @@
  * so gameplay randomness stays untouched. Characters, props and ground tiles are baked to offscreen sprites once
  * per resolution; the per-frame work is almost entirely image blits.
  */
-import { BLADES, BOLT, ENEMIES, MAX_LEVEL, PASSIVE_CARDS, PASSIVE_IDS, WEAPON_CARDS, WEAPON_IDS, type EnemyKind } from './data';
-import { BOSS_TIME, pickupRadius, type Card, type Enemy, type SimEvent, type State } from './sim';
-import { bake, C, canvasOf, drawArcher, drawArrow, drawBandit, drawBruiser, drawBurst, drawCoin, drawCrescent, drawDragonBeam, drawFireball, drawHero, drawIcon as artIcon, drawIngot, drawJade, drawPeach, drawPuff, drawRider, drawSoldier, drawSpear, drawTalisman, drawWarlord, E, glowSprite, INK, L, R, star, TAU, type Ctx, type Sprite } from './art';
+import { BLADES, BOLT, ENEMIES, MAX_LEVEL, PARTNER, PASSIVE_CARDS, PASSIVE_IDS, PASSIVE_SLOTS, PRE_EVOLVE, STAGES, WEAPON_CARDS, WEAPON_IDS, WEAPON_SLOTS, type EnemyKind, type WeaponId } from './data';
+import { BOSS_TIME, MID_TIME, canEvolve, pickupRadius, type Card, type Enemy, type SimEvent, type State } from './sim';
+import { bake, BOSS_LOOKS, C, canvasOf, drawArcher, drawArrow, drawBandit, drawBolt, drawBruiser, drawBurst, drawChest, drawCoin, drawCrescent, drawDragonBeam, drawFireball, drawHero, drawIcon as artIcon, drawIngot, drawJade, drawPeach, drawPot, drawPuff, drawRider, drawSoldier, drawSpear, drawTalisman, drawWarlord, E, glowSprite, HERO_LOOKS, INK, L, R, star, TAU, type Ctx, type Sprite } from './art';
 import { buildScenes, drawGround, hash, sceneIndex, type Scene } from './scenes';
+import { bannerText, bossName, cardText, itemName, killerLine, tr } from './text';
 
 export type View = { w: number; h: number; scale: number };
 export type Rect = { x: number; y: number; w: number; h: number };
 export type Ui = {
   best: number; newBest: boolean; selected: number; locked: boolean; touch: boolean; paused: boolean; clock: number;
   stick: { x: number; y: number; dx: number; dy: number } | null; hint: string; burstLabel: string; retryLabel: string;
+  /** Extra lines for the result scroll (jade, unlocks, daily streak) and whether the camp button is offered. */
+  result?: { lines: { text: string; color?: string }[]; camp: boolean; share?: boolean; title?: string };
+  /** Chest reveal: seconds since it opened; evolution flash: seconds since the last evolution. */
+  chestAge?: number; evolveAge?: number; evolveKey?: string; slowmo?: number;
 };
 
-const TEXT = '#3a2418', BROWN = '#735238';
+export const TEXT = '#3a2418', BROWN = '#735238';
 export const ENEMY_NAME: Record<string, string> = { grub: 'a Foot Soldier', skitter: 'a Bandit pack', brute: 'a Hammer Bruiser', spitter: 'an Archer', charger: 'a Cavalry Lancer', warden: 'the Warlord' };
 const KIND_COLOR: Record<EnemyKind, string> = { grub: 'starG', skitter: 'starR', brute: 'starW', spitter: 'starG', charger: 'starR', warden: 'starG' };
-/** Banner text from the simulation, re-themed at display time only. */
-const BANNER_TEXT: Record<string, string> = {
-  'SWARM CLOSING IN': 'BANDIT AMBUSH!', 'ELITE INCOMING': 'ENEMY OFFICER APPROACHES', 'THE WARDEN AWAKENS': 'THE WARLORD TAKES THE FIELD',
-  'ANOTHER WARDEN RISES': 'ANOTHER WARLORD RISES', 'WARDEN DOWN - ENDLESS MODE': 'WARLORD DOWN - ENDLESS MODE', 'WARDEN DOWN': 'WARLORD DOWN'
-};
 const FONT = 'ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif';
-const font = (size: number, weight = 800) => `${weight} ${size}px ${FONT}`;
-const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+export const font = (size: number, weight = 800) => `${weight} ${size}px ${FONT}`;
+export const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 const mod = (value: number, size: number) => ((value % size) + size) % size;
 
 /** Side inset that keeps HUD text clear of the shell's round corner buttons on touch layouts. */
@@ -45,27 +45,30 @@ export function cardRects(view: View, count: number): Rect[] {
   return Array.from({ length: count }, (_, index) => ({ x: (w - total) / 2 + index * (cw + wideGap), y: (h - ch) / 2 + 26, w: cw, h: ch }));
 }
 
-function label(c: Ctx, value: string, x: number, y: number, size: number, color = C.cream, align: CanvasTextAlign = 'left', weight = 800) {
+export function label(c: Ctx, value: string, x: number, y: number, size: number, color = C.cream, align: CanvasTextAlign = 'left', weight = 800) {
   c.font = font(size, weight); c.textAlign = align; c.textBaseline = 'middle'; c.fillStyle = color; c.fillText(value, x, y);
 }
-function outlined(c: Ctx, value: string, x: number, y: number, size: number, color: string, align: CanvasTextAlign = 'center', edge = INK, weight = 800) {
+export function outlined(c: Ctx, value: string, x: number, y: number, size: number, color: string, align: CanvasTextAlign = 'center', edge = INK, weight = 800) {
   c.font = font(size, weight); c.textAlign = align; c.textBaseline = 'middle'; c.lineJoin = 'round'; c.lineWidth = Math.max(3, size / 4.2); c.strokeStyle = edge; c.strokeText(value, x, y); c.fillStyle = color; c.fillText(value, x, y);
 }
-function wrap(c: Ctx, value: string, width: number): string[] {
+export function wrap(c: Ctx, value: string, width: number): string[] {
   const lines: string[] = []; let line = '';
-  for (const word of value.split(' ')) { const next = line ? `${line} ${word}` : word; if (line && c.measureText(next).width > width) { lines.push(line); line = word; } else line = next; }
+  // Chinese has no spaces: break between characters instead (keeping Latin words and numbers whole).
+  const words = /[\u3400-\u9fff]/.test(value) ? value.match(/[A-Za-z0-9.%+:\-]+|\s+|./g)?.filter(part => part.trim()) ?? [] : value.split(' ');
+  const glue = /[\u3400-\u9fff]/.test(value) ? '' : ' ';
+  for (const word of words) { const next = line ? `${line}${glue}${word}` : word; if (line && c.measureText(next).width > width) { lines.push(line); line = word; } else line = next; }
   if (line) lines.push(line);
   return lines;
 }
 /** A framed cartoon meter: ink frame, dark track, two-tone fill with a highlight band. */
-function meter(c: Ctx, x: number, y: number, w: number, h: number, ratio: number, fill: string, light: string, track: string, frame = INK) {
+export function meter(c: Ctx, x: number, y: number, w: number, h: number, ratio: number, fill: string, light: string, track: string, frame = INK) {
   R(c, x - 2, y - 2, w + 4, h + 4, h / 2 + 2); c.fillStyle = frame; c.fill();
   R(c, x, y, w, h, h / 2); c.fillStyle = track; c.fill();
   const fw = w * Math.max(0, Math.min(1, ratio));
   if (fw > 0.5) { c.save(); R(c, x, y, w, h, h / 2); c.clip(); c.fillStyle = fill; c.fillRect(x, y, fw, h); c.fillStyle = light; c.fillRect(x, y + 1.5, fw, h * 0.34); c.fillStyle = 'rgba(255,255,255,0.55)'; c.fillRect(x + fw - 2, y, 2, h); c.restore(); }
 }
 /** Parchment scroll with wooden rollers on the short ends (`upright`) or on the sides. */
-function scroll(c: Ctx, x: number, y: number, w: number, h: number, upright: boolean, lit: boolean) {
+export function scroll(c: Ctx, x: number, y: number, w: number, h: number, upright: boolean, lit: boolean) {
   c.fillStyle = 'rgba(30,14,10,0.35)'; R(c, x + 2, y + 5, w, h, 8); c.fill();
   R(c, x, y, w, h, 7); c.fillStyle = lit ? '#fff6dc' : C.parchment; c.fill();
   c.save(); R(c, x, y, w, h, 7); c.clip(); c.strokeStyle = C.parchmentDark; c.lineWidth = 7; R(c, x, y, w, h, 7); c.stroke(); c.restore();
@@ -80,7 +83,7 @@ function scroll(c: Ctx, x: number, y: number, w: number, h: number, upright: boo
   };
   if (upright) { rod(x - 6, y - 6, w + 12, 11); rod(x - 6, y + h - 5, w + 12, 11); } else { rod(x - 6, y - 5, 11, h + 10); rod(x + w - 5, y - 5, 11, h + 10); }
 }
-function plaque(c: Ctx, x: number, y: number, w: number, h: number, r = 8, fill = C.woodDark) {
+export function plaque(c: Ctx, x: number, y: number, w: number, h: number, r = 8, fill = C.woodDark) {
   R(c, x, y, w, h, r); c.fillStyle = fill; c.fill(); c.strokeStyle = C.goldDark; c.lineWidth = 1.5; c.stroke();
 }
 /** Small coloured glyphs for weapons, passives and bonus cards. */
@@ -98,7 +101,7 @@ function hasCjk(): boolean {
   } catch { cjk = false; }
   return cjk;
 }
-function seal(c: Ctx, x: number, y: number, size: number, glyph: string, icon: string) {
+export function seal(c: Ctx, x: number, y: number, size: number, glyph: string, icon: string) {
   c.save(); c.translate(x, y); c.rotate(-0.1);
   R(c, -size / 2, -size / 2, size, size, size * 0.18); c.fillStyle = C.red; c.fill(); c.strokeStyle = C.redDark; c.lineWidth = 1.6; c.stroke();
   R(c, -size / 2 + 3, -size / 2 + 3, size - 6, size - 6, size * 0.1); c.strokeStyle = 'rgba(255,243,214,0.75)'; c.lineWidth = 1.2; c.stroke();
@@ -128,10 +131,12 @@ function buildKit(res: number): Kit | null {
   const cast: Record<string, Sprite[]> = {};
   for (const kind of Object.keys(CAST) as (keyof typeof CAST)[]) {
     const def = CAST[kind];
-    for (const elite of [false, true]) {
-      const frames: Sprite[] = [];
-      for (let frame = 0; frame < def.frames; frame++) { const made = bake(res * (elite ? 1.55 : 1), def.box, c => def.draw(c, frame, elite), true); if (!made) return null; frames.push(made); }
-      cast[elite ? `${kind}!` : kind] = frames;
+    for (const rank of [0, 1, 2]) {
+      // rank 2 is the mid-boss set: baked large so the officer stays crisp at two to four times normal size
+      if (rank === 2 && kind === 'grub') continue;
+      const frames: Sprite[] = [], elite = rank > 0, scale = rank === 2 ? 2.8 : elite ? 1.55 : 1;
+      for (let frame = 0; frame < def.frames; frame++) { const made = bake(Math.min(6, res * scale), def.box, c => def.draw(c, frame, elite), true); if (!made) return null; frames.push(made); }
+      cast[rank === 2 ? `${kind}@` : elite ? `${kind}!` : kind] = frames;
     }
   }
   const item: Record<string, Sprite> = {}, fx: Record<string, Sprite> = {};
@@ -143,6 +148,9 @@ function buildKit(res: number): Kit | null {
     put(item, 'crescent', 1.2, [-17, -15, 17, 8], c => drawCrescent(c, false)), put(item, 'halo', 1.2, [-17, -15, 17, 8], c => drawCrescent(c, true)),
     put(item, 'arrow', 1.3, [-19, -6, 4, 6], c => drawArrow(c, false)), put(item, 'fireArrow', 1.3, [-19, -6, 4, 6], c => drawArrow(c, true)),
     put(item, 'fireball', 1.3, [-17, -9, 9, 9], drawFireball),
+    put(item, 'xbolt', 1.3, [-14, -5, 4, 5], c => drawBolt(c, false)), put(item, 'xboltGold', 1.3, [-14, -5, 4, 5], c => drawBolt(c, true)),
+    put(item, 'pot', 1.4, [-8, -14, 8, 8], c => drawPot(c, false)), put(item, 'potRed', 1.4, [-8, -14, 8, 8], c => drawPot(c, true)),
+    put(item, 'chest', 1.6, [-15, -24, 15, 4], c => drawChest(c)),
     put(item, 'beam', 0.8, [-2, -22, 266, 22], c => drawDragonBeam(c, false)), put(item, 'beamAzure', 0.8, [-2, -22, 266, 22], c => drawDragonBeam(c, true)),
     put(fx, 'fire', 40, [-1.1, -1.1, 1.1, 1.1], c => drawBurst(c, '#ff7a2e', '#ffd23a', '#8f1d1d')), put(fx, 'spark', 26, [-1.1, -1.1, 1.1, 1.1], c => drawBurst(c, '#6fd3ff', '#eaf9ff', '#2a6fb8')),
     put(fx, 'puff', 12, [-1.05, -1.05, 1.05, 1.05], c => drawPuff(c, '#fff8e6', '#e6d2aa')), put(fx, 'dust', 10, [-1.05, -1.05, 1.05, 1.05], c => drawPuff(c, '#e8d2a6', '#c9ab78')),
@@ -174,7 +182,7 @@ type Scorch = { x: number; y: number; r: number; life: number };
 
 export function createRenderer(reduced: boolean) {
   let seed = 0x2f6e2b1, particles: Particle[] = [], texts: FloatText[] = [], pops: Pop[] = [], scorches: Scorch[] = [];
-  let shake = 0, hurt = 0, banner = { text: '', tone: 'warn' as 'warn' | 'good' | 'place', life: 0 }, pickupGlow = 0;
+  let evolveRing = 0, shake = 0, hurt = 0, banner = { text: '', tone: 'warn' as 'warn' | 'good' | 'place', life: 0 }, pickupGlow = 0;
   let kit: Kit | null = null, kitRes = 0, kitFailed = false, pendingRes = 0, pendingFrames = 0;
   let scene = -1, lastScene = -1, fade = 0, runSalt = 0, heroDir = 1, thrust = 0, lastBoltCd = 0, dustTimer = 0;
   let vignettes: Record<string, HTMLCanvasElement | null> = {}, vignetteSize = '';
@@ -187,19 +195,45 @@ export function createRenderer(reduced: boolean) {
   let textCap = 30;
   const say = (x: number, y: number, text: string, color: string, size: number, life = 0.55, edge = INK) => { while (texts.length >= textCap) texts.shift(); texts.push({ x, y, life, max: life, text, color, edge, size }); };
 
+  const placeName = (index: number) => { const stage = STAGES[(['bamboo', 'river', 'camp', 'fortress'] as const)[index] ?? 'bamboo']; return tr(stage.name, stage.zh).toUpperCase(); };
+  /** Builds (or rebuilds after a resize settles) the sprite kit at the current device scale. */
+  const ensureKit = (c: Ctx, scale: number) => {
+    const matrix = typeof c.getTransform === 'function' ? c.getTransform() : null, dpr = matrix && matrix.a > 0 ? matrix.a : 1;
+    // sprites are baked at the exact device scale so the crowd blits 1:1; a resize rebuilds once the size settles
+    const res = Math.min(3, Math.max(1, Math.round(scale * dpr * 1000) / 1000));
+    let built = false;
+    if (kit && kitRes !== res) { if (pendingRes === res) pendingFrames++; else { pendingRes = res; pendingFrames = 0; } }
+    if ((!kit || (kitRes !== res && pendingFrames > 10)) && !kitFailed) { const made = buildKit(res); if (made) { kit = made; kitRes = res; built = true; } else if (!kit) kitFailed = true; }
+    return { dpr, built };
+  };
   return {
-    reset() { particles = []; texts = []; pops = []; scorches = []; shake = 0; hurt = 0; banner.life = 0; pickupGlow = 0; scene = -1; lastScene = -1; fade = 0; runSalt += 7919; heroDir = 1; thrust = 0; lastBoltCd = 0; },
+    /** Menu backdrop: the chosen battleground drifting past with the chosen general standing in the middle. */
+    backdrop(c: Ctx, view: View, sceneIdx: number, general: string, time: number) {
+      const { w, h, scale } = view, { dpr } = ensureKit(c, scale);
+      if (!kit) { c.fillStyle = '#a2d06c'; c.fillRect(0, 0, w, h); return; }
+      const camX = reduced ? 0 : time * 14, camY = 0, M = dpr * scale, halfW = w / 2 / scale, halfH = h / 2 / scale;
+      c.setTransform(M, 0, 0, M, w / 2 * dpr - camX * M, h / 2 * dpr - camY * M);
+      drawGround(c, kit.scenes[sceneIdx], 31 + sceneIdx * 101, camX - halfW - 4, camY - halfH - 4, halfW * 2 + 8, halfH * 2 + 8, kit.glow.warm, 0);
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.fillStyle = 'rgba(30,14,10,0.42)'; c.fillRect(0, 0, w, h);
+      const b = kit.hero, size = Math.min(3.2, Math.max(1.6, h / 200)), fx = w / 2, fy = h - 18;
+      b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-over'; b.c.clearRect(0, 0, b.el.width, b.el.height); b.c.setTransform(b.res, 0, 0, b.res, -b.box[0] * b.res, -b.box[1] * b.res);
+      drawHero(b.c, time, false, reduced, 0, HERO_LOOKS[general] ?? HERO_LOOKS.spear);
+      c.globalAlpha = 0.28; c.setTransform(dpr * size * HERO_SIZE, 0, 0, dpr * size * HERO_SIZE, fx * dpr, fy * dpr); c.drawImage(b.el, b.box[0], b.box[1], b.box[2] - b.box[0], b.box[3] - b.box[1]); c.globalAlpha = 1;
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    },
+    reset() { evolveRing = 0; particles = []; texts = []; pops = []; scorches = []; shake = 0; hurt = 0; banner.life = 0; pickupGlow = 0; scene = -1; lastScene = -1; fade = 0; runSalt += 7919; heroDir = 1; thrust = 0; lastBoltCd = 0; },
     /** Feeds one simulation event into the cosmetic layer. */
     onEvent(event: SimEvent, s: State) {
       if (event.type === 'dmg') {
         say(event.x + (rnd() - 0.5) * 12, event.y - 6, event.crit ? `${event.amount}!` : String(event.amount), event.crit ? C.gold : C.cream, event.crit ? 18 : 14, event.crit ? 0.6 : 0.42, event.crit ? '#7a1a18' : INK);
         emit(event.crit ? 'starG' : 'starW', event.x, event.y + 6, 1, 30, event.crit ? 7 : 5, 0.2, 0.6);
       } else if (event.type === 'kill') {
-        const big = event.elite || event.kind === 'warden';
+        const big = event.elite || event.boss > 0;
         emit('puff', event.x, event.y - 4, big ? 7 : 2, big ? 150 : 60, big ? 10 : event.r * 0.62, big ? 0.55 : 0.32, 0.6);
         emit(KIND_COLOR[event.kind], event.x, event.y, big ? 12 : 3, big ? 260 : 140, big ? 7 : 4.4, big ? 0.6 : 0.36);
         if (pops.length < 60) pops.push({ x: event.x, y: event.y, r: event.r * (big ? 3.2 : 1.9), life: 0.26, max: 0.26, kind: 'ring' });
-        if (big) shake = Math.max(shake, 5);
+        if (big) shake = Math.max(shake, event.boss ? 9 : 5);
       } else if (event.type === 'boom') {
         const bolt = event.r === BOLT.blast;
         if (pops.length < 70) pops.push({ x: event.x, y: event.y, r: event.r, life: bolt ? 0.26 : 0.4, max: bolt ? 0.26 : 0.4, kind: bolt ? 'spark' : 'fire' });
@@ -210,12 +244,22 @@ export function createRenderer(reduced: boolean) {
       else if (event.type === 'gem') {
         pickupGlow = 0.18;
         if (event.kind === 'heart') { say(s.px, s.py - 48, '+HP', '#ffb3c0', 17, 0.9, '#7a1a2c'); emit('starR', s.px, s.py - 10, 4, 170, 4, 0.34); }
-        else if (event.kind === 'magnet') { say(s.px, s.py - 68, 'TALISMAN!', '#ffe27a', 16, 0.9, '#7a4a12'); emit('starG', s.px, s.py - 10, 6, 230, 4.4, 0.36); }
+        else if (event.kind === 'magnet') { say(s.px, s.py - 68, tr('TALISMAN!', '磁石符！'), '#ffe27a', 16, 0.9, '#7a4a12'); emit('starG', s.px, s.py - 10, 6, 230, 4.4, 0.36); }
+        else if (event.kind === 'chest') { shake = Math.max(shake, 4); emit('starG', s.px, s.py - 10, 18, 300, 6, 0.6); }
         else if (particles.length < 160) emit(event.value >= 5 ? 'starG' : 'starJ', s.px + (rnd() - 0.5) * 14, s.py - 12, 1, 40, 4, 0.3, 0, -60);
       }
       else if (event.type === 'burst') { shake = Math.max(shake, 7); emit('dust', s.px, s.py + 4, 12, 230, 9, 0.5, 0.8); emit('starG', s.px, s.py - 6, 14, 330, 6, 0.5); }
       else if (event.type === 'bossdown') { shake = Math.max(shake, 10); emit('starG', event.x, event.y, 30, 340, 8, 0.9); emit('puff', event.x, event.y, 14, 190, 16, 0.8, 0.8); pops.push({ x: event.x, y: event.y, r: 120, life: 0.6, max: 0.6, kind: 'fire' }); }
-      else if (event.type === 'banner') banner = { text: BANNER_TEXT[event.text] ?? event.text, tone: event.tone, life: 3.2 };
+      else if (event.type === 'middown') { shake = Math.max(shake, 8); emit('starG', event.x, event.y, 20, 300, 7, 0.8); emit('puff', event.x, event.y, 10, 170, 14, 0.7, 0.8); pops.push({ x: event.x, y: event.y, r: 90, life: 0.5, max: 0.5, kind: 'fire' }); }
+      else if (event.type === 'evolve') {
+        // the build comes together: a gold nova from the general, a ring of stars and a heavy thump
+        shake = Math.max(shake, 12); evolveRing = 1;
+        const keep = particles.length; particles = particles.slice(Math.max(0, keep - 120));
+        emit('starG', s.px, s.py - 10, 40, 420, 8, 0.9); emit('starW', s.px, s.py - 10, 20, 300, 6, 0.8); emit('dust', s.px, s.py + 4, 12, 260, 10, 0.6, 0.8);
+        pops.push({ x: s.px, y: s.py, r: 150, life: 0.7, max: 0.7, kind: 'spark' });
+      }
+      else if (event.type === 'revive') { shake = Math.max(shake, 10); emit('starR', s.px, s.py - 10, 30, 360, 7, 0.9); emit('starG', s.px, s.py - 10, 20, 300, 6, 0.8); }
+      else if (event.type === 'banner') { const stage = STAGES[s.stage]; banner = { text: bannerText(event.text, stage.boss, tr(stage.mid.name, stage.mid.zh)), tone: event.tone, life: 3.2 }; }
     },
     banner(text: string, tone: 'warn' | 'good' = 'good', life = 3.2) { banner = { text, tone, life }; },
 
@@ -229,7 +273,7 @@ export function createRenderer(reduced: boolean) {
         for (const p of scorches) p.life -= dt;
         particles = particles.filter(p => p.life > 0); texts = texts.filter(t => t.life > 0); pops = pops.filter(p => p.life > 0); scorches = scorches.filter(p => p.life > 0);
         shake = Math.max(0, shake - dt * 28); hurt = Math.max(0, hurt - dt); banner.life = Math.max(0, banner.life - dt); pickupGlow = Math.max(0, pickupGlow - dt);
-        thrust = Math.max(0, thrust - dt * 6); fade = Math.max(0, fade - dt / 2.2);
+        thrust = Math.max(0, thrust - dt * 6); fade = Math.max(0, fade - dt / 2.2); evolveRing = Math.max(0, evolveRing - dt / 1.4);
         if (s.phase === 'play') {
           if (s.boltCd > lastBoltCd + 0.2) thrust = 1;
           lastBoltCd = s.boltCd;
@@ -238,16 +282,13 @@ export function createRenderer(reduced: boolean) {
         }
       }
       // scene progression is a pure function of run time, so it never touches the simulation
-      const now = sceneIndex(s.time, s.won, s.wonAt);
+      const fixed = STAGES[s.stage].scene, now = fixed === null ? sceneIndex(s.time, s.won, s.wonAt) : fixed;
       if (now !== scene) {
         lastScene = scene; scene = now; fade = lastScene >= 0 && !reduced ? 1 : 0;
-        if (kit && (banner.tone !== 'warn' || banner.life <= 0.4)) banner = { text: kit.scenes[scene].name.toUpperCase(), tone: 'place', life: 2.6 };
+        if (kit && (banner.tone !== 'warn' || banner.life <= 0.4)) banner = { text: placeName(scene), tone: 'place', life: 2.6 };
       }
-      const matrix = typeof c.getTransform === 'function' ? c.getTransform() : null, dpr = matrix && matrix.a > 0 ? matrix.a : 1;
-      // sprites are baked at the exact device scale so the crowd blits 1:1; a resize rebuilds once the size settles
-      const res = Math.min(3, Math.max(1, Math.round(scale * dpr * 1000) / 1000));
-      if (kit && kitRes !== res) { if (pendingRes === res) pendingFrames++; else { pendingRes = res; pendingFrames = 0; } }
-      if ((!kit || (kitRes !== res && pendingFrames > 10)) && !kitFailed) { const built = buildKit(res); if (built) { kit = built; kitRes = res; if (banner.life <= 0) banner = { text: built.scenes[scene].name.toUpperCase(), tone: 'place', life: 2.6 }; } else if (!kit) kitFailed = true; }
+      const { dpr, built } = ensureKit(c, scale);
+      if (built && banner.life <= 0) banner = { text: placeName(scene), tone: 'place', life: 2.6 };
       const shakeX = reduced ? 0 : (rnd() - 0.5) * shake, shakeY = reduced ? 0 : (rnd() - 0.5) * shake;
       const halfW = w / 2 / scale, halfH = h / 2 / scale, left = s.px - halfW, top = s.py - halfH, right = left + halfW * 2, bottom = top + halfH * 2;
       const M = dpr * scale, ox = (w / 2 + shakeX) * dpr - s.px * M, oy = (h / 2 + shakeY) * dpr - s.py * M;
@@ -271,10 +312,11 @@ export function createRenderer(reduced: boolean) {
         visible.sort((a, b) => a.y + a.r - b.y - b.r);
         for (const enemy of visible) {
           if (enemy.kind === 'warden') { const pulse = reduced ? 1 : 1 + Math.sin(time * 4) * 0.06; c.globalAlpha = 0.5; c.drawImage(k.glow.dark, enemy.x - 120 * pulse, enemy.y - 46 * pulse, 240 * pulse, 150 * pulse); c.globalAlpha = 1; }
+          else if (enemy.boss === 1) { const pulse = reduced ? 1 : 1 + Math.sin(time * 4 + enemy.id) * 0.08, size = enemy.r * 2.6 * pulse; c.globalAlpha = 0.65; c.drawImage(k.glow.red, enemy.x - size, enemy.y + enemy.r * 0.5 - size * 0.5, size * 2, size); c.globalAlpha = 1; }
           else if (enemy.elite) { const pulse = reduced ? 1 : 1 + Math.sin(time * 5 + enemy.id) * 0.1, size = enemy.r * 3.2 * pulse; c.globalAlpha = 0.7; c.drawImage(k.glow.gold, enemy.x - size, enemy.y + enemy.r * 0.6 - size * 0.5, size * 2, size); c.globalAlpha = 1; }
           // charge tells: a red lane on the ground along the committed direction
           if ((enemy.kind === 'charger' || enemy.kind === 'warden') && enemy.mode === 1) {
-            const boss = enemy.kind === 'warden', length = boss ? 230 : 150, width = boss ? enemy.r * 1.4 : 13, blink = reduced || Math.floor(time * 12) % 2 ? 0.5 : 0.3;
+            const boss = enemy.kind === 'warden' || enemy.boss === 1, length = boss ? 230 : 150, width = boss ? enemy.r * 1.4 : 13, blink = reduced || Math.floor(time * 12) % 2 ? 0.5 : 0.3;
             c.save(); c.translate(enemy.x, enemy.y); c.rotate(Math.atan2(enemy.dy, enemy.dx));
             c.globalAlpha = blink; c.fillStyle = '#ff3b30'; R(c, 0, -width / 2, length, width, width / 2); c.fill(); c.globalAlpha = 0.9; c.strokeStyle = '#fff3d6'; c.lineWidth = 1.6; c.setLineDash([6, 6]); R(c, 0, -width / 2, length, width, width / 2); c.stroke(); c.setLineDash([]);
             c.fillStyle = '#fff3d6'; for (let x = 26; x < length - 10; x += 30) { L(c, [x + 8, 0, x, -width * 0.32, x + 3, 0, x, width * 0.32]); c.fill(); }
@@ -287,6 +329,28 @@ export function createRenderer(reduced: boolean) {
           c.globalAlpha = 0.08 + progress * 0.1; c.fillStyle = '#ff7a2e'; E(c, zone.x, zone.y, zone.r, zone.r * 0.94); c.fill();
           c.globalAlpha = 0.18; E(c, zone.x, zone.y, zone.r * progress, zone.r * progress * 0.94); c.fill();
           c.globalAlpha = 0.95; c.setLineDash([9, 6]); c.lineDashOffset = reduced ? 0 : time * 30; c.strokeStyle = '#8f1d1d'; c.lineWidth = 3.4; E(c, zone.x, zone.y, zone.r, zone.r * 0.94); c.stroke(); c.strokeStyle = '#ffd23a'; c.lineWidth = 1.6; c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+        }
+        // oil-pot fires: a telegraph ring while the pot flies, then a patch of flame tongues
+        for (const fire of s.fires) {
+          if (fire.t > 0) {
+            const q = 1 - fire.t / fire.flight;
+            c.globalAlpha = fire.hostile ? 0.16 + q * 0.2 : 0.1; c.fillStyle = fire.hostile ? '#ff3b30' : '#ff7a2e'; E(c, fire.x, fire.y, fire.r, fire.r * 0.8); c.fill();
+            c.globalAlpha = fire.hostile ? 0.95 : 0.5; c.setLineDash([8, 6]); c.lineDashOffset = reduced ? 0 : time * 30; c.strokeStyle = fire.hostile ? '#ff3b30' : '#ffb347'; c.lineWidth = fire.hostile ? 3 : 2; E(c, fire.x, fire.y, fire.r, fire.r * 0.8); c.stroke(); c.setLineDash([]);
+            if (fire.hostile) { c.globalAlpha = 0.5; E(c, fire.x, fire.y, fire.r * q, fire.r * q * 0.8); c.fillStyle = '#ff7a2e'; c.fill(); }
+            c.globalAlpha = 1; continue;
+          }
+          const fade = Math.min(1, fire.burn / 0.5), hot = fire.hostile ? '#ff4a2e' : fire.big ? '#ff3b6a' : '#ff7a2e';
+          c.globalAlpha = 0.3 * fade; c.globalCompositeOperation = 'lighter'; c.drawImage(k.glow.warm, fire.x - fire.r * 1.4, fire.y - fire.r * 1.1, fire.r * 2.8, fire.r * 2.2); c.globalCompositeOperation = 'source-over';
+          c.globalAlpha = 0.14 * fade; c.fillStyle = '#4a2414'; E(c, fire.x, fire.y, fire.r * 0.95, fire.r * 0.75); c.fill();
+          if (fire.hostile) { c.globalAlpha = 0.9 * fade; c.strokeStyle = '#ff3b30'; c.lineWidth = 2.4; c.setLineDash([6, 5]); E(c, fire.x, fire.y, fire.r, fire.r * 0.8); c.stroke(); c.setLineDash([]); }
+          const tongues = fire.r > 60 ? 9 : 6, seed = hash(Math.floor(fire.x), Math.floor(fire.y), 3);
+          for (let i = 0; i < tongues; i++) {
+            const h2 = hash(seed, i, 7), a = (h2 % 628) / 100, d = ((h2 >>> 10) % 100) / 100 * fire.r * 0.8, fx = fire.x + Math.cos(a) * d, fy = fire.y + Math.sin(a) * d * 0.75;
+            const flick = reduced ? 1 : 0.75 + Math.sin(time * 14 + i * 1.7) * 0.25, tall = (10 + (h2 >>> 20) % 8) * flick * fade, wide = 4.6 * fade;
+            c.globalAlpha = fade; c.beginPath(); c.moveTo(fx, fy - tall); c.quadraticCurveTo(fx + wide, fy - tall * 0.4, fx + wide * 0.7, fy); c.quadraticCurveTo(fx, fy + 2, fx - wide * 0.7, fy); c.quadraticCurveTo(fx - wide, fy - tall * 0.4, fx, fy - tall); c.closePath(); c.fillStyle = hot; c.fill();
+            c.beginPath(); c.moveTo(fx, fy - tall * 0.6); c.quadraticCurveTo(fx + wide * 0.5, fy - tall * 0.2, fx, fy); c.quadraticCurveTo(fx - wide * 0.5, fy - tall * 0.2, fx, fy - tall * 0.6); c.closePath(); c.fillStyle = '#ffe27a'; c.fill();
+          }
+          c.globalAlpha = 1;
         }
         // war-drum shockwaves roll along the ground under the fighters
         for (const ring of s.rings) {
@@ -316,6 +380,12 @@ export function createRenderer(reduced: boolean) {
         for (const gem of s.gems) {
           gemIndex++;
           if (gem.x < left - 20 || gem.x > right + 20 || gem.y < top - 20 || gem.y > bottom + 20) continue;
+          if (gem.kind === 'chest') {
+            const glowSize = 30 + (reduced ? 0 : Math.sin(time * 5) * 4), hop = reduced ? 0 : Math.abs(Math.sin(gem.age * 3)) * -4, big = gem.value >= 3 ? 1.35 : 1, chest = k.item.chest;
+            c.globalAlpha = 0.85; c.drawImage(k.glow.gold, gem.x - glowSize * big, gem.y - glowSize * big - 8, glowSize * 2 * big, glowSize * 2 * big); c.globalAlpha = 1;
+            c.drawImage(chest.img, gem.x + chest.x * big, gem.y + hop + chest.y * big, chest.w * big, chest.h * big);
+            continue;
+          }
           const sprite = gem.kind === 'heart' ? k.item.peach : gem.kind === 'magnet' ? k.item.talisman : gem.value >= 20 ? k.item.ingot : gem.value >= 5 ? k.item.coin : k.item.jade;
           const bob = reduced ? 0 : Math.sin(gem.age * 5 + gem.x) * 1.6, special = gem.kind !== 'xp';
           if (special) { c.globalAlpha = 0.75; c.drawImage(gem.kind === 'heart' ? k.glow.white : k.glow.gold, gem.x - 17, gem.y - 17, 34, 34); c.globalAlpha = 1; }
@@ -325,7 +395,7 @@ export function createRenderer(reduced: boolean) {
         }
         // ---- the cast, back to front ----
         const heroBuffer = k.hero, dead = s.phase === 'dead';
-        { const b = heroBuffer; b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-over'; b.c.clearRect(0, 0, b.el.width, b.el.height); b.c.setTransform(b.res, 0, 0, b.res, -b.box[0] * b.res, -b.box[1] * b.res); drawHero(b.c, time, s.moving && s.phase === 'play', reduced, reduced ? 0 : thrust);
+        { const b = heroBuffer; b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-over'; b.c.clearRect(0, 0, b.el.width, b.el.height); b.c.setTransform(b.res, 0, 0, b.res, -b.box[0] * b.res, -b.box[1] * b.res); drawHero(b.c, time, s.moving && s.phase === 'play', reduced, reduced ? 0 : thrust, HERO_LOOKS[s.general]);
           if (hurt > 0 || dead) { b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-atop'; b.c.fillStyle = dead ? 'rgba(120,110,130,0.6)' : `rgba(255,70,60,${Math.min(0.45, hurt * 1.3)})`; b.c.fillRect(0, 0, b.el.width, b.el.height); } }
         const drawHeroSprite = (alpha: number) => {
           const b = heroBuffer, squash = reduced ? 0 : hurt * 0.5, fy = s.py + 9;
@@ -341,13 +411,13 @@ export function createRenderer(reduced: boolean) {
           const fy = enemy.y + enemy.r * 0.9;
           if (enemy.kind === 'warden') {
             const b = k.boss, dir = enemy.mode ? (enemy.dx >= 0 ? 1 : -1) : s.px >= enemy.x ? 1 : -1;
-            b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-over'; b.c.clearRect(0, 0, b.el.width, b.el.height); b.c.setTransform(b.res, 0, 0, b.res, -b.box[0] * b.res, -b.box[1] * b.res); drawWarlord(b.c, time + enemy.id, enemy.mode, reduced);
+            b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-over'; b.c.clearRect(0, 0, b.el.width, b.el.height); b.c.setTransform(b.res, 0, 0, b.res, -b.box[0] * b.res, -b.box[1] * b.res); drawWarlord(b.c, time + enemy.id, enemy.mode, reduced, BOSS_LOOKS[enemy.variant]);
             if (enemy.flash > 0) { b.c.setTransform(1, 0, 0, 1, 0, 0); b.c.globalCompositeOperation = 'source-atop'; b.c.fillStyle = 'rgba(255,255,255,0.34)'; b.c.fillRect(0, 0, b.el.width, b.el.height); }
             if (enemy.mode === 2 && !reduced) { c.globalAlpha = 0.28; for (const lag of [2, 1]) { c.setTransform(M * dir, 0, 0, M, ox + (enemy.x - enemy.dx * 22 * lag) * M, oy + (fy - enemy.dy * 22 * lag) * M); c.drawImage(b.el, b.box[0], b.box[1], b.box[2] - b.box[0], b.box[3] - b.box[1]); } c.globalAlpha = 1; }
             c.setTransform(M * dir, 0, 0, M, ox + enemy.x * M, oy + fy * M); c.drawImage(b.el, b.box[0], b.box[1], b.box[2] - b.box[0], b.box[3] - b.box[1]);
             continue;
           }
-          const def = CAST[enemy.kind], set = k.cast[enemy.elite ? `${enemy.kind}!` : enemy.kind];
+          const def = CAST[enemy.kind], set = k.cast[enemy.boss === 1 && k.cast[`${enemy.kind}@`] ? `${enemy.kind}@` : enemy.elite ? `${enemy.kind}!` : enemy.kind];
           let frame = reduced ? 0 : Math.floor(mod(time * def.rate + enemy.id * 0.37, 1) * 4), dir = s.px >= enemy.x ? 1 : -1, size = enemy.r / ENEMIES[enemy.kind].r;
           if (enemy.kind === 'spitter') { const dx = s.px - enemy.x, dy = s.py - enemy.y; if (enemy.cd < 0.5 && dx * dx + dy * dy < 90000) frame = 4; if (enemy.t < 0.22) size *= 0.55 + enemy.t * 2; }
           else if (enemy.kind === 'charger') { if (enemy.mode === 1) { frame = 4; dir = enemy.dx >= 0 ? 1 : -1; } else if (enemy.mode === 2) { frame = reduced ? 5 : 5 + (Math.floor(time * 14) & 1); dir = enemy.dx >= 0 ? 1 : -1; } }
@@ -364,6 +434,7 @@ export function createRenderer(reduced: boolean) {
           if (enemy.kind === 'warden') continue;
           const size = enemy.r / ENEMIES[enemy.kind].r, head = enemy.y + enemy.r * 0.9 - CAST[enemy.kind].height * size;
           if (enemy.kind === 'charger' && enemy.mode === 1) { const pop = reduced ? 1 : 1 + Math.sin(time * 20) * 0.12; c.save(); c.translate(enemy.x, head - 10); c.scale(pop, pop); R(c, -2.6, -11, 5.2, 11, 2.2); c.fillStyle = '#ff3b30'; c.fill(); c.strokeStyle = '#fff3d6'; c.lineWidth = 1.5; c.stroke(); E(c, 0, 4.4, 2.8, 2.8); c.fill(); c.stroke(); c.restore(); }
+          if (enemy.boss) continue;
           if (enemy.elite ? enemy.hp < enemy.maxHp : enemy.kind === 'brute' && enemy.hp < enemy.maxHp * 0.7) { const width = enemy.elite ? Math.max(24, enemy.r * 2.2) : 22, y = head - 7; R(c, enemy.x - width / 2 - 1.4, y - 1.4, width + 2.8, 6.8, 3.4); c.fillStyle = INK; c.fill(); R(c, enemy.x - width / 2, y, Math.max(2, width * Math.max(0, enemy.hp / enemy.maxHp)), 4, 2); c.fillStyle = enemy.elite ? C.gold : '#ff5a4f'; c.fill(); }
         }
         // falling fire arrows
@@ -383,6 +454,24 @@ export function createRenderer(reduced: boolean) {
           c.setTransform(M * cos * big, M * sin * big, -M * sin * big, M * cos * big, ox + (shot.x + cos * 3) * M, oy + (shot.y + sin * 3) * M); c.drawImage(sprite.img, sprite.x, sprite.y, sprite.w, sprite.h);
         }
         world();
+        // lobbed pots arc over the crowd
+        for (const fire of s.fires) {
+          if (fire.t <= 0) continue;
+          const q = 1 - fire.t / fire.flight, x = fire.sx + (fire.x - fire.sx) * q, y = fire.sy + (fire.y - fire.sy) * q - Math.sin(q * Math.PI) * (fire.hostile ? 90 : 60), pot = fire.hostile || fire.big ? k.item.potRed : k.item.pot, spin = reduced ? 0 : q * 7;
+          c.save(); c.translate(x, y); c.rotate(spin); c.drawImage(pot.img, pot.x, pot.y, pot.w, pot.h); c.restore();
+        }
+        // whirlwinds: spinning bands of wind with leaves caught in them
+        for (const wind of s.winds) {
+          const fade = Math.min(1, wind.life / 0.4, (wind.max - wind.life) / 0.2), spin = reduced ? 0 : time * 9 + wind.id, main = wind.big ? '#7ff0dc' : '#bff4ec', edge = wind.big ? '#1f8f6e' : '#4cc0b0';
+          c.globalAlpha = 0.18 * fade; c.fillStyle = edge; E(c, wind.x, wind.y + 4, wind.r, wind.r * 0.4); c.fill();
+          for (let band = 0; band < 4; band++) {
+            const rr = wind.r * (0.35 + band * 0.2), lift = band * wind.r * 0.32, start = spin * (1 + band * 0.15) + band;
+            c.globalAlpha = (0.85 - band * 0.12) * fade; c.strokeStyle = edge; c.lineWidth = 4.4; c.beginPath(); c.ellipse(wind.x, wind.y - lift, rr, rr * 0.38, 0, start, start + 4.2); c.stroke();
+            c.strokeStyle = main; c.lineWidth = 2.2; c.stroke();
+          }
+          for (let i = 0; i < 5; i++) { const a = spin * 1.3 + i * 1.26, rr = wind.r * (0.5 + (i % 3) * 0.2); c.globalAlpha = fade; c.fillStyle = i % 2 ? '#7cc95a' : '#f2a03a'; E(c, wind.x + Math.cos(a) * rr, wind.y - wind.r * 0.4 + Math.sin(a) * rr * 0.38 - i * 4, 3, 1.4, a); c.fill(); }
+          c.globalAlpha = 1;
+        }
         // ---- the general's arsenal ----
         for (const beam of s.beams) {
           const azure = beam.width >= 26, sprite = azure ? k.item.beamAzure : k.item.beam, age = 1 - beam.life / 0.24, grow = reduced ? 1 : Math.min(1, 0.35 + age * 4), alpha = Math.min(1, beam.life / 0.1), cos = Math.cos(beam.angle), sin = Math.sin(beam.angle), kx = beam.length / 262 * grow, ky = beam.width / 17 * (0.8 + alpha * 0.2);
@@ -391,8 +480,8 @@ export function createRenderer(reduced: boolean) {
         }
         world();
         for (const shot of s.shots) {
-          const d = Math.hypot(shot.vx, shot.vy) || 1, cos = shot.vx / d, sin = shot.vy / d, sprite = shot.blast ? k.item.storm : k.item.spear, tail = shot.blast ? 34 : 26, half = shot.blast ? 3.4 : 2.6;
-          world(); c.globalAlpha = 0.6; c.fillStyle = shot.blast ? '#9be6ff' : '#fff8e6'; L(c, [shot.x - cos * 6 - sin * half, shot.y - sin * 6 + cos * half, shot.x - cos * 6 + sin * half, shot.y - sin * 6 - cos * half, shot.x - cos * tail, shot.y - sin * tail]); c.fill(); c.globalAlpha = 1;
+          const d = Math.hypot(shot.vx, shot.vy) || 1, cos = shot.vx / d, sin = shot.vy / d, sprite = shot.xbow ? (s.weapons.crossbow >= MAX_LEVEL ? k.item.xboltGold : k.item.xbolt) : shot.blast ? k.item.storm : k.item.spear, tail = shot.blast ? 34 : shot.xbow ? 18 : 26, half = shot.blast ? 3.4 : shot.xbow ? 1.8 : 2.6;
+          world(); c.globalAlpha = 0.6; c.fillStyle = shot.blast ? '#9be6ff' : shot.xbow ? '#d9ccff' : '#fff8e6'; L(c, [shot.x - cos * 6 - sin * half, shot.y - sin * 6 + cos * half, shot.x - cos * 6 + sin * half, shot.y - sin * 6 - cos * half, shot.x - cos * tail, shot.y - sin * tail]); c.fill(); c.globalAlpha = 1;
           if (shot.blast) { c.globalAlpha = 0.7; c.drawImage(k.glow.jade, shot.x - 11, shot.y - 11, 22, 22); c.globalAlpha = 1; }
           const big = shot.blast ? 1.25 : 1.05;
           c.setTransform(M * cos * big, M * sin * big, -M * sin * big, M * cos * big, ox + (shot.x + cos * 4) * M, oy + (shot.y + sin * 4) * M); c.drawImage(sprite.img, sprite.x, sprite.y, sprite.w, sprite.h);
@@ -424,6 +513,12 @@ export function createRenderer(reduced: boolean) {
           }
         }
         c.globalAlpha = 1;
+        if (evolveRing > 0) {
+          const q = 1 - evolveRing, radius = 30 + q * 260;
+          c.globalAlpha = evolveRing; c.strokeStyle = '#7a1a18'; c.lineWidth = 12 * evolveRing + 2; c.beginPath(); c.arc(s.px, s.py, radius, 0, TAU); c.stroke(); c.strokeStyle = C.gold; c.lineWidth = 7 * evolveRing + 1; c.stroke(); c.strokeStyle = '#fffbe8'; c.lineWidth = 2.4; c.stroke();
+          if (!reduced) { c.lineWidth = 3; c.beginPath(); for (let i = 0; i < 16; i++) { const a = i / 16 * TAU + q * 1.5; c.moveTo(s.px + Math.cos(a) * radius * 0.4, s.py + Math.sin(a) * radius * 0.4); c.lineTo(s.px + Math.cos(a) * radius * 0.95, s.py + Math.sin(a) * radius * 0.95); } c.strokeStyle = '#fff3a0'; c.stroke(); }
+          c.globalAlpha = 1;
+        }
         for (const p of particles) { const q = 1 - p.life / p.max, size = p.size * (1 + p.grow * q), sprite = k.fx[p.spr]; c.globalAlpha = Math.min(1, (1 - q) * 2); c.drawImage(sprite.img, p.x - size, p.y - size, size * 2, size * 2); }
         c.globalAlpha = 1;
         // a second pass keeps the general readable even when the crowd and its dust stand in front of him
@@ -454,20 +549,23 @@ export function createRenderer(reduced: boolean) {
       for (const t of texts) { const q = t.life / t.max, pop = reduced ? 1 : 1 + Math.max(0, q - 0.72) * 2.2; c.globalAlpha = Math.min(1, q * 2.4); outlined(c, t.text, sx(t.x), sy(t.y), t.size * pop, t.color, 'center', t.edge, 900); }
       c.globalAlpha = 1;
       // off-screen threat pointers
-      for (const enemy of s.enemies) {
-        if (!enemy.elite && enemy.kind !== 'warden') continue;
-        const ex = sx(enemy.x), ey = sy(enemy.y);
-        if (ex > 0 && ex < w && ey > 0 && ey < h) continue;
-        const angle = Math.atan2(ey - h / 2, ex - w / 2), ax = Math.max(26, Math.min(w - 26, ex)), ay = Math.max(112, Math.min(h - 60, ey)), boss = enemy.kind === 'warden';
-        c.save(); c.translate(ax, ay); E(c, 0, 0, 14, 14); c.fillStyle = boss ? C.red : C.gold; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); artIcon(c, boss ? 'helm' : 'swords', 0, 0, 8.4, C.cream);
-        c.rotate(angle); L(c, [25, 0, 16, -6.4, 16, 6.4]); c.fillStyle = boss ? C.red : C.gold; c.fill(); c.stroke(); c.restore();
-      }
+      const pointer = (x: number, y: number, fill: string, icon: string) => {
+        const ex = sx(x), ey = sy(y);
+        if (ex > 0 && ex < w && ey > 0 && ey < h) return;
+        const angle = Math.atan2(ey - h / 2, ex - w / 2), ax = Math.max(26, Math.min(w - 26, ex)), ay = Math.max(112, Math.min(h - 60, ey));
+        c.save(); c.translate(ax, ay); E(c, 0, 0, 14, 14); c.fillStyle = fill; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); artIcon(c, icon, 0, 0, 8.4, C.cream);
+        c.rotate(angle); L(c, [25, 0, 16, -6.4, 16, 6.4]); c.fillStyle = fill; c.fill(); c.stroke(); c.restore();
+      };
+      for (const enemy of s.enemies) if (enemy.elite || enemy.boss) pointer(enemy.x, enemy.y, enemy.boss ? C.red : C.gold, enemy.boss ? 'helm' : 'swords');
+      s.gems.filter(gem => gem.kind === 'chest').sort((a, b) => Math.hypot(a.x - s.px, a.y - s.py) - Math.hypot(b.x - s.px, b.y - s.py)).slice(0, 2).forEach(gem => pointer(gem.x, gem.y, '#fff0b8', 'chest'));
       if (ui.stick) { c.globalAlpha = 0.8; c.strokeStyle = INK; c.lineWidth = 6; c.beginPath(); c.arc(ui.stick.x, ui.stick.y, 44, 0, TAU); c.stroke(); c.strokeStyle = C.cream; c.lineWidth = 3; c.stroke(); E(c, ui.stick.x + ui.stick.dx * 30, ui.stick.y + ui.stick.dy * 30, 17, 17); c.fillStyle = C.gold; c.fill(); c.strokeStyle = INK; c.lineWidth = 2.4; c.stroke(); c.globalAlpha = 1; }
 
       this.hud(c, s, view, ui, hurt);
+      if (s.phase !== 'dead') this.evolveBanner(c, view, ui);
       if (s.phase === 'levelup') this.cards(c, s, view, ui);
       else if (s.phase === 'dead') this.gameOver(c, s, view, ui);
-      else if (ui.paused) { plaque(c, w / 2 - 96, h / 2 - 32, 192, 64, 14, C.wood); c.strokeStyle = INK; c.lineWidth = 2; R(c, w / 2 - 98, h / 2 - 34, 196, 68, 15); c.stroke(); outlined(c, 'PAUSED', w / 2, h / 2 + 1, 26, C.cream); }
+      if (s.chest && ui.chestAge !== undefined && s.phase !== 'dead') this.chestReveal(c, s, view, ui);
+      else if (ui.paused && !s.chest) { plaque(c, w / 2 - 96, h / 2 - 32, 192, 64, 14, C.wood); c.strokeStyle = INK; c.lineWidth = 2; R(c, w / 2 - 98, h / 2 - 34, 196, 68, 15); c.stroke(); outlined(c, tr('PAUSED', '已暂停'), w / 2, h / 2 + 1, 26, C.cream); }
     },
 
     hud(c: Ctx, s: State, view: View, ui: Ui, hurtGlow: number) {
@@ -483,31 +581,42 @@ export function createRenderer(reduced: boolean) {
       plaque(c, w / 2 - 30, 7, 60, 28, 9); outlined(c, clock(s.time), w / 2, 21.5, 19, C.cream, 'center', INK, 900);
       c.font = font(15, 900); const koText = String(s.kills), koW = c.measureText(koText).width;
       outlined(c, koText, w - pad, 21.5, 15, C.cream, 'right', INK, 900); artIcon(c, 'swords', w - pad - koW - 14, 21, 10, C.cream);
-      if (w >= 620) label(c, `SCORE ${s.score}`, w - pad - koW - 34, 21.5, 14, '#e6c99a', 'right');
+      if (w >= 620) label(c, `${tr('SCORE', '分数')} ${s.score}`, w - pad - koW - 34, 21.5, 14, '#e6c99a', 'right');
       // XP
       const bar = xpBarRect(view, ui);
       outlined(c, `LV ${s.level}`, pad, bar.y + bar.h / 2 + 0.5, 15, C.gold, 'left', INK, 900);
       meter(c, bar.x, bar.y, bar.w, bar.h, s.xp / s.need, C.jade, '#8ff0cf', '#17352e');
       // build chips: weapons first, wrapping to a second row on narrow stages
-      const goal = s.boss ? '' : s.won ? 'ENDLESS' : `WARLORD ${clock(Math.max(0, BOSS_TIME - s.time))}`;
+      const midNext = !s.midDown && !s.mid && s.time < MID_TIME, bossShort = s.stage === 'march' || s.stage === 'fortress' ? tr('WARLORD', '霸王') : tr('BOSS', '首领');
+      const goal = s.boss ? '' : s.won ? tr('ENDLESS', '无尽') : midNext ? `${tr('OFFICER', '敌将')} ${clock(MID_TIME - s.time)}` : `${bossShort} ${clock(Math.max(0, BOSS_TIME - s.time))}`;
       c.font = font(14, 900); const goalW = goal ? c.measureText(goal).width + 38 : 0;
       let x = 10, y = 80, bottom = 96;
+      // build chips: owned weapons, then empty weapon slots, then passives and their empty slots, so the 4 + 4 cap reads at a glance
       const chips: [string, string, number][] = [];
-      for (const id of WEAPON_IDS) if (s.weapons[id]) chips.push([id, WEAPON_CARDS[id].color, s.weapons[id]]);
-      for (const id of PASSIVE_IDS) if (s.passives[id]) chips.push([id, PASSIVE_CARDS[id].color, s.passives[id]]);
-      for (const [key, color, level] of chips) { if (x + 30 > w - 10 - (y === 80 ? goalW + 6 : 0)) { x = 10; y += 34; bottom = y + 16; } this.chip(c, key, x, y, color, level); x += 33; }
+      const weapons = WEAPON_IDS.filter(id => s.weapons[id]), passives = PASSIVE_IDS.filter(id => s.passives[id]);
+      for (const id of weapons) chips.push([id, WEAPON_CARDS[id].color, s.weapons[id]]);
+      for (let i = weapons.length; i < WEAPON_SLOTS; i++) chips.push(['', 'w', 0]);
+      for (const id of passives) chips.push([id, PASSIVE_CARDS[id].color, s.passives[id]]);
+      for (let i = passives.length; i < PASSIVE_SLOTS; i++) chips.push(['', 'p', 0]);
+      for (const [key, color, level] of chips) {
+        if (x + 30 > w - 10 - (y === 80 ? goalW + 6 : 0)) { x = 10; y += 34; bottom = y + 16; }
+        if (!key) { R(c, x + 2, y - 13, 26, 28, 6); c.fillStyle = 'rgba(52,26,18,0.35)'; c.fill(); c.setLineDash([3, 3]); c.strokeStyle = color === 'w' ? 'rgba(255,243,214,0.75)' : 'rgba(191,244,236,0.7)'; c.lineWidth = 1.4; c.stroke(); c.setLineDash([]); x += 33; continue; }
+        this.chip(c, key, x, y, color, level, s, ui.clock); x += 33;
+      }
       if (goal) {
         const gx = w - 10 - goalW;
         L(c, [gx, 67, w - 10, 67, w - 10, 93, gx, 93, gx + 7, 80]); c.fillStyle = s.won ? C.goldDark : C.redDark; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
         artIcon(c, s.won ? 'bounty' : 'helm', gx + 21, 80, 8.6, C.cream); label(c, goal, w - 17, 80.5, 14, C.cream, 'right', 900);
       }
-      if (s.boss) {
+      const bossBar = (foe: Enemy, name: string, fill: string, light: string) => {
         const bw = Math.min(w - 56, 430), bx = (w - bw) / 2 + 12, by = bottom + 10;
-        meter(c, bx, by, bw, 16, s.boss.hp / s.boss.maxHp, '#c92a2a', '#ff6b5a', '#3a1418');
+        meter(c, bx, by, bw, 16, foe.hp / foe.maxHp, fill, light, '#3a1418');
         E(c, bx - 8, by + 8, 15, 15); c.fillStyle = C.redDark; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); artIcon(c, 'helm', bx - 8, by + 8, 10, C.cream);
-        outlined(c, 'THE WARLORD', w / 2 + 6, by + 8.5, 14, C.cream, 'center', INK, 900);
+        outlined(c, name, w / 2 + 6, by + 8.5, 14, C.cream, 'center', INK, 900);
         bottom = by + 18;
-      }
+      };
+      if (s.mid) { const stage = STAGES[s.stage]; bossBar(s.mid, tr(stage.mid.name, stage.mid.zh).toUpperCase(), '#e0822a', '#ffc070'); }
+      if (s.boss) bossBar(s.boss, bossName(s.boss.variant).toUpperCase(), '#c92a2a', '#ff6b5a');
       if (banner.life > 0) {
         const place = banner.tone === 'place', text = place ? `~ ${banner.text} ~` : banner.text; let size = w < 420 ? 18 : 22;
         c.font = font(size, 900); const measured = c.measureText(text).width; if (measured > w - 40) size = Math.max(14, size * (w - 40) / measured);
@@ -523,70 +632,153 @@ export function createRenderer(reduced: boolean) {
         meter(c, bx + 14, by + 3, bw - 14, bh - 6, s.burst / s.burstNeed, full ? C.gold : '#c9722e', full ? '#fff0a8' : '#e89a52', '#3a2016', full ? `rgba(255,${Math.round(200 + pulse * 55)},${Math.round(120 + pulse * 120)},1)` : INK);
         if (full) { R(c, bx + 10, by - 1, bw - 6, bh + 2, bh / 2 + 1); c.strokeStyle = INK; c.lineWidth = 1.6; c.stroke(); }
         E(c, bx + 14, by + bh / 2, bh / 2 + 3, bh / 2 + 3); c.fillStyle = full ? C.gold : C.wood; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); artIcon(c, 'pulse', bx + 14, by + bh / 2 + 0.5, bh * 0.36, C.cream);
-        if (full) label(c, ui.burstLabel, bx + bw / 2 + 12, by + bh / 2 + 0.5, 14, TEXT, 'center', 900); else outlined(c, 'BURST CHARGING', bx + bw / 2 + 12, by + bh / 2 + 0.5, 14, C.cream, 'center', INK, 900);
+        if (full) label(c, ui.burstLabel, bx + bw / 2 + 12, by + bh / 2 + 0.5, 14, TEXT, 'center', 900); else outlined(c, tr('BURST CHARGING', '爆发蓄力中'), bx + bw / 2 + 12, by + bh / 2 + 0.5, 14, C.cream, 'center', INK, 900);
         if (ui.hint) { c.font = font(14, 800); const hw = c.measureText(ui.hint).width + 28; R(c, (w - hw) / 2, by - 40, hw, 28, 14); c.fillStyle = 'rgba(52,26,18,0.86)'; c.fill(); c.strokeStyle = C.goldDark; c.lineWidth = 1.5; c.stroke(); label(c, ui.hint, w / 2, by - 25.5, 14, C.cream, 'center', 800); }
       }
     },
-    chip(c: Ctx, key: string, x: number, y: number, color: string, level: number) {
-      const max = level >= MAX_LEVEL;
+    chip(c: Ctx, key: string, x: number, y: number, color: string, level: number, s?: State, time = 0) {
+      const max = level >= MAX_LEVEL, weapon = key in PARTNER, ready = !!s && weapon && canEvolve(s, key as WeaponId);
+      if (ready && !reduced) { c.globalAlpha = 0.5 + Math.sin(time * 6) * 0.3; R(c, x - 3, y - 18, 36, 38, 9); c.fillStyle = C.gold; c.fill(); c.globalAlpha = 1; }
       R(c, x, y - 15, 30, 32, 7); c.fillStyle = max ? '#fff0b8' : C.parchment; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
       if (max) { R(c, x + 1.8, y - 13.2, 26.4, 28.4, 5.4); c.strokeStyle = C.goldDark; c.lineWidth = 1.6; c.stroke(); }
       artIcon(c, key, x + 15, y - 3.6, 9.4, color);
       for (let index = 0; index < MAX_LEVEL; index++) { c.fillStyle = index < level ? (max ? C.goldDark : C.red) : '#c9b48a'; R(c, x + 3.6 + index * 4.7, y + 10, 3.6, 3.4, 1); c.fill(); }
+      // partner badge: a weapon short of its evolution shows the passive it needs (lit once owned)
+      if (s && weapon && !max && level >= PRE_EVOLVE - 1) {
+        const partner = PARTNER[key as WeaponId], has = s.passives[partner] > 0;
+        E(c, x + 27, y - 13, 7.4, 7.4); c.fillStyle = has ? '#fff0b8' : 'rgba(60,40,40,0.75)'; c.fill(); c.strokeStyle = has ? C.goldDark : INK; c.lineWidth = 1.4; c.stroke();
+        c.globalAlpha = has ? 1 : 0.55; artIcon(c, partner, x + 27, y - 13, 4.6, PASSIVE_CARDS[partner].color); c.globalAlpha = 1;
+      }
     },
 
     cards(c: Ctx, s: State, view: View, ui: Ui) {
       const { w, h } = view, rects = cardRects(view, s.choices.length);
       c.fillStyle = 'rgba(34,16,18,0.72)'; c.fillRect(0, 0, w, h);
-      const titleY = Math.max(24, rects[0].y - 56), title = `LEVEL ${s.level}`;
+      const titleY = Math.max(24, rects[0].y - 56), title = tr(`LEVEL ${s.level}`, `等级 ${s.level}`);
       c.font = font(22, 900); const tw = c.measureText(title).width;
       L(c, [w / 2 - tw / 2 - 30, titleY - 17, w / 2 + tw / 2 + 30, titleY - 17, w / 2 + tw / 2 + 19, titleY, w / 2 + tw / 2 + 30, titleY + 17, w / 2 - tw / 2 - 30, titleY + 17, w / 2 - tw / 2 - 19, titleY]); c.fillStyle = C.red; c.fill(); c.strokeStyle = INK; c.lineWidth = 2.4; c.stroke();
       outlined(c, title, w / 2, titleY + 0.5, 22, C.gold, 'center', INK, 900);
-      outlined(c, ui.touch ? 'Tap an upgrade' : 'Pick with 1 2 3, or arrows + Enter', w / 2, titleY + 30, 14, C.cream, 'center', INK, 700);
+      outlined(c, ui.touch ? tr('Tap an upgrade', '点选一项强化') : tr('Pick with 1 2 3, or arrows + Enter', '按 1 2 3 选择，或方向键 + 回车'), w / 2, titleY + 30, 14, C.cream, 'center', INK, 700);
       s.choices.forEach((card: Card, index: number) => {
-        const base = rects[index], selected = index === ui.selected, wide = base.h > 130, r = { ...base, y: base.y - (selected && wide ? 5 : 0) };
-        const tagFill = card.evolve ? C.red : card.tag.startsWith('NEW') ? C.jadeDark : card.kind === 'bonus' ? C.goldDark : C.brown, tagText = card.evolve ? C.gold : C.cream;
-        const medal = (mx: number, my: number, radius: number) => { E(c, mx, my, radius, radius); c.fillStyle = '#fffaf0'; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); E(c, mx, my, radius - 4, radius - 4); c.strokeStyle = card.evolve ? C.gold : card.color; c.lineWidth = 3; c.stroke(); artIcon(c, card.key, mx, my, radius * 0.56, card.color); };
-        const tag = (cx: number, cy: number, align: 'center' | 'right') => { c.font = font(13, 900); const width = c.measureText(card.tag).width + 16, left = align === 'center' ? cx - width / 2 : cx - width; R(c, left, cy - 10, width, 20, 6); c.fillStyle = tagFill; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(); label(c, card.tag, left + width / 2, cy + 0.5, 13, tagText, 'center', 900); };
-        scroll(c, r.x, r.y, r.w, r.h, wide, selected);
+        const base = rects[index], selected = index === ui.selected, wide = base.h > 130, r = { ...base, y: base.y - (selected && wide ? 5 : 0) }, text = cardText(card);
+        const fresh = card.kind !== 'bonus' && card.level === 1;
+        const tagFill = card.evolve ? C.red : fresh ? C.jadeDark : card.kind === 'bonus' ? C.goldDark : C.brown, tagText = card.evolve ? C.gold : C.cream;
+        // the pairing line: a weapon names the passive it evolves with; a passive names the weapon it completes
+        const pair = card.partner ? (card.kind === 'weapon' ? (card.evolve ? tr('Paired with ', '搭配 ') : tr('Evolves with ', '进化需要 ')) : tr('Evolves ', '可进化 ')) + itemName(card.partner) : '';
+        const medal = (mx: number, my: number, radius: number) => {
+          if (card.evolve && !reduced && kit) { const glow = radius * (1.9 + Math.sin(ui.clock * 5) * 0.15); c.globalAlpha = 0.8; c.drawImage(kit.glow.gold, mx - glow, my - glow, glow * 2, glow * 2); c.globalAlpha = 1; }
+          E(c, mx, my, radius, radius); c.fillStyle = card.evolve ? '#fff0b8' : '#fffaf0'; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); E(c, mx, my, radius - 4, radius - 4); c.strokeStyle = card.evolve ? C.gold : card.color; c.lineWidth = 3; c.stroke(); artIcon(c, card.key, mx, my, radius * 0.56, card.color);
+          if (card.partner) {
+            const bx = mx + radius * 0.74, by = my + radius * 0.74, br = Math.max(8, radius * 0.36);
+            E(c, bx, by, br, br); c.fillStyle = card.partnerOwned ? '#fff0b8' : '#e9dcc0'; c.fill(); c.strokeStyle = card.partnerOwned ? C.goldDark : BROWN; c.lineWidth = 1.6; c.stroke();
+            if (!card.partnerOwned) c.globalAlpha = 0.6;
+            artIcon(c, card.partner, bx, by, br * 0.62, card.partner in WEAPON_CARDS ? WEAPON_CARDS[card.partner as WeaponId].color : PASSIVE_CARDS[card.partner as keyof typeof PASSIVE_CARDS].color); c.globalAlpha = 1;
+          }
+        };
+        const tag = (cx: number, cy: number, align: 'center' | 'right') => { c.font = font(13, 900); const width = c.measureText(text.tag).width + 16, left = align === 'center' ? cx - width / 2 : cx - width; R(c, left, cy - 10, width, 20, 6); c.fillStyle = tagFill; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(); label(c, text.tag, left + width / 2, cy + 0.5, 13, tagText, 'center', 900); };
+        const pairColor = card.partnerOwned ? '#1f7a5a' : '#9a6a3a';
+        scroll(c, r.x, r.y, r.w, r.h, wide, selected || card.evolve);
         if (wide) {
           const o = Math.max(0, (r.h - 204) / 2);
           medal(r.x + r.w / 2, r.y + 56 + o, 36);
-          label(c, card.name, r.x + r.w / 2, r.y + 112 + o, 19, TEXT, 'center', 900);
+          c.font = font(19, 900); const nameSize = c.measureText(text.name).width > r.w - 20 ? 16 : 19;
+          label(c, text.name, r.x + r.w / 2, r.y + 112 + o, nameSize, TEXT, 'center', 900);
           tag(r.x + r.w / 2, r.y + 137 + o, 'center');
-          c.font = font(14, 600); wrap(c, card.desc, r.w - 36).slice(0, 3).forEach((line, row) => label(c, line, r.x + r.w / 2, r.y + 164 + o + row * 18, 14, BROWN, 'center', 600));
+          c.font = font(14, 600); const lines = wrap(c, text.desc, r.w - 36).slice(0, pair ? 2 : 3);
+          lines.forEach((line, row) => label(c, line, r.x + r.w / 2, r.y + 164 + o + row * 18, 14, BROWN, 'center', 600));
+          if (pair) label(c, (card.partnerOwned ? '✓ ' : '') + pair, r.x + r.w / 2, r.y + 164 + o + lines.length * 18 + 2, 13, pairColor, 'center', 800);
           c.save(); c.translate(r.x + r.w - 24, r.y + 28); c.rotate(0.1); R(c, -11, -11, 22, 22, 5); c.fillStyle = C.red; c.fill(); c.strokeStyle = C.redDark; c.lineWidth = 1.5; c.stroke(); label(c, String(index + 1), 0, 1, 14, C.cream, 'center', 900); c.restore();
         } else {
-          const cy = r.y + r.h / 2, tx = r.x + 80;
+          const cy = r.y + r.h / 2, tx = r.x + 80, room = r.h >= 84;
           medal(r.x + 44, cy, Math.min(27, r.h / 2 - 7));
-          c.font = font(14, 600); const lines = wrap(c, card.desc, r.w - 80 - 22).slice(0, 2), block = 24 + lines.length * 17, y0 = cy - block / 2 + 9;
-          label(c, card.name, tx, y0, 17, TEXT, 'left', 900);
+          c.font = font(14, 600); const lines = wrap(c, text.desc, r.w - 80 - 22).slice(0, pair && !room ? 1 : pair ? 1 : 2), extra = pair ? 15 : 0, block = 24 + lines.length * 17 + extra, y0 = cy - block / 2 + 9;
+          c.font = font(17, 900); const nameSize = c.measureText(text.name).width > r.w - 80 - 110 ? 15 : 17;
+          label(c, text.name, tx, y0, nameSize, TEXT, 'left', 900);
           tag(r.x + r.w - 16, y0, 'right');
           lines.forEach((line, row) => label(c, line, tx, y0 + 23 + row * 17, 14, BROWN, 'left', 600));
+          if (pair) label(c, (card.partnerOwned ? '✓ ' : '') + pair, tx, y0 + 21 + lines.length * 17 + 2, 12, pairColor, 'left', 800);
         }
       });
     },
 
+    /** Treasure chest reveal: the chest hops, bursts open, then each prize pops out in turn. */
+    chestReveal(c: Ctx, s: State, view: View, ui: Ui) {
+      const chest = s.chest; if (!chest || !kit) return;
+      const { w, h } = view, age = reduced ? 9 : ui.chestAge ?? 9, open = Math.min(1, Math.max(0, (age - 0.55) / 0.25));
+      c.fillStyle = `rgba(28,12,14,${Math.min(0.78, 0.2 + age * 1.2)})`; c.fillRect(0, 0, w, h);
+      const cx = w / 2, cy = Math.min(h * 0.38, h / 2 - 40), size = Math.min(w, h) / 9;
+      if (open > 0) {
+        c.save(); c.translate(cx, cy - size * 0.6); c.globalCompositeOperation = 'lighter';
+        const rays = 14, spin = reduced ? 0 : age * 0.6;
+        for (let i = 0; i < rays; i++) { const a = spin + i / rays * TAU; c.globalAlpha = 0.18 * open; c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, Math.max(w, h), a, a + 0.12); c.closePath(); c.fillStyle = i % 2 ? '#ffd75a' : '#fff3c0'; c.fill(); }
+        c.globalAlpha = 0.9 * open; c.drawImage(kit.glow.gold, -size * 3, -size * 3, size * 6, size * 6);
+        c.restore(); c.globalAlpha = 1;
+      }
+      const hop = age < 0.55 ? Math.abs(Math.sin(age * 18)) * size * 0.25 : 0, wobble = age < 0.55 ? Math.sin(age * 40) * 0.08 : 0;
+      c.save(); c.translate(cx, cy + size * 0.6 - hop); c.rotate(wobble); c.scale(size / 12 * (chest.big ? 1.2 : 1), size / 12 * (chest.big ? 1.2 : 1)); drawChest(c, open); c.restore();
+      const title = chest.items.some(item => item.evolve) ? tr('EVOLUTION!', '武器进化！') : chest.big ? tr('GREAT TREASURE!', '大宝箱！') : tr('TREASURE!', '宝箱！');
+      if (open > 0) outlined(c, title, cx, Math.max(26, cy - size * 2.3), Math.min(30, w / 12), C.gold, 'center', '#7a1a18', 900);
+      const count = chest.items.length, slot = Math.min(150, (w - 30) / count), top = cy + size * 1.4;
+      chest.items.forEach((item, index) => {
+        const appear = age - 0.8 - index * 0.35; if (appear < 0) return;
+        const pop = reduced ? 1 : Math.min(1, appear / 0.18) * (1 + Math.max(0, 0.18 - Math.abs(appear - 0.18)) * 1.6), x = cx + (index - (count - 1) / 2) * slot, radius = Math.min(32, slot * 0.28) * pop, text = cardText(item);
+        if (item.evolve) { const glow = radius * 2.4; c.globalAlpha = 0.9; c.drawImage(kit!.glow.gold, x - glow, top + 34 - glow, glow * 2, glow * 2); c.globalAlpha = 1; }
+        E(c, x, top + 34, radius, radius); c.fillStyle = item.evolve ? '#fff0b8' : '#fffaf0'; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
+        E(c, x, top + 34, Math.max(1, radius - 4), Math.max(1, radius - 4)); c.strokeStyle = item.evolve ? C.gold : item.color; c.lineWidth = 3; c.stroke(); artIcon(c, item.key, x, top + 34, radius * 0.56, item.color);
+        if (pop >= 1) {
+          c.font = font(14, 900); const lines = wrap(c, text.name, slot - 8).slice(0, 2);
+          lines.forEach((line, row) => outlined(c, line, x, top + 80 + row * 17, 14, item.evolve ? C.gold : C.cream, 'center', INK, 900));
+          outlined(c, item.evolve ? tr('EVOLVED', '已进化') : text.tag, x, top + 82 + lines.length * 17, 12, item.evolve ? '#ff9a8a' : '#e6c99a', 'center', INK, 800);
+        }
+      });
+      const done = age > 0.9 + count * 0.35;
+      if (done) outlined(c, `+${chest.jade} ${tr('jade', '玉石')}   ·   ` + (ui.touch ? tr('Tap to continue', '点击继续') : tr('Space or Enter to continue', '空格或回车继续')), cx, Math.min(h - 30, top + 150), 14, C.cream, 'center', INK, 800);
+    },
+
+    /** Full-width banner for an evolution, on top of the gold nova drawn in the world. */
+    evolveBanner(c: Ctx, view: View, ui: Ui) {
+      const age = ui.evolveAge ?? 9; if (age > 2 || !ui.evolveKey) return;
+      const { w, h } = view, a = Math.min(1, age * 6, (2 - age) * 2.5), pop = reduced ? 1 : 1 + Math.max(0, 0.25 - age) * 1.6, y = h * 0.62;
+      c.globalAlpha = a * 0.85; c.fillStyle = 'rgba(122,26,24,0.85)'; c.fillRect(0, y - 34, w, 68); c.fillStyle = C.gold; c.fillRect(0, y - 34, w, 3); c.fillRect(0, y + 31, w, 3);
+      c.globalAlpha = a; outlined(c, tr('WEAPON EVOLVED', '武器进化'), w / 2, y - 14, 13, '#ffe27a', 'center', INK, 900);
+      outlined(c, itemName(ui.evolveKey, true).toUpperCase(), w / 2, y + 9, Math.min(28, w / 13) * pop, C.cream, 'center', '#7a1a18', 900);
+      c.globalAlpha = 1;
+    },
+
     gameOver(c: Ctx, s: State, view: View, ui: Ui) {
-      const { w, h } = view, pw = Math.min(340, w - 28), ph = Math.min(318, h - 28), px = (w - pw) / 2, py = Math.max(14, (h - ph) / 2);
+      const { w, h } = view, extra = ui.result?.lines.length ?? 0, pw = Math.min(360, w - 28), ph = Math.min(318 + extra * 19, h - 20), px = (w - pw) / 2, py = Math.max(10, (h - ph) / 2);
       c.fillStyle = 'rgba(34,16,18,0.7)'; c.fillRect(0, 0, w, h);
       scroll(c, px, py, pw, ph, true, false);
       seal(c, px + 34, py + 40, 34, s.won ? '勝' : '敗', s.won ? 'helm' : 'swords');
-      if (s.won) outlined(c, 'WARLORD SLAYER', w / 2 + 14, py + 38, pw < 320 ? 21 : 24, C.gold, 'center', '#7a1a18', 900); else label(c, 'DEFEATED', w / 2 + 8, py + 38, 27, '#b3262b', 'center', 900);
-      label(c, s.won ? `Fell in endless battle to ${ENEMY_NAME[s.killer] ?? 'the horde'}` : `Struck down by ${ENEMY_NAME[s.killer] ?? 'the horde'}`, w / 2, py + 68, 14, BROWN, 'center', 700);
-      const rows: [string, string][] = [['Time', clock(s.time)], ['Foes felled', String(s.kills)], ['Level', String(s.level)], ['Score', String(s.score)], ['Best', String(Math.max(ui.best, s.score))]];
-      const rowH = Math.min(30, (ph - 160) / rows.length);
+      const title = ui.result?.title ?? (s.won ? tr('BOSS SLAYER', '斩将') : tr('DEFEATED', '战败'));
+      if (s.won) outlined(c, title, w / 2 + 14, py + 38, pw < 320 ? 21 : 24, C.gold, 'center', '#7a1a18', 900); else label(c, title, w / 2 + 8, py + 38, 27, '#b3262b', 'center', 900);
+      label(c, killerLine(s.killer, s.won), w / 2, py + 66, 14, BROWN, 'center', 700);
+      const rows: [string, string][] = [[tr('Time', '时间'), clock(s.time)], [tr('Foes felled', '击败'), String(s.kills)], [tr('Level', '等级'), String(s.level)], [tr('Score', '分数'), String(s.score)], [tr('Best', '最佳'), String(Math.max(ui.best, s.score))]];
+      const buttons = resultButtons(view, ui, extra), listBottom = buttons.again.y - 8 - (ui.newBest ? 22 : 0) - extra * 19;
+      const rowH = Math.min(28, (listBottom - (py + 88)) / rows.length);
       rows.forEach(([name, value], index) => {
-        const y = py + 100 + index * rowH;
+        const y = py + 92 + index * rowH;
         c.strokeStyle = 'rgba(115,82,56,0.4)'; c.lineWidth = 1.4; c.setLineDash([2, 5]); c.beginPath(); c.moveTo(px + 30, y + rowH / 2 - 1.5); c.lineTo(px + pw - 30, y + rowH / 2 - 1.5); c.stroke(); c.setLineDash([]);
         label(c, name, px + 30, y, 15, BROWN, 'left', 700); label(c, value, px + pw - 30, y, 17, index === 3 ? '#b3262b' : TEXT, 'right', 900);
       });
-      if (ui.newBest) outlined(c, 'NEW BEST!', w / 2, py + ph - 62, 16, C.gold, 'center', '#7a1a18', 900);
-      else if (!s.won) label(c, s.time >= BOSS_TIME ? 'The Warlord still holds the field' : `The Warlord arrives at ${clock(BOSS_TIME)}`, w / 2, py + ph - 62, 14, BROWN, 'center', 700);
+      let y = py + 92 + rows.length * rowH + 4;
+      if (ui.newBest) { outlined(c, tr('NEW BEST!', '新纪录！'), w / 2, y, 16, C.gold, 'center', '#7a1a18', 900); y += 22; }
+      for (const line of ui.result?.lines ?? []) { c.font = font(14, 800); const fit = c.measureText(line.text).width > pw - 40 ? 12 : 14; label(c, line.text, w / 2, y, fit, line.color ?? '#1f7a5a', 'center', 800); y += 19; }
+      if (!ui.result && !s.won) label(c, s.time >= BOSS_TIME ? tr('The boss still holds the field', '首领仍在战场') : tr(`The boss arrives at ${clock(BOSS_TIME)}`, `首领于 ${clock(BOSS_TIME)} 登场`), w / 2, y, 14, BROWN, 'center', 700);
       c.globalAlpha = ui.locked ? 0.4 : 1;
-      R(c, px + 26, py + ph - 47, pw - 52, 32, 16); c.fillStyle = C.red; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); R(c, px + 29, py + ph - 44, pw - 58, 26, 13); c.strokeStyle = C.gold; c.lineWidth = 1.4; c.stroke();
-      label(c, ui.retryLabel, w / 2, py + ph - 30.5, 15, C.cream, 'center', 900); c.globalAlpha = 1;
+      const button = (r: Rect, text: string, fill: string) => { R(c, r.x, r.y, r.w, r.h, r.h / 2); c.fillStyle = fill; c.fill(); c.strokeStyle = INK; c.lineWidth = 2; c.stroke(); R(c, r.x + 3, r.y + 3, r.w - 6, r.h - 6, r.h / 2 - 3); c.strokeStyle = C.gold; c.lineWidth = 1.4; c.stroke(); c.font = font(15, 900); label(c, text, r.x + r.w / 2, r.y + r.h / 2 + 0.5, c.measureText(text).width > r.w - 16 ? 12 : 15, C.cream, 'center', 900); };
+      button(buttons.again, ui.retryLabel, C.red);
+      if (buttons.share) button(buttons.share, ui.touch ? tr('Share', '分享') : tr('Share (S)', '分享 (S)'), '#2f5f8a');
+      if (ui.result?.camp) button(buttons.camp, ui.touch ? tr('Camp', '营地') : tr('Camp (Esc)', '营地 (Esc)'), C.wood);
+      c.globalAlpha = 1;
     }
   };
+}
+/** Result scroll buttons, shared by drawing and hit-testing: Again, then Share (Daily only) and Camp when offered. */
+export function resultButtons(view: View, ui: Pick<Ui, 'result'>, extra = ui.result?.lines.length ?? 0): { again: Rect; camp: Rect; share: Rect | null } {
+  const { w, h } = view, pw = Math.min(360, w - 28), ph = Math.min(318 + extra * 19, h - 20), px = (w - pw) / 2, py = Math.max(10, (h - ph) / 2), y = py + ph - 47;
+  const none = { x: -1, y: -1, w: 0, h: 0 }, list = ['again', ...(ui.result?.share ? ['share'] : []), ...(ui.result?.camp ? ['camp'] : [])], gap = 8, span = pw - 52;
+  const width = list.length === 1 ? span : (span - gap * (list.length - 1)) / list.length, at = (name: string) => { const i = list.indexOf(name); return i < 0 ? none : { x: px + 26 + i * (width + gap), y, w: width, h: 32 }; };
+  return { again: at('again'), camp: at('camp'), share: ui.result?.share ? at('share') : null };
 }
 export type Renderer = ReturnType<typeof createRenderer>;

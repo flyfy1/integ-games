@@ -230,56 +230,92 @@ export function drawRider(c: Ctx, f: number, elite: boolean) {
 }
 
 // ---- hero and warlord (drawn live into a small buffer each frame) ------------------------------------------------------------
-/** The hero: an original chibi spear general - silver armour, jade sash, red cape and helmet tassel. */
-export function drawHero(c: Ctx, t: number, moving: boolean, reduced: boolean, thrust = 0) {
+/** Palette and kit for each playable general; the body, face and animation are shared. */
+export type HeroLook = { armor: string; shade: string; sash: string; cape: string; capeDark: string; helm: string; plume: string; weapon: 'spear' | 'sabres' | 'fan'; hat: 'helm' | 'horns' | 'scholar' };
+export const HERO_LOOKS: Record<string, HeroLook> = {
+  spear: { armor: '#f4f6f9', shade: '#cfd8e3', sash: C.jade, cape: '#e23c3a', capeDark: '#b3262b', helm: '#eef2f6', plume: '#f0463f', weapon: 'spear', hat: 'helm' },
+  blades: { armor: '#6f7a8e', shade: '#545e72', sash: C.gold, cape: '#2f5fb0', capeDark: '#1d3f80', helm: '#4a5266', plume: '#ffc94a', weapon: 'sabres', hat: 'horns' },
+  strategist: { armor: '#f3efe2', shade: '#d6cfb8', sash: '#3f7fd0', cape: '#5fb0a0', capeDark: '#3a8070', helm: '#2b2233', plume: '#2b2233', weapon: 'fan', hat: 'scholar' }
+};
+/** The hero: an original chibi general. The default look is the spear general - silver armour, jade sash, red cape. */
+export function drawHero(c: Ctx, t: number, moving: boolean, reduced: boolean, thrust = 0, look: HeroLook = HERO_LOOKS.spear) {
   const run = moving && !reduced, ph = t * 12;
   const step = run ? Math.sin(ph) : 0, bob = run ? -Math.abs(Math.cos(ph)) * 1.7 : reduced ? 0 : Math.sin(t * 2.6) * 0.7;
   const sway = reduced ? 0 : Math.sin(t * 3.3), flow = run ? 6 : 1.5;
   c.save(); if (run) c.rotate(0.09);
   // cape
   c.beginPath(); c.moveTo(-3, -17.5 + bob); c.quadraticCurveTo(-10 - flow, -17 + bob + sway * 0.8, -13.5 - flow * 1.4, -5 + sway * 1.6 + bob * 0.4 - flow * 0.5);
-  c.quadraticCurveTo(-9.5 - flow * 0.6, -6.4 - flow * 0.2, -7 - flow * 0.3, -3 - flow * 0.2); c.quadraticCurveTo(-3.5, -7, 3, -6 + bob); c.closePath(); P(c, '#e23c3a');
-  c.strokeStyle = '#b3262b'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-5, -14.5 + bob); c.quadraticCurveTo(-9 - flow * 0.8, -11 + bob + sway * 0.6, -10.5 - flow, -6.5 + sway - flow * 0.3); c.stroke();
+  c.quadraticCurveTo(-9.5 - flow * 0.6, -6.4 - flow * 0.2, -7 - flow * 0.3, -3 - flow * 0.2); c.quadraticCurveTo(-3.5, -7, 3, -6 + bob); c.closePath(); P(c, look.cape);
+  c.strokeStyle = look.capeDark; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-5, -14.5 + bob); c.quadraticCurveTo(-9 - flow * 0.8, -11 + bob + sway * 0.6, -10.5 - flow, -6.5 + sway - flow * 0.3); c.stroke();
   feet(c, step, '#3b3350');
   // armour
-  R(c, -6.9, -16 + bob, 13.8, 12.8, 5.2); P(c, '#f4f6f9');
-  c.fillStyle = '#cfd8e3'; R(c, -6, -7 + bob, 12, 3.2, 1.6); c.fill();
-  L(c, [-5.5, -8 + bob, -0.6, -8 + bob, -1.2, -3.6 + bob, -5.9, -4.4 + bob]); P(c, C.jade, 1.2); L(c, [0.6, -8 + bob, 5.6, -8 + bob, 5.9, -4.4 + bob, 1.2, -3.6 + bob]); P(c, C.jade, 1.2);
-  R(c, -7.1, -9.8 + bob, 14.2, 2.8, 1.3); P(c, C.jade, 1.2); E(c, 1.4, -8.4 + bob, 1.7, 1.7); P(c, C.gold, 1.1);
+  R(c, -6.9, -16 + bob, 13.8, 12.8, 5.2); P(c, look.armor);
+  c.fillStyle = look.shade; R(c, -6, -7 + bob, 12, 3.2, 1.6); c.fill();
+  L(c, [-5.5, -8 + bob, -0.6, -8 + bob, -1.2, -3.6 + bob, -5.9, -4.4 + bob]); P(c, look.sash, 1.2); L(c, [0.6, -8 + bob, 5.6, -8 + bob, 5.9, -4.4 + bob, 1.2, -3.6 + bob]); P(c, look.sash, 1.2);
+  R(c, -7.1, -9.8 + bob, 14.2, 2.8, 1.3); P(c, look.sash, 1.2); E(c, 1.4, -8.4 + bob, 1.7, 1.7); P(c, C.gold, 1.1);
   c.strokeStyle = '#b9c4d2'; c.lineWidth = 1; c.beginPath(); c.moveTo(-3.6, -13.6 + bob); c.lineTo(4.6, -13.6 + bob); c.moveTo(-3, -11.6 + bob); c.lineTo(4, -11.6 + bob); c.stroke();
   E(c, -5.2, -14.6 + bob, 3.5, 2.7, -0.3); P(c, C.gold, 1.3);
   // head and helmet
   E(c, 0.8, -23.2 + bob, 9.8, 9); P(c, C.skin);
   c.fillStyle = '#4a2f2a'; c.beginPath(); c.ellipse(0.8, -23.2 + bob, 9.6, 8.8, 0, Math.PI * 0.72, Math.PI * 1.28); c.fill();
-  cap(c, 0.8, -23.2 + bob, 10.1, 9.3, 0.3, '#eef2f6');
-  c.fillStyle = '#cfd8e3'; c.beginPath(); c.ellipse(0.8, -23.2 + bob, 9.4, 8.6, 0, Math.PI * 1.12, Math.PI * 1.5); c.lineTo(-3, -27 + bob); c.closePath(); c.fill();
-  c.strokeStyle = C.gold; c.lineWidth = 2; c.beginPath(); c.moveTo(-8.2, -26.3 + bob); c.quadraticCurveTo(1.4, -24.2 + bob, 10.1, -26.4 + bob); c.stroke();
-  c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.moveTo(-8.4, -25.2 + bob); c.quadraticCurveTo(1.4, -23.1 + bob, 10.2, -25.3 + bob); c.stroke();
-  L(c, [3.6, -27.6 + bob, 5.4, -25.4 + bob, 3.6, -23.4 + bob, 1.8, -25.4 + bob]); P(c, C.jade, 1.1);
-  E(c, 0.8, -32.6 + bob, 2.1, 1.9); P(c, C.gold, 1.2);
-  c.beginPath(); c.moveTo(0.2, -34 + bob); c.quadraticCurveTo(-1.5, -41 + bob, -8 - flow * 0.7, -39.5 + bob + sway); c.quadraticCurveTo(-11 - flow, -36.5 + bob + sway * 1.4, -9.5 - flow, -33 + bob + sway * 1.4);
-  c.quadraticCurveTo(-6, -36.4 + bob + sway, 1.6, -33.8 + bob); c.closePath(); P(c, '#f0463f');
+  if (look.hat === 'scholar') {
+    // a scholar's black gauze cap with two stiff side wings
+    R(c, -7.6, -33.6 + bob, 16.8, 9.6, 3); P(c, look.helm); R(c, -8.6, -26.4 + bob, 18.8, 3, 1.4); P(c, '#3a3548', 1.2);
+    for (const side of [-1, 1]) { R(c, 0.8 + side * 11 - 4, -30.6 + bob, 8, 2.6, 1.2); P(c, look.helm, 1.1); }
+    E(c, 0.8, -29 + bob, 1.6, 1.6); P(c, C.jade, 1);
+  } else {
+    cap(c, 0.8, -23.2 + bob, 10.1, 9.3, 0.3, look.helm);
+    c.fillStyle = '#cfd8e3'; c.beginPath(); c.ellipse(0.8, -23.2 + bob, 9.4, 8.6, 0, Math.PI * 1.12, Math.PI * 1.5); c.lineTo(-3, -27 + bob); c.closePath(); c.fill();
+    c.strokeStyle = C.gold; c.lineWidth = 2; c.beginPath(); c.moveTo(-8.2, -26.3 + bob); c.quadraticCurveTo(1.4, -24.2 + bob, 10.1, -26.4 + bob); c.stroke();
+    c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.moveTo(-8.4, -25.2 + bob); c.quadraticCurveTo(1.4, -23.1 + bob, 10.2, -25.3 + bob); c.stroke();
+    L(c, [3.6, -27.6 + bob, 5.4, -25.4 + bob, 3.6, -23.4 + bob, 1.8, -25.4 + bob]); P(c, C.jade, 1.1);
+    E(c, 0.8, -32.6 + bob, 2.1, 1.9); P(c, C.gold, 1.2);
+    c.beginPath(); c.moveTo(0.2, -34 + bob); c.quadraticCurveTo(-1.5, -41 + bob, -8 - flow * 0.7, -39.5 + bob + sway); c.quadraticCurveTo(-11 - flow, -36.5 + bob + sway * 1.4, -9.5 - flow, -33 + bob + sway * 1.4);
+    c.quadraticCurveTo(-6, -36.4 + bob + sway, 1.6, -33.8 + bob); c.closePath(); P(c, look.plume);
+    if (look.hat === 'horns') for (const side of [-1, 1]) { c.beginPath(); c.moveTo(0.8 + side * 5, -29.6 + bob); c.quadraticCurveTo(0.8 + side * 12, -33 + bob, 0.8 + side * 12.6, -40 + bob); c.quadraticCurveTo(0.8 + side * 8, -34 + bob, 0.8 + side * 2.6, -31 + bob); c.closePath(); P(c, C.gold, 1.2); }
+  }
   face(c, 3.9, -20.6 + bob, 1.02, 'hero');
-  // spear, with a short jab whenever a volley leaves
+  // held weapon, with a short jab whenever a volley leaves
   const jab = thrust * 5;
-  c.save(); c.translate(10.4 + jab * 0.5, -11 + bob - jab); c.rotate(0.09 + thrust * 0.25);
-  stick(c, 0, 12, 0, -22, 1.6, '#7a3b2a');
-  L(c, [0, -33.5, 3.1, -26.4, 0, -22, -3.1, -26.4]); P(c, '#f7fbff', 1.3);
-  c.strokeStyle = '#b9c4d2'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(0, -32); c.lineTo(0, -23.4); c.stroke();
-  c.beginPath(); c.moveTo(-1.6, -21.6); c.quadraticCurveTo(-5.6 - sway, -19.6, -4.4 - sway * 1.2, -15); c.quadraticCurveTo(-1.5, -18.2, 1.6, -21.6); c.closePath(); P(c, '#f0463f', 1.2);
-  R(c, -1.9, -22.6, 3.8, 2, 0.8); P(c, C.gold, 1);
-  c.restore();
+  if (look.weapon === 'spear') {
+    c.save(); c.translate(10.4 + jab * 0.5, -11 + bob - jab); c.rotate(0.09 + thrust * 0.25);
+    stick(c, 0, 12, 0, -22, 1.6, '#7a3b2a');
+    L(c, [0, -33.5, 3.1, -26.4, 0, -22, -3.1, -26.4]); P(c, '#f7fbff', 1.3);
+    c.strokeStyle = '#b9c4d2'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(0, -32); c.lineTo(0, -23.4); c.stroke();
+    c.beginPath(); c.moveTo(-1.6, -21.6); c.quadraticCurveTo(-5.6 - sway, -19.6, -4.4 - sway * 1.2, -15); c.quadraticCurveTo(-1.5, -18.2, 1.6, -21.6); c.closePath(); P(c, '#f0463f', 1.2);
+    R(c, -1.9, -22.6, 3.8, 2, 0.8); P(c, C.gold, 1);
+    c.restore();
+  } else if (look.weapon === 'sabres') {
+    c.save(); c.translate(10.4 + jab * 0.5, -11 + bob - jab); c.rotate(-0.35 + thrust * 0.5);
+    R(c, -1.2, -2, 2.4, 6, 1); P(c, C.wood, 1.1); R(c, -3.6, -3.4, 7.2, 2, 0.8); P(c, C.gold, 1);
+    c.beginPath(); c.moveTo(-1.6, -3.4); c.quadraticCurveTo(-2.6, -14, 2.4, -22); c.quadraticCurveTo(2.6, -12, 1.6, -3.4); c.closePath(); P(c, '#eef3f8', 1.2);
+    c.restore();
+  } else {
+    c.save(); c.translate(10.4 + jab * 0.3, -11 + bob - jab * 0.5); c.rotate(0.25 - thrust * 0.6 + sway * 0.05);
+    stick(c, 0, 4, 0, -4, 1.4, C.woodLight, 1);
+    c.beginPath(); c.moveTo(0, -3); c.quadraticCurveTo(-9, -8, -7, -17); c.quadraticCurveTo(0, -21, 7, -17); c.quadraticCurveTo(9, -8, 0, -3); c.closePath(); P(c, '#fbfbf6', 1.2);
+    c.strokeStyle = '#c9c3b4'; c.lineWidth = 0.8; c.beginPath(); for (const dx of [-4.4, -1.5, 1.5, 4.4]) { c.moveTo(0, -4); c.lineTo(dx, -17.6); } c.stroke();
+    c.restore();
+  }
   E(c, 10.5 + jab * 0.5, -10.4 + bob - jab, 2.5, 2.5); P(c, C.skin, 1.3);
   c.restore();
 }
 /** The Warden, re-imagined as a towering warlord with a wolf-tooth mace. `mode` 1 = winding up a charge, 2 = charging. */
-export function drawWarlord(c: Ctx, t: number, mode: number, reduced: boolean) {
+/** Colours and weapon for each final boss. The default is the Warlord. */
+export type BossLook = { cloak: string; body: string; plate: string; plateDark: string; plume: string; skin: string; weapon: 'mace' | 'dao' | 'trident' | 'axe' };
+export const BOSS_LOOKS: Record<string, BossLook> = {
+  warlord: { cloak: '#4b2a63', body: '#3a2f4a', plate: '#b3262b', plateDark: '#8f1d1d', plume: '#e23c3a', skin: '#e0916a', weapon: 'mace' },
+  king: { cloak: '#5a3a22', body: '#4a3a2a', plate: '#d8a23a', plateDark: '#9a6a1e', plume: '#3f8a44', skin: '#d99a6a', weapon: 'dao' },
+  admiral: { cloak: '#1d4f7a', body: '#22384f', plate: '#2f8fb0', plateDark: '#1d5f7a', plume: '#f2f2f2', skin: '#e6a07a', weapon: 'trident' },
+  marshal: { cloak: '#3a3a3a', body: '#2b2b2b', plate: '#e8742a', plateDark: '#a8481c', plume: '#ffc94a', skin: '#c98a62', weapon: 'axe' }
+};
+export function drawWarlord(c: Ctx, t: number, mode: number, reduced: boolean, look: BossLook = BOSS_LOOKS.warlord) {
   const live = reduced ? 0 : 1, breathe = Math.sin(t * 2.2) * 1.2 * live, step = mode === 2 ? Math.sin(t * 22) * live : Math.sin(t * 4.4) * live, sway = Math.sin(t * 2.8) * live;
   const bob = breathe - (mode === 1 ? -4 : 0);
   c.save(); if (mode === 2) c.rotate(0.16); else if (mode === 1) c.rotate(-0.07);
   // cloak
   c.beginPath(); c.moveTo(-16, -64 + bob); c.quadraticCurveTo(-40, -56 + bob + sway * 2, -50, -10 + sway * 3);
-  for (let i = 0; i < 5; i++) c.lineTo(-44 + i * 9, (i % 2 ? -13 : -3) + sway * (2 - i * 0.3)); c.lineTo(8, -16 + bob); c.closePath(); P(c, '#4b2a63', 2);
+  for (let i = 0; i < 5; i++) c.lineTo(-44 + i * 9, (i % 2 ? -13 : -3) + sway * (2 - i * 0.3)); c.lineTo(8, -16 + bob); c.closePath(); P(c, look.cloak, 2);
   c.strokeStyle = C.gold; c.lineWidth = 1.6; c.beginPath(); c.moveTo(-22, -58 + bob); c.quadraticCurveTo(-38, -44 + bob + sway * 2, -44, -14 + sway * 3); c.stroke();
   // boots
   R(c, -19 - step * 3, -13 - Math.max(0, -step) * 3, 15, 13, 5); P(c, '#2b2233', 2); R(c, 3 + step * 3, -13 - Math.max(0, step) * 3, 15, 13, 5); P(c, '#2b2233', 2);
@@ -287,23 +323,35 @@ export function drawWarlord(c: Ctx, t: number, mode: number, reduced: boolean) {
   // mace arm behind the body
   c.save(); c.translate(27, -42 + bob); c.rotate(0.16 + sway * 0.05 + (mode === 1 ? -0.5 : mode === 2 ? 0.7 : 0));
   stick(c, 0, 26, 0, -40, 3.4, '#5b3a2a', 2);
-  for (let i = 0; i < 9; i++) { const a = i / 9 * TAU + 0.2, ca = Math.cos(a), sa = Math.sin(a), bx = ca * 8.5, by = -52 + sa * 13; L(c, [ca * 15.5, -52 + sa * 20, bx - sa * 2.8, by + ca * 2.8, bx + sa * 2.8, by - ca * 2.8]); P(c, C.steel, 1.5); }
-  E(c, 0, -52, 9.5, 14); P(c, '#4a4658', 2); c.fillStyle = '#6b6780'; E(c, -3, -55, 3.4, 8); c.fill();
-  for (const [dx, dy] of [[2.6, -58], [-2, -49], [3.4, -46]]) { L(c, [dx, dy - 2.6, dx + 2.4, dy + 1.6, dx - 2.4, dy + 1.6]); P(c, C.steel, 1.2); }
+  if (look.weapon === 'mace') {
+    for (let i = 0; i < 9; i++) { const a = i / 9 * TAU + 0.2, ca = Math.cos(a), sa = Math.sin(a), bx = ca * 8.5, by = -52 + sa * 13; L(c, [ca * 15.5, -52 + sa * 20, bx - sa * 2.8, by + ca * 2.8, bx + sa * 2.8, by - ca * 2.8]); P(c, C.steel, 1.5); }
+    E(c, 0, -52, 9.5, 14); P(c, '#4a4658', 2); c.fillStyle = '#6b6780'; E(c, -3, -55, 3.4, 8); c.fill();
+    for (const [dx, dy] of [[2.6, -58], [-2, -49], [3.4, -46]]) { L(c, [dx, dy - 2.6, dx + 2.4, dy + 1.6, dx - 2.4, dy + 1.6]); P(c, C.steel, 1.2); }
+  } else if (look.weapon === 'dao') {
+    c.beginPath(); c.moveTo(-3, -38); c.quadraticCurveTo(-16, -60, -6, -82); c.quadraticCurveTo(10, -70, 6, -38); c.closePath(); P(c, C.steel, 2); c.fillStyle = '#c4ccd8'; c.beginPath(); c.moveTo(0, -40); c.quadraticCurveTo(-8, -58, -4, -74); c.quadraticCurveTo(2, -60, 3, -40); c.closePath(); c.fill(); E(c, 3, -60, 2.4, 2.4); P(c, C.red, 1.2);
+  } else if (look.weapon === 'trident') {
+    stick(c, 0, -40, 0, -70, 3, '#5b3a2a', 2); R(c, -11, -72, 22, 4, 1.6); P(c, C.gold, 1.6);
+    for (const dx of [-9, 0, 9]) { L(c, [dx - 3, -71, dx, dx ? -88 : -94, dx + 3, -71]); P(c, C.steel, 1.5); }
+  } else {
+    stick(c, 0, -40, 0, -72, 3, '#5b3a2a', 2);
+    c.beginPath(); c.moveTo(2, -70); c.quadraticCurveTo(22, -78, 24, -58); c.quadraticCurveTo(14, -52, 2, -54); c.closePath(); P(c, C.steel, 1.8);
+    c.beginPath(); c.moveTo(-2, -68); c.quadraticCurveTo(-12, -66, -10, -58); c.lineTo(-2, -58); c.closePath(); P(c, C.steel, 1.5);
+    c.beginPath(); c.moveTo(16, -74); c.quadraticCurveTo(24, -86, 18, -94); c.quadraticCurveTo(28, -84, 24, -72); c.closePath(); P(c, '#ff7a2e', 1.2);
+  }
   R(c, -4, -40.5, 8, 4, 1.6); P(c, C.gold, 1.5);
   c.restore();
   // body
-  R(c, -25, -68 + bob, 50, 53, 17); P(c, '#3a2f4a', 2);
-  c.beginPath(); c.ellipse(1, -46 + bob, 17, 15, 0, 0, TAU); P(c, '#b3262b', 1.8);
-  c.fillStyle = '#8f1d1d'; c.beginPath(); c.ellipse(1, -42.5 + bob, 15, 11, 0, 0, Math.PI); c.fill();
+  R(c, -25, -68 + bob, 50, 53, 17); P(c, look.body, 2);
+  c.beginPath(); c.ellipse(1, -46 + bob, 17, 15, 0, 0, TAU); P(c, look.plate, 1.8);
+  c.fillStyle = look.plateDark; c.beginPath(); c.ellipse(1, -42.5 + bob, 15, 11, 0, 0, Math.PI); c.fill();
   for (const [x, y] of [[-9, -51], [11, -51], [1, -56], [-6, -42], [8, -42]]) { E(c, x, y + bob, 1.9, 1.9); c.fillStyle = C.gold; c.fill(); }
-  for (let i = 0; i < 3; i++) { R(c, -22 + i * 15.5, -22 + bob * 0.5, 13.5, 13, 3.5); P(c, i === 1 ? '#b3262b' : '#3a2f4a', 1.8); c.fillStyle = C.gold; R(c, -20 + i * 15.5, -12.6 + bob * 0.5, 9.5, 1.8, 0.9); c.fill(); }
+  for (let i = 0; i < 3; i++) { R(c, -22 + i * 15.5, -22 + bob * 0.5, 13.5, 13, 3.5); P(c, i === 1 ? look.plate : look.body, 1.8); c.fillStyle = C.gold; R(c, -20 + i * 15.5, -12.6 + bob * 0.5, 9.5, 1.8, 0.9); c.fill(); }
   R(c, -25.5, -27 + bob, 51, 7, 3); P(c, '#2b2233', 1.8);
-  E(c, 1, -23.5 + bob, 6.4, 5.8); P(c, C.gold, 1.6); L(c, [1, -27 + bob, 4.4, -23.5 + bob, 1, -20 + bob, -2.4, -23.5 + bob]); P(c, '#b3262b', 1.1);
+  E(c, 1, -23.5 + bob, 6.4, 5.8); P(c, C.gold, 1.6); L(c, [1, -27 + bob, 4.4, -23.5 + bob, 1, -20 + bob, -2.4, -23.5 + bob]); P(c, look.plate, 1.1);
   // pauldrons
-  for (const side of [-1, 1]) { const x = side * 24 + 1; E(c, x, -62 + bob, 12.5, 10); P(c, '#b3262b', 2); c.strokeStyle = C.gold; c.lineWidth = 1.8; c.beginPath(); c.ellipse(x, -62 + bob, 9.4, 7, 0, Math.PI * 0.05, Math.PI * 0.95); c.stroke(); L(c, [x + side * 6, -70 + bob, x + side * 17, -78 + bob, x + side * 11.5, -64 + bob]); P(c, C.steel, 1.6); }
+  for (const side of [-1, 1]) { const x = side * 24 + 1; E(c, x, -62 + bob, 12.5, 10); P(c, look.plate, 2); c.strokeStyle = C.gold; c.lineWidth = 1.8; c.beginPath(); c.ellipse(x, -62 + bob, 9.4, 7, 0, Math.PI * 0.05, Math.PI * 0.95); c.stroke(); L(c, [x + side * 6, -70 + bob, x + side * 17, -78 + bob, x + side * 11.5, -64 + bob]); P(c, C.steel, 1.6); }
   // head
-  E(c, 4, -80 + bob, 15, 13.6); P(c, '#e0916a', 2);
+  E(c, 4, -80 + bob, 15, 13.6); P(c, look.skin, 2);
   c.beginPath(); c.moveTo(-8.6, -77 + bob); c.quadraticCurveTo(-8, -62 + bob, 6, -58.5 + bob); c.quadraticCurveTo(19, -63 + bob, 18.6, -78 + bob); c.quadraticCurveTo(12, -70.5 + bob, 5.6, -73 + bob); c.quadraticCurveTo(-2, -70.5 + bob, -8.6, -77 + bob); c.closePath(); P(c, '#2b2233', 1.8);
   c.strokeStyle = '#f7e9d6'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(1.5, -68.6 + bob); c.quadraticCurveTo(6, -66.4 + bob, 11.5, -68.8 + bob); c.stroke();
   cap(c, 4, -80 + bob, 15.6, 14.2, 0.2, '#3a3548');
@@ -313,8 +361,8 @@ export function drawWarlord(c: Ctx, t: number, mode: number, reduced: boolean) {
   c.strokeStyle = INK; c.lineWidth = 2.6; c.beginPath(); c.moveTo(-5.6, -82.4 + bob); c.lineTo(4.4, -78.4 + bob); c.moveTo(18.6, -82.4 + bob); c.lineTo(8.8, -78.4 + bob); c.stroke();
   // crest and plume
   c.beginPath(); c.moveTo(4, -90 + bob); c.quadraticCurveTo(-7, -93 + bob, -13, -108 + bob); c.quadraticCurveTo(-3, -100 + bob, 4, -98.5 + bob); c.quadraticCurveTo(11, -100 + bob, 21, -108 + bob); c.quadraticCurveTo(15, -93 + bob, 4, -90 + bob); c.closePath(); P(c, C.gold, 1.8);
-  c.beginPath(); c.moveTo(2, -95 + bob); c.quadraticCurveTo(-4, -112 + bob, -22, -108 + bob + sway * 2); c.quadraticCurveTo(-34, -102 + bob + sway * 3, -34, -88 + bob + sway * 3); c.quadraticCurveTo(-24, -98 + bob + sway * 2, 6, -94 + bob); c.closePath(); P(c, '#e23c3a', 1.8);
-  E(c, 4, -93.4 + bob, 3.4, 3); P(c, '#b3262b', 1.5);
+  c.beginPath(); c.moveTo(2, -95 + bob); c.quadraticCurveTo(-4, -112 + bob, -22, -108 + bob + sway * 2); c.quadraticCurveTo(-34, -102 + bob + sway * 3, -34, -88 + bob + sway * 3); c.quadraticCurveTo(-24, -98 + bob + sway * 2, 6, -94 + bob); c.closePath(); P(c, look.plume, 1.8);
+  E(c, 4, -93.4 + bob, 3.4, 3); P(c, look.plate, 1.5);
   // gauntlet over the shaft
   E(c, 28, -40 + bob, 6.4, 6); P(c, '#2b2233', 1.8); c.fillStyle = C.gold; E(c, 28, -40 + bob, 2.4, 2.2); c.fill();
   c.restore();
@@ -356,6 +404,29 @@ export function drawArrow(c: Ctx, fire: boolean) {
   stick(c, -15, 0, -3, 0, 1.2, '#7a4a2c', 1.1);
   L(c, [-12, 0, -17, -3.4, -14, 0, -17, 3.4]); P(c, fire ? '#ffd23a' : '#ff5a4f', 1);
   L(c, [2, 0, -4, -3, -3, 0, -4, 3]); P(c, fire ? '#ff7a2e' : '#fff3d6', 1.1);
+}
+/** Crossbow bolt: short and stubby with violet fletching, tip at the origin. */
+export function drawBolt(c: Ctx, evolved: boolean) {
+  stick(c, -11, 0, -2, 0, 1.3, '#5a3a28', 1);
+  L(c, [-8, 0, -12.6, -3, -10.4, 0, -12.6, 3]); P(c, evolved ? '#ffd23a' : '#9a7ae8', 0.9);
+  L(c, [2.6, 0, -3, -2.6, -2, 0, -3, 2.6]); P(c, evolved ? '#fff3a0' : '#e8edf2', 1);
+}
+/** Clay oil pot with a burning rag, centred on the origin. */
+export function drawPot(c: Ctx, evolved: boolean) {
+  E(c, 0, 1, 6.4, 5.8); P(c, evolved ? '#b3262b' : '#a8693c', 1.3); R(c, -3.2, -6, 6.4, 3, 1); P(c, evolved ? '#8f1d1d' : '#7d4a2a', 1.1);
+  c.strokeStyle = '#e8d2a6'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-6, 0); c.quadraticCurveTo(0, 2.6, 6, 0); c.stroke();
+  c.beginPath(); c.moveTo(0, -12); c.quadraticCurveTo(4.4, -8, 2.4, -5.6); c.quadraticCurveTo(0, -4.4, -2.4, -5.6); c.quadraticCurveTo(-3.6, -8.4, 0, -12); c.closePath(); P(c, '#ff7a2e', 1, '#c2401c');
+  E(c, 0, -7, 1.2, 1.8); c.fillStyle = '#ffe27a'; c.fill();
+}
+/** Lacquered treasure chest, base centred at the origin. `open` lifts the lid. */
+export function drawChest(c: Ctx, open = 0) {
+  R(c, -12, -11, 24, 13, 2.4); P(c, '#b3262b', 1.6); R(c, -12, -11, 24, 3, 1); c.fillStyle = '#8f1d1d'; c.fill();
+  for (const x of [-9, 7]) { R(c, x, -11, 2.4, 13, 0.8); P(c, C.gold, 1); }
+  c.save(); c.translate(-12, -11); c.rotate(-open * 1.1);
+  c.beginPath(); c.moveTo(0, 0); c.lineTo(0, -4); c.quadraticCurveTo(12, -11, 24, -4); c.lineTo(24, 0); c.closePath(); P(c, '#d8342c', 1.6);
+  R(c, 3, -6.6, 2.4, 6.6, 0.8); c.fillStyle = C.gold; c.fill(); R(c, 19, -6.6, 2.4, 6.6, 0.8); c.fill();
+  c.restore();
+  R(c, -2.6, -9.6, 5.2, 5.6, 1.2); P(c, C.gold, 1.2); E(c, 0, -7, 1, 1.2); c.fillStyle = INK; c.fill();
 }
 export function drawFireball(c: Ctx) {
   c.beginPath(); c.moveTo(7, 0); c.bezierCurveTo(7, 5.4, 1, 7.4, -3, 5.6); c.quadraticCurveTo(-9, 5, -15, 0.6); c.quadraticCurveTo(-9, 1, -8, -1.6); c.quadraticCurveTo(-11, -3.4, -12.6, -6.4); c.quadraticCurveTo(-6, -4, -3, -5.8); c.bezierCurveTo(1, -7.4, 7, -5.4, 7, 0); c.closePath(); P(c, '#ff5a2e', 1.5, '#7a1410');
@@ -406,6 +477,21 @@ export function drawIcon(c: Ctx, key: string, x: number, y: number, s: number, c
     case 'magnet': c.scale(1.02, 1.02); drawTalisman(c); break;
     case 'quick': c.beginPath(); c.moveTo(0, 7.6); c.lineTo(-9.6, -2.4); c.quadraticCurveTo(0, -11.6, 9.6, -2.4); c.closePath(); P(c, color, 1.4); c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); for (const dx of [-5, 0, 5]) { c.moveTo(0, 7.6); c.lineTo(dx, -6.6 + Math.abs(dx) * 0.42); } c.stroke(); E(c, 0, 7.6, 1.6, 1.6); P(c, C.gold, 1.1); break;
     case 'regen': E(c, 0, 3.6, 6.4, 5.8); P(c, color, 1.4); E(c, 0, -3.8, 3.8, 3.6); P(c, color, 1.4); R(c, -1.5, -9.6, 3, 2.8, 0.8); P(c, C.woodLight, 1.1); c.strokeStyle = C.red; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-3.6, -0.6); c.lineTo(3.6, -0.6); c.stroke(); c.fillStyle = '#ffffffaa'; E(c, -2.6, 2.4, 1.3, 2.2, 0.3); c.fill(); break;
+    case 'crossbow':
+      c.rotate(-0.2); stick(c, -9, 3, 8, -1, 2, C.woodLight, 1.1); c.beginPath(); c.moveTo(4, -9); c.quadraticCurveTo(10, -1, 4, 8); c.strokeStyle = INK; c.lineWidth = 3.4; c.stroke(); c.strokeStyle = '#8a5a36'; c.lineWidth = 1.8; c.stroke();
+      c.strokeStyle = '#e8edf2'; c.lineWidth = 0.9; c.beginPath(); c.moveTo(4, -9); c.lineTo(-2, 1); c.lineTo(4, 8); c.stroke(); L(c, [10, -2.4, 6, -4.4, 6.4, -0.8]); P(c, color, 1); break;
+    case 'firepot': c.translate(0, 2); c.scale(1.1, 1.1); drawPot(c, false); break;
+    case 'whirl':
+      R(c, -8, -6, 16, 12, 2); P(c, '#f6e6bf', 1.3); R(c, -10, -7.4, 3.4, 14.8, 1.4); P(c, C.wood, 1.1); R(c, 6.6, -7.4, 3.4, 14.8, 1.4); P(c, C.wood, 1.1);
+      c.strokeStyle = color; c.lineWidth = 1.6; c.beginPath(); for (let i = 0; i < 26; i++) { const a = i * 0.5, r = 0.4 + i * 0.18; if (i) c.lineTo(Math.cos(a) * r, Math.sin(a) * r * 0.9); else c.moveTo(0, 0); } c.stroke(); break;
+    case 'armor':
+      c.beginPath(); c.moveTo(-8, -7); c.lineTo(8, -7); c.lineTo(7, 8); c.lineTo(-7, 8); c.closePath(); P(c, color, 1.4);
+      c.strokeStyle = '#4a5266'; c.lineWidth = 1; c.beginPath(); for (const y of [-3, 1, 5]) { c.moveTo(-7.4, y); c.lineTo(7.4, y); } for (const x of [-3.6, 0, 3.6]) { c.moveTo(x, -7); c.lineTo(x, 8); } c.stroke(); R(c, -3, -9.6, 6, 3, 1); P(c, C.gold, 1.1); break;
+    case 'fortune':
+      E(c, 0, 0, 8.4, 8.4); P(c, C.gold, 1.4); c.strokeStyle = C.goldDark; c.lineWidth = 1; E(c, 0, 0, 6.4, 6.4); c.stroke(); R(c, -2.4, -2.4, 4.8, 4.8, 0.4); P(c, '#8a5a12', 1);
+      c.strokeStyle = C.red; c.lineWidth = 1.6; c.beginPath(); c.moveTo(0, 8.4); c.quadraticCurveTo(-2, 11, 1, 12); c.stroke(); break;
+    case 'chest': c.translate(0, 5); c.scale(0.72, 0.72); drawChest(c); break;
+    case 'jade': c.scale(1.5, 1.5); drawJade(c); break;
     case 'heal': c.scale(1.02, 1.02); c.translate(0, 1.4); drawPeach(c); c.strokeStyle = '#ffffff'; c.lineWidth = 2; c.beginPath(); c.moveTo(0, -3); c.lineTo(0, 3.4); c.moveTo(-3.2, 0.2); c.lineTo(3.2, 0.2); c.stroke(); break;
     case 'swords': for (const side of [-1, 1]) { c.save(); c.rotate(side * 0.72); L(c, [-1.3, -10, 1.3, -10, 1.7, 3, -1.7, 3]); P(c, C.steel, 1.3); R(c, -3.8, 3, 7.6, 2, 0.8); P(c, C.gold, 1.1); R(c, -1.1, 5, 2.2, 4, 0.8); P(c, C.wood, 1.1); c.restore(); } break;
     case 'helm': E(c, 0, 1, 8, 7.6); P(c, '#3a3548', 1.4); c.beginPath(); c.moveTo(0, -5); c.quadraticCurveTo(-5, -6.4, -8.6, -11); c.quadraticCurveTo(-2, -9, 0, -8.6); c.quadraticCurveTo(2, -9, 8.6, -11); c.quadraticCurveTo(5, -6.4, 0, -5); c.closePath(); P(c, C.gold, 1.2); L(c, [-5.4, 0.6, -1, 2, -1.4, 3.8, -5, 3.2]); c.fillStyle = '#ffd23a'; c.fill(); L(c, [5.4, 0.6, 1, 2, 1.4, 3.8, 5, 3.2]); c.fill(); break;
