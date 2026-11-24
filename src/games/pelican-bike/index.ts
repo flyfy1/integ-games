@@ -1,7 +1,9 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createPelicanAudio } from './audio';
+import { decode, encode, ghostKey, newRecorder, poseAt, record, stageHash } from './ghost';
+import type { GhostTrack } from './ghost';
 import { COASTS, coastOf, LEVELS, ORDER, ROWS, stageLabel } from './levels';
-import { drawBackground, drawEntities, drawHazards, drawHUD, drawOverlay, drawPelican, drawPursuer, drawTile, drawWater, setView } from './render';
+import { drawBackground, drawEntities, drawHazards, drawHUD, drawOverlay, drawPelican, drawPursuer, drawStorm, drawTile, drawWater, setView } from './render';
 import type { Hit, UiResult } from './render';
 import { chaseX, createSim, medalsFor, mergeBest, noInput, respawn, STEP, stepSim } from './sim';
 import type { Sim, SimEvent, StageBest } from './sim';
@@ -148,14 +150,24 @@ export const pelicanBike: GameModule = {
 
     // ---- Progress ----
     let hiScore = services.storage.get<number>('hiscore', 0);
-    const storedBests = services.storage.get<(StageBest | null)[]>('stages', []);
-    const bests: (StageBest | null)[] = LEVELS.map((_l, i) => {
-      const b = Array.isArray(storedBests) ? storedBests[i] : null;
-      return b && typeof b.time === 'number' ? b : null;
-    });
+    const loadBests = (key: string): (StageBest | null)[] => {
+      const stored = services.storage.get<(StageBest | null)[]>(key, []);
+      return LEVELS.map((_l, i) => {
+        const b = Array.isArray(stored) ? stored[i] : null;
+        return b && typeof b.time === 'number' ? b : null;
+      });
+    };
+    // Normal and storm bests are kept apart ('stages' is the original key, by stage id).
+    const bests = loadBests('stages');
+    const stormBests = loadBests('storm');
     const isOpen = (id: number) => stageOpen(id, bests);
     const coastOpen = (ci: number) => isOpen(COASTS[ci].stages[0]);
     const firstFresh = () => ORDER.find((id) => isOpen(id) && !bests[id]) ?? ORDER.filter(isOpen).pop() ?? 0;
+    /** A coast's storm remixes open together once all three of its stages are cleared. */
+    const stormOpen = (id: number) => (COASTS[coastOf(id)]?.stages ?? []).every((k) => !!bests[k]);
+    let storm = false;
+    const modeOpen = (id: number) => (storm ? stormOpen(id) : isOpen(id));
+    const modeBests = () => (storm ? stormBests : bests);
 
     let state: State = 'title';
     let paused = false, userPaused = false, stateT = 0;
@@ -165,6 +177,9 @@ export const pelicanBike: GameModule = {
     let particles: Particle[] = [], popups: Popup[] = [];
     let camX = 0, lookDir = 1, shakeT = 0, shakeM = 0, bannerT = 0, gtime = 0, acc = 0;
     let hits: Hit[] = [];
+    let stormHintT = 0;
+    // Ghost of the best ride on this stage (and mode), and the recorder for the current ride.
+    let ghost: GhostTrack | null = null, rec = newRecorder(), ghostHash = '', splitIdx = 0, ghostDelta: number | null = null;
     let reported = 0;
 
     function shake(mag: number, dur: number) { if (services.isReducedMotion) return; shakeM = Math.max(shakeM, mag); shakeT = Math.max(shakeT, dur); }
@@ -189,8 +204,11 @@ export const pelicanBike: GameModule = {
 
     function startStage(idx: number, carry: number) {
       baseScore = carry;
-      sim = createSim(idx, carry);
+      sim = createSim(idx, carry, { storm });
       audio.setTheme(LEVELS[idx].theme);
+      ghostHash = stageHash(idx, storm);
+      ghost = decode(services.storage.get<unknown>(ghostKey(idx, storm), null), ghostHash);
+      rec = newRecorder(); splitIdx = 0; ghostDelta = null;
       particles = []; popups = []; result = null; acc = 0;
       releaseHeldJump();
       snapCamera();
@@ -201,13 +219,14 @@ export const pelicanBike: GameModule = {
     function releaseHeldJump() { jumpQueued = false; }
     function toTitle() {
       state = 'title'; stateT = 0; userPaused = false;
-      sim = createSim(sel); audio.setTheme(LEVELS[sel].theme);
+      if (storm && !stormOpen(sel)) storm = false;
+      sim = createSim(sel, 0, { storm }); audio.setTheme(LEVELS[sel].theme);
       particles = []; popups = []; camX = 0;
     }
     function pickStage(i: number) {
-      if (i < 0 || i >= LEVELS.length || !isOpen(i) || i === sel) return;
+      if (i < 0 || i >= LEVELS.length || !modeOpen(i) || i === sel) return;
       sel = i; audio.click();
-      sim = createSim(sel); audio.setTheme(LEVELS[sel].theme); camX = 0;
+      sim = createSim(sel, 0, { storm }); audio.setTheme(LEVELS[sel].theme); camX = 0;
     }
 
     function finishStage(e: SimEvent) {
@@ -216,12 +235,16 @@ export const pelicanBike: GameModule = {
       emit(e.x, e.y - 60, 30, { col: ['#ffe66d', '#fff', '#ff9f1c', '#7ae582'], v0: 90, v1: 280, d0: 0.5, d1: 1 });
       const medals = medalsFor(sim);
       const run: StageBest = { time: Math.round(sim.time * 10) / 10, fish: sim.fishGot, stars: sim.starGot, medals };
-      const prev = bests[sim.lv];
+      const book = sim.storm ? stormBests : bests;
+      const prev = book[sim.lv];
       const merged = mergeBest(prev, run);
       const newBest = !!prev && (run.time < prev.time || (merged.medals !== prev.medals));
-      bests[sim.lv] = merged;
-      services.storage.set('stages', bests);
-      result = { medals, newBest, timeBonus: sim.timeBonus };
+      book[sim.lv] = merged;
+      services.storage.set(sim.storm ? 'storm' : 'stages', book);
+      record(rec, sim.time, { ...sim.P, ground: sim.P.ground });
+      if (!prev || sim.time < prev.time) services.storage.set(ghostKey(sim.lv, sim.storm), encode(rec, ghostHash, sim.time));
+      ghostDelta = ghost ? Math.round((sim.time - ghost.time) * 10) / 10 : null;
+      result = { medals, newBest, timeBonus: sim.timeBonus, ghostDelta };
       state = 'levelclear'; stateT = 0;
       releaseAll();
       services.reportComplete(ORDER.indexOf(sim.lv) + 1);
@@ -285,11 +308,19 @@ export const pelicanBike: GameModule = {
             emit(e.x, e.y, 22, { col: ['#fff', '#ff6b6b', '#ffd166'], v0: 90, v1: 280 });
           }
           break;
-        case 'check':
+        case 'check': {
           audio.check();
           addPopup(e.x, e.y - 10, isZh ? '存档点！生命回满' : 'CHECKPOINT! FULL HP', '#7ae582', 18);
+          // Split against the best ride's ghost at the same checkpoint.
+          rec.splits.push(sim.time);
+          const gs = ghost?.sp[splitIdx++];
+          if (gs !== undefined) {
+            const d = sim.time - gs;
+            addPopup(e.x, e.y - 40, `${d <= 0 ? '−' : '+'}${Math.abs(d).toFixed(1)}s`, d <= 0 ? '#7ae582' : '#ff8a8a', 20);
+          }
           emit(e.x, e.y + 10, 18, { col: ['#7ae582', '#ffd166', '#fff'], v0: 60, v1: 200 });
           break;
+        }
         case 'oneup':
           audio.oneup(); addPopup(e.x, e.y, isZh ? '生命 +1' : 'HP +1', '#ff8a8a', 20);
           break;
@@ -332,7 +363,7 @@ export const pelicanBike: GameModule = {
         if (stateT < 0.7) return;
         audio.click();
         const after = ORDER[ORDER.indexOf(sim.lv) + 1];
-        if (after !== undefined && isOpen(after)) sel = after;
+        if (after !== undefined && modeOpen(after)) sel = after;
         toTitle();
       }
     }
@@ -381,6 +412,7 @@ export const pelicanBike: GameModule = {
         if (/^Digit[1-9]$/.test(c)) pickCoast(Number(c.slice(5)) - 1);
       }
       if (c === 'KeyR' || k === 'r' || k === 'R') retryAction();
+      if (c === 'KeyT' && state === 'title') toggleStorm();
       if (c === 'KeyP') togglePause();
       if (isEnter || c === 'Space' || k === ' ') primaryAction();
     };
@@ -461,6 +493,7 @@ export const pelicanBike: GameModule = {
         const i = Number(hit.act.slice(6));
         if (i === sel) primaryAction(); else pickStage(i);
       } else if (hit?.act.startsWith('coast:')) pickCoast(Number(hit.act.slice(6)));
+      else if (hit?.act === 'storm') toggleStorm();
       else if (hit?.act === 'retry') retryAction();
       else if (hit || state === 'title' || userPaused) primaryAction();
     };
@@ -485,6 +518,7 @@ export const pelicanBike: GameModule = {
       if (shakeT > 0) shakeT = Math.max(0, shakeT - dt);
       updateFx(dt);
 
+      if (stormHintT > 0) stormHintT = Math.max(0, stormHintT - dt);
       if (state === 'title') {
         camX = (gtime * 45) % Math.max(1, sim.worldW - VW);
         jumpQueued = false;
@@ -499,6 +533,7 @@ export const pelicanBike: GameModule = {
         keys.jumpPressed = jumpQueued; jumpQueued = false;
         stepSim(sim, keys, STEP);
         keys.jumpPressed = false;
+        if (!sim.cleared) record(rec, sim.time, sim.P);
         if (sim.events.length) {
           const evs = sim.events; sim.events = [];
           evs.forEach(onEvent);
@@ -547,6 +582,17 @@ export const pelicanBike: GameModule = {
 
       drawHazards(ctx, sim, camX, gtime, services.isReducedMotion);
       drawEntities(ctx, sim.goal, sim.checks, sim.springs, sim.movers, sim.crumbles, sim.items, sim.enemies, camX, gtime, isZh);
+      if (ghost && (state === 'playing' || state === 'levelclear')) {
+        const g = poseAt(ghost, sim.time);
+        if (!g.dead && g.x > camX - 80 && g.x < camX + VW + 80) {
+          ctx.globalAlpha = 0.36;
+          drawPelican(ctx, { x: g.x, y: g.y, dir: g.dir, sx: 1, sy: 1, tilt: g.air ? -0.12 : 0, wheel: g.x * 0.095, pedal: g.x * 0.055, pouch: 0, flap: g.gliding ? gtime * 16 : 0, gliding: g.gliding, inv: 0, dead: false, vx: 300 }, gtime);
+          ctx.globalAlpha = 0.7;
+          ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff';
+          ctx.fillText(isZh ? '最佳' : 'BEST', g.x + PW / 2, g.y - 18);
+          ctx.globalAlpha = 1;
+        }
+      }
       if (state !== 'title') drawPelican(ctx, sim.P, gtime);
       if (sim.chaseSpeed && state !== 'title') drawPursuer(ctx, sim.chaseKind, chaseX(sim), sim.P.y, camX, gtime);
 
@@ -576,16 +622,19 @@ export const pelicanBike: GameModule = {
       ctx.restore();
 
       drawWater(ctx, th, camX, gtime);
+      if (sim.storm) drawStorm(ctx, sim.P.x - camX + PW / 2, sim.P.y + PH / 2, gtime, services.isReducedMotion);
 
       ctx.setTransform(UI, 0, 0, UI, 0, 0);
       const ui = {
         uw, uh, padL, touch: isTouchDevice, isZh, gtime,
         state: (state === 'playing' && userPaused ? 'paused' : state) as 'title' | 'playing' | 'paused' | 'levelclear' | 'victory',
-        P: sim.P, lv: state === 'title' ? sel : sim.lv, label: stageLabel(state === 'title' ? sel : sim.lv), par: state === 'title' ? LEVELS[sel].par : sim.par,
+        P: sim.P, lv: state === 'title' ? sel : sim.lv, label: stageLabel(state === 'title' ? sel : sim.lv), par: sim.par,
+        stormHint: stormHintT > 0,
         chaseGap: sim.chaseSpeed ? sim.P.x - chaseX(sim) : Infinity, coast: coastOf(state === 'title' ? sel : sim.lv), coastOpen: COASTS.map((_c, i) => coastOpen(i)),
         progress: sim.P.x / Math.max(1, sim.goal.x), time: sim.time, deaths: sim.deaths, bannerT,
         fishGot: sim.fishGot, fishTot: sim.fishTot, starGot: sim.starGot, starTot: sim.starTot,
-        score: sim.score, hiScore, sel, open: LEVELS.map((_l, i) => isOpen(i)), bests, result
+        score: sim.score, hiScore, sel, open: LEVELS.map((_l, i) => modeOpen(i)), bests, stormBests, result,
+        storm: state === 'title' ? storm : sim.storm, stormOpen: stormOpen(state === 'title' ? sel : sim.lv)
       };
       if (state !== 'title') drawHUD(ctx, ui);
       hits = drawOverlay(ctx, ui);
@@ -604,7 +653,17 @@ export const pelicanBike: GameModule = {
     function pickCoast(ci: number) {
       if (ci < 0 || ci >= COASTS.length || !coastOpen(ci)) return;
       const st = COASTS[ci].stages;
-      pickStage(st.find((id) => isOpen(id) && !bests[id]) ?? st.filter(isOpen).pop() ?? st[0]);
+      if (storm && !stormOpen(st[0])) { storm = false; }
+      const b = modeBests();
+      const id = st.find((k) => modeOpen(k) && !b[k]) ?? st.filter(modeOpen).pop() ?? st[0];
+      if (id === sel) { sim = createSim(sel, 0, { storm }); return; }
+      pickStage(id);
+    }
+    function toggleStorm() {
+      if (state !== 'title' || paused) return;
+      if (!stormOpen(sel)) { audio.click(); stormHintT = 2.5; return; }
+      storm = !storm; audio.click();
+      sim = createSim(sel, 0, { storm });
     }
 
     // Read-only handle for automated play-tests.

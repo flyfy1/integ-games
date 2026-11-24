@@ -546,14 +546,16 @@ export function drawWater(ctx: CanvasRenderingContext2D, th: Theme, camX: number
 
 /* ---------- HUD and menus: drawn in UI space (CSS-pixel sized), independent of the world zoom ---------- */
 
-export type UiResult = { medals: number; newBest: boolean; timeBonus: number };
+export type UiResult = { medals: number; newBest: boolean; timeBonus: number; ghostDelta?: number | null };
 export type Ui = {
   uw: number; uh: number; padL: number; touch: boolean; isZh: boolean; gtime: number;
   state: 'title' | 'playing' | 'paused' | 'levelclear' | 'victory';
   P: { hp: number; maxHp: number; stamina: number; turbo: boolean; streak: number };
   lv: number; label: string; par: number; progress: number; time: number; deaths: number; bannerT: number;
   fishGot: number; fishTot: number; starGot: number; starTot: number; score: number; hiScore: number;
-  sel: number; open: boolean[]; bests: (StageBest | null)[]; result: UiResult | null;
+  sel: number; open: boolean[]; bests: (StageBest | null)[]; stormBests: (StageBest | null)[]; result: UiResult | null;
+  /** Storm remix: chosen (title) or being ridden; whether this coast's remixes are open; a locked toggle was pressed. */
+  storm: boolean; stormOpen: boolean; stormHint: boolean;
   /** Distance from the chase pursuer to the rider (Infinity outside a chase). */
   chaseGap: number; coast: number; coastOpen: boolean[];
 };
@@ -664,7 +666,7 @@ export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
     ctx.fillStyle = '#f8f9fa'; ctx.fillRect(bx1 - 4, by - 5, 6, 15);
     ctx.fillStyle = '#e63946'; ctx.fillRect(bx1 - 4, by, 6, 4);
     ctx.fillStyle = '#ffe66d'; ctx.fillRect(bx1 - 5, by - 9, 8, 5);
-    const name = `${u.label} · ${isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn}`;
+    const name = `${u.storm ? '⛈ ' : ''}${u.label} · ${isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn}`;
     ctx.font = `800 14px ${FONT}`;
     if (ctx.measureText(name).width < bx1 - bx0 + 20) drawText(ctx, name, (bx0 + bx1) / 2, by + 26, 14, 'rgba(255,255,255,0.95)', 'center', '#141b2d');
   }
@@ -685,7 +687,7 @@ export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
   if (u.bannerT > 0 && u.state === 'playing') {
     const a = Math.min(1, u.bannerT * 1.6);
     ctx.save(); ctx.globalAlpha = a;
-    const name = `${u.label} · ${isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn}`;
+    const name = `${u.storm ? (isZh ? '风暴 · ' : 'Storm · ') : ''}${u.label} · ${isZh ? LEVELS[u.lv].name : LEVELS[u.lv].nameEn}`;
     drawText(ctx, name, uw / 2, 92, compact ? 24 : 32, '#fff', 'center', '#141b2d');
     const chase = LEVELS[u.lv].chase;
     const hint = chase
@@ -698,6 +700,18 @@ export function drawHUD(ctx: CanvasRenderingContext2D, u: Ui) {
 
 function medalRow(ctx: CanvasRenderingContext2D, medals: number, cx: number, y: number, r: number, gap: number) {
   for (let i = 0; i < 3; i++) medal(ctx, i, cx + (i - 1) * gap, y, r, (medals & (1 << i)) !== 0);
+}
+/** The storm medal row: same three medals struck in storm silver-blue. */
+function stormMedalRow(ctx: CanvasRenderingContext2D, medals: number, cx: number, y: number, r: number, gap: number) {
+  for (let i = 0; i < 3; i++) {
+    const on = (medals & (1 << i)) !== 0, x = cx + (i - 1) * gap;
+    ctx.fillStyle = on ? '#a9c1ff' : 'rgba(170,190,255,0.08)'; circle(ctx, x, y, r); ctx.fill();
+    ctx.strokeStyle = on ? '#5a6fd6' : 'rgba(170,190,255,0.45)'; ctx.lineWidth = Math.max(1.5, r * 0.14); circle(ctx, x, y, r); ctx.stroke();
+    const ink = on ? '#1b2350' : 'rgba(200,215,255,0.6)';
+    if (i === 0) clockIcon(ctx, x, y, r * 0.52, ink);
+    else if (i === 1) starIcon(ctx, x, y, r * 0.62, true, ink);
+    else fishIcon(ctx, x + r * 0.12, y, r / 17, ink);
+  }
 }
 
 export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
@@ -746,13 +760,30 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
         ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x + cw / 2, y + ch / 2 - 5, 7, Math.PI, 0); ctx.stroke();
       } else {
         const chase = LEVELS[i].chase;
-        drawText(ctx, stageLabel(i) + (chase ? (chase.kind === 'wave' ? ' 🌊' : ' 🐦') : ''), x + cw / 2, y + (compact ? 15 : 18), compact ? 18 : 22, '#ffffff', 'center', '#141b2d');
-        medalRow(ctx, best?.medals ?? 0, x + cw / 2, y + (compact ? 38 : 46), compact ? 9 : 11, compact ? 22 : 27);
-        drawText(ctx, best ? fmtTime(best.time) : '—', x + cw / 2, y + ch - 12, 14, best ? '#9ff0a8' : 'rgba(255,255,255,0.6)', 'center');
+        drawText(ctx, (u.storm ? '⛈ ' : '') + stageLabel(i) + (chase ? (chase.kind === 'wave' ? ' 🌊' : ' 🐦') : ''), x + cw / 2, y + (compact ? 15 : 18), compact ? 18 : 22, '#ffffff', 'center', '#141b2d');
+        // Normal medals on top; the storm row (second medal row) appears once this coast's remixes are open.
+        const r1 = compact ? 9 : 11, g1 = compact ? 22 : 27;
+        if (u.stormOpen) {
+          medalRow(ctx, best?.medals ?? 0, x + cw / 2 - (u.storm ? 0 : 0), y + (compact ? 34 : 40), u.storm ? r1 * 0.7 : r1, u.storm ? g1 * 0.7 : g1);
+          stormMedalRow(ctx, u.stormBests[i]?.medals ?? 0, x + cw / 2, y + (compact ? 52 : 62), u.storm ? r1 : r1 * 0.7, u.storm ? g1 : g1 * 0.7);
+        } else medalRow(ctx, best?.medals ?? 0, x + cw / 2, y + (compact ? 38 : 46), r1, g1);
+        const shown = u.storm ? u.stormBests[i] : best;
+        drawText(ctx, shown ? fmtTime(shown.time) : '—', x + cw / 2, y + ch - (compact ? 9 : 11), compact ? 12 : 14, shown ? (u.storm ? '#b9d7ff' : '#9ff0a8') : 'rgba(255,255,255,0.6)', 'center');
         hits.push({ x, y, w: cw, h: ch, act: `stage:${i}` });
       }
     }
-    y += ch + (compact ? 14 : 18);
+    y += ch + (compact ? 8 : 10);
+    // Storm remix toggle
+    {
+      const label = u.stormOpen ? (u.storm ? (isZh ? '⛈ 风暴重制：开' : '⛈ Storm remix: ON') : (isZh ? '⛈ 风暴重制：关' : '⛈ Storm remix: off'))
+        : u.stormHint ? (isZh ? '通过本海岸三关即可解锁风暴重制' : 'Clear all three stages here to unlock its storm remix') : (isZh ? '⛈ 风暴重制 🔒' : '⛈ Storm remix 🔒');
+      const bw = Math.min(pw - 40, u.stormHint && !u.stormOpen ? pw - 24 : 220), bh = compact ? 26 : 28, bx = cx - bw / 2;
+      ctx.fillStyle = u.storm ? 'rgba(120,150,255,0.45)' : 'rgba(255,255,255,0.08)'; rrect(ctx, bx, y, bw, bh, bh / 2); ctx.fill();
+      ctx.strokeStyle = u.storm ? '#a9c1ff' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5; rrect(ctx, bx, y, bw, bh, bh / 2); ctx.stroke();
+      drawText(ctx, label, cx, y + bh / 2 + 1, 13, u.stormOpen ? '#ffffff' : 'rgba(255,255,255,0.6)', 'center');
+      hits.push({ x: bx, y, w: bw, h: bh, act: 'storm' });
+      y += bh + (compact ? 14 : 18);
+    }
     const L = LEVELS[u.sel];
     const sname = isZh ? L.name : L.nameEn;
     const kind = L.chase ? (isZh ? ' · 追逐' : ' · chase') : '';
@@ -760,7 +791,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     y += compact ? 18 : 22;
     const tip = u.touch
       ? (isZh ? '◀ ▶ 骑行 · ⤒ 跳跃，空中再按二段跳，按住滑翔 · ⚡ 冲刺' : '◀ ▶ ride · ⤒ hop, tap again to flap, hold to glide · ⚡ sprint')
-      : (isZh ? '方向键/A D 骑行 · 空格跳跃，空中再按二段跳，按住滑翔 · Shift 冲刺 · ◀ ▶ 选关 · 1-4 选海岸' : 'Arrows/A D ride · Space hops, again to flap, hold to glide · Shift sprints · ◀ ▶ pick a stage · 1-4 coast');
+      : (isZh ? '方向键/A D 骑行 · 空格跳跃，空中再按二段跳，按住滑翔 · Shift 冲刺 · ◀ ▶ 选关 · 1-4 选海岸 · T 风暴' : 'Arrows/A D ride · Space hops, again to flap, hold to glide · Shift sprints · ◀ ▶ pick a stage · 1-4 coast · T storm');
     const btnY = py + ph - (compact ? 26 : 34);
     const lines = wrapLines(ctx, tip, 13, pw - 28);
     const room = Math.floor((btnY - 24 - y) / 17) + 1;
@@ -774,11 +805,11 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
   } else if (u.state === 'levelclear') {
     const res = u.result ?? { medals: 0, newBest: false, timeBonus: 0 };
     let y = py + (compact ? 26 : 34);
-    drawText(ctx, isZh ? `${u.label} ${levelName} 通过！` : `${u.label} ${levelName} clear!`, cx, y, compact ? 20 : 28, '#7ae582', 'center', '#141b2d');
+    drawText(ctx, (u.storm ? '⛈ ' : '') + (isZh ? `${u.label} ${levelName} 通过！` : `${u.label} ${levelName} clear!`), cx, y, compact ? 20 : 28, '#7ae582', 'center', '#141b2d');
     // Three medals with what each one asks for
     const mr = compact ? 22 : 28, mgap = Math.min(150, (pw - 30) / 3);
     y += compact ? 46 : 60;
-    medalRow(ctx, res.medals, cx, y, mr, mgap);
+    if (u.storm) stormMedalRow(ctx, res.medals, cx, y, mr, mgap); else medalRow(ctx, res.medals, cx, y, mr, mgap);
     const pct = u.fishTot ? Math.floor((u.fishGot / u.fishTot) * 100) : 100;
     const labels = [
       [fmtTime(u.time), `${isZh ? '标准' : 'par'} ${fmtTime(u.par)}`],
@@ -793,13 +824,14 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     y += mr + (compact ? 58 : 66);
     const bits = [
       res.newBest ? (isZh ? '新纪录！' : 'New best!') : '',
+      res.ghostDelta != null ? (res.ghostDelta < 0 ? (isZh ? `甩开幽灵 ${(-res.ghostDelta).toFixed(1)} 秒` : `Beat your ghost by ${(-res.ghostDelta).toFixed(1)}s`) : (isZh ? `比幽灵慢 ${res.ghostDelta.toFixed(1)} 秒` : `Ghost ahead by ${res.ghostDelta.toFixed(1)}s`)) : '',
       res.timeBonus > 0 ? (isZh ? `时间奖励 +${res.timeBonus}` : `Time bonus +${res.timeBonus}`) : '',
       u.deaths === 0 ? (isZh ? '零失误' : 'No falls') : (isZh ? `失误 ${u.deaths} 次` : `Falls ${u.deaths}`),
       isZh ? `总分 ${u.score}` : `Score ${u.score}`
     ].filter(Boolean).join('  ·  ');
     wrapLines(ctx, bits, 15, pw - 24, 800).slice(0, 2).forEach((t, i) => drawText(ctx, t, cx, y + i * 20, 15, res.newBest ? '#9ff0a8' : '#ffffff', 'center'));
     // What to chase next time
-    const best = u.bests[u.lv];
+    const best = (u.storm ? u.stormBests : u.bests)[u.lv];
     const need = Math.ceil(u.fishTot * 0.9) - u.fishGot;
     const hint = res.medals === 7 ? (isZh ? '完美骑行，三枚奖章全拿！' : 'Perfect ride: all three medals!')
       : !(res.medals & 2) ? (isZh ? `还有 ${u.starTot - u.starGot} 颗金星藏在高处或险处` : `${u.starTot - u.starGot} more ${u.starTot - u.starGot === 1 ? 'star is' : 'stars are'} hiding up high or over a gap`)
@@ -818,9 +850,11 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
   } else if (u.state === 'victory') {
     const ci = Math.max(0, u.coast), coast = COASTS[ci], final = ci === COASTS.length - 1;
     let y = py + (compact ? 30 : 40);
-    drawText(ctx, isZh ? `${coast.name} 全部通过！` : `${coast.nameEn} conquered!`, cx, y, compact ? 22 : 30, '#ffe66d', 'center', '#141b2d');
+    drawText(ctx, u.storm ? (isZh ? `${coast.name} 风暴征服！` : `${coast.nameEn} storm conquered!`) : (isZh ? `${coast.name} 全部通过！` : `${coast.nameEn} conquered!`), cx, y, compact ? 22 : 30, '#ffe66d', 'center', '#141b2d');
     y += compact ? 30 : 40;
-    const story = final
+    const story = u.storm
+      ? (isZh ? '风雨中也没丢一条鱼。鹈鹕船长是真正的风暴骑手！' : 'Not a fish lost in the squall. Captain Pelican is a true storm rider!')
+      : final
       ? (isZh ? '鹈鹕船长带着满满一喉囊的鲜鱼骑到了最后一座灯塔！' : 'Captain Pelican reached the last lighthouse with a pouch full of fresh fish!')
       : (isZh ? `甩掉了追兵！下一站：${COASTS[ci + 1].name}` : `Shook off the chase! Next stop: ${COASTS[ci + 1].nameEn}`);
     wrapLines(ctx, story, 15, pw - 32).slice(0, 2).forEach((t, i) => drawText(ctx, t, cx, y + i * 20, 15, '#ffffff', 'center', undefined, 600));
@@ -828,16 +862,17 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     let got = 0;
     const ids = coast.stages, n = ids.length, gap = Math.min(150, (pw - 24) / n);
     ids.forEach((id, k) => {
-      const m = u.bests[id]?.medals ?? 0;
+      const m = (u.storm ? u.stormBests : u.bests)[id]?.medals ?? 0;
       for (let b = 0; b < 3; b++) if (m & (1 << b)) got++;
       const x = cx + (k - (n - 1) / 2) * gap;
       drawText(ctx, stageLabel(id), x, y - 22, 15, 'rgba(255,255,255,0.8)', 'center');
-      medalRow(ctx, m, x, y, compact ? 10 : 12, compact ? 24 : 28);
+      (u.storm ? stormMedalRow : medalRow)(ctx, m, x, y, compact ? 10 : 12, compact ? 24 : 28);
     });
     y += compact ? 34 : 44;
     drawText(ctx, isZh ? `奖章 ${got}/${n * 3}  ·  总分 ${u.score}  ·  最高 ${u.hiScore}` : `Medals ${got}/${n * 3}  ·  Score ${u.score}  ·  Best ${u.hiScore}`, cx, y, compact ? 14 : 17, '#7ae582', 'center');
     y += 24;
     if (got < n * 3) drawText(ctx, isZh ? '回到选关，把奖章集齐吧！' : 'Go back and collect every medal!', cx, y, 14, '#9fe6ff', 'center', undefined, 600);
+    else if (!u.storm) drawText(ctx, isZh ? '本海岸的风暴重制已解锁（按 T 切换）' : 'Storm remixes for this coast are open (press T / tap ⛈)', cx, y, 14, '#b9d7ff', 'center', undefined, 600);
     button(ctx, hits, 'menu', u.touch ? (isZh ? '回到选关 ▶' : 'Stage select ▶') : (isZh ? 'Enter 回到选关 ▶' : 'Enter · stage select ▶'), cx, py + ph - (compact ? 28 : 36), Math.min(280, pw - 40), 40, true, pulse);
   }
   return hits;
@@ -938,5 +973,24 @@ export function drawPursuer(ctx: CanvasRenderingContext2D, kind: string, x: numb
     ctx.fillStyle = '#111'; circle(ctx, 24, -6, 4); ctx.fill();
     ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(16, -14); ctx.lineTo(30, -10); ctx.stroke();
     ctx.restore();
+  }
+}
+
+/** Storm remix weather, drawn over the world in view space: dimmer light around the rider, slanting rain, rare lightning. */
+export function drawStorm(ctx: CanvasRenderingContext2D, riderX: number, riderY: number, gtime: number, reduced: boolean) {
+  const g = ctx.createRadialGradient(riderX, riderY, 120, riderX, riderY, Math.max(VW, H) * 0.85);
+  g.addColorStop(0, 'rgba(8,12,30,0.18)'); g.addColorStop(1, 'rgba(8,12,30,0.62)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, H);
+  ctx.strokeStyle = 'rgba(190,210,255,0.45)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let i = 0; i < 90; i++) {
+    const sp = reduced ? 0 : gtime * (620 + (i % 5) * 40);
+    const x = ((i * 137.7 + sp * 0.35) % (VW + 80)) - 40, y = ((i * 71.3 + sp) % (H + 40)) - 20;
+    ctx.moveTo(x, y); ctx.lineTo(x - 6, y + 16);
+  }
+  ctx.stroke();
+  if (!reduced) {
+    const f = gtime % 7.3;
+    if (f < 0.09 || (f > 0.16 && f < 0.2)) { ctx.fillStyle = 'rgba(225,235,255,0.35)'; ctx.fillRect(0, 0, VW, H); }
   }
 }

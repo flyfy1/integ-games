@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRows, CHUNKS, LEVELS, ROWS } from '../src/games/pelican-bike/levels';
+import { buildRows, CHUNKS, LEVELS, ROWS, stormPar } from '../src/games/pelican-bike/levels';
 import { cloneSim, createSim, CYCLE, noInput, STEP, stepSim } from '../src/games/pelican-bike/sim';
 import type { Input, Sim } from '../src/games/pelican-bike/sim';
 
@@ -121,6 +121,16 @@ describe('pelican-bike stages are completable without taking damage', () => {
   });
 });
 
+describe('pelican-bike storm remixes are completable without taking damage', () => {
+  LEVELS.forEach((lv, i) => {
+    it(`Storm ${lv.nameEn}: the lighthouse can be reached with ordinary input and no hits`, () => {
+      const res = explore(i, false, 4000000, true);
+      if (process.env.PELICAN_DEBUG) console.log('Storm', lv.nameEn, res.clearTime, res.expanded);
+      expect(res.clearTime).toBeLessThan(Infinity);
+    }, 60000);
+  });
+});
+
 // The exhaustive pass takes from half a minute to over a minute, so it runs on request: PELICAN_FULL=1 npx vitest run tests/pelican-bike-levels.test.ts
 const only = process.env.PELICAN_ONLY?.split(',').map(Number);
 describe.skipIf(!process.env.PELICAN_FULL)('pelican-bike exhaustive reachability', () => {
@@ -132,6 +142,15 @@ describe.skipIf(!process.env.PELICAN_FULL)('pelican-bike exhaustive reachability
       expect(res.missing).toEqual([]);
       expect(lv.par).toBeGreaterThan(res.clearTime * 1.45);
       expect(lv.par).toBeLessThan(res.clearTime * 2);
+    }, 300000);
+    // Storm remixes are the second medal row: faster hazards and a par 15% tighter, so the slack over a perfect
+    // storm sprint is deliberately smaller than the normal stage's (but still a fifth or more).
+    it(`Storm ${lv.nameEn}: every fish and star can still be collected, and the storm par is tight but fair`, () => {
+      const res = explore(i, true, 4000000, true);
+      console.log('Storm', lv.nameEn, JSON.stringify(res));
+      expect(res.missing).toEqual([]);
+      expect(stormPar(i)).toBeGreaterThan(res.clearTime * 1.2);
+      expect(stormPar(i)).toBeLessThan(lv.par);
     }, 300000);
   });
 });
