@@ -15,6 +15,7 @@ export type TileKind =
   | 'water'
   | 'portal'
   | 'barrel'
+  | 'gate'
   | 'base';
 
 export type PowerUpKind =
@@ -27,7 +28,16 @@ export type PowerUpKind =
   | 'freeze'
   | 'repair';
 
-export type EnemyArchetype = 'scout' | 'striker' | 'sniper' | 'juggernaut' | 'cargo' | 'boss-behemoth' | 'boss-omega';
+export type EnemyArchetype =
+  | 'scout'
+  | 'striker'
+  | 'sniper'
+  | 'juggernaut'
+  | 'cargo'
+  | 'boss-behemoth'
+  | 'boss-omega'
+  | 'boss-warden'
+  | 'boss-dreadnought';
 
 export interface ChassisSpec {
   id: ChassisId;
@@ -53,6 +63,8 @@ export interface TileCell {
   portalId?: number;
   partnerCol?: number;
   partnerRow?: number;
+  /** One-way gate: the only direction a tank may cross it. */
+  gateDir?: Direction;
 }
 
 export interface Tank {
@@ -106,6 +118,9 @@ export interface Tank {
   /** Boss special-attack countdown. */
   bossTimer: number;
   bossCharging: boolean;
+  /** Boss special counter (alternates attack patterns) and escorts summoned so far. */
+  bossPhase?: number;
+  bossSummons?: number;
   /** Seconds of white hit-flash left (render only). */
   hitFlash: number;
   treadPhase: number;

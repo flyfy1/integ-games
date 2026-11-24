@@ -1,4 +1,4 @@
-import type { ChassisId, ChassisSpec, PowerUpKind, TileCell, TileKind } from './types';
+import type { ChassisId, ChassisSpec, Direction, PowerUpKind, TileCell, TileKind } from './types';
 
 export const WIDTH = 1280;
 export const HEIGHT = 720;
@@ -108,6 +108,8 @@ export const POWERUP_INFO: Record<PowerUpKind, { icon: string; color: string; ba
  * `!` = explosive barrel (chain reaction)
  * `1` = portal pair 1 (Blue)
  * `2` = portal pair 2 (Orange)
+ * `3` = portal pair 3 (Green)
+ * `^` `v` `<` `>` = one-way gate: tanks pass only in the arrow's direction, shells pass freely
  */
 export const COOP_MAPS: readonly string[][] = [
   // Stage 1: Brick Outpost
@@ -205,6 +207,102 @@ export const COOP_MAPS: readonly string[][] = [
     '.##...#......#...##.',
     '.......#....#.......',
     '........####........'
+  ],
+  // Stage 7: Fog Marsh (fog of war)
+  [
+    '..%%............%%..',
+    '.#%%.##.%%..%%.##%#.',
+    '....%..~~....~~..%..',
+    '.##.%..~~.##.~~..%##',
+    '....%%..........%%..',
+    '~~...%%.#....#.%%.~~',
+    '~~.#..%%..%%..%%.#~~',
+    '....#...%%%%...#....',
+    '.%%.##.%......%.#%%.',
+    '.%%....#.%%.#....%%.',
+    '...%%..#....#..%%...',
+    '.#.....%....%.....#.',
+    '.....%..####..%.....'
+  ],
+  // Stage 8: One-Way Locks (gates)
+  [
+    '....#..........#....',
+    '.##.#.##....##.#.##.',
+    '....................',
+    '@@v@@@^@@@@@@^@@@v@@',
+    '....#..........#....',
+    '.#....#.!..!.#....#.',
+    '...%%..........%%...',
+    '@@@v@@@^@..@^@@@v@@@',
+    '.......#....#.......',
+    '.##.#..........#.##.',
+    '....#..%....%..#....',
+    '.#................#.',
+    '........####........'
+  ],
+  // Stage 9: Barrel Foundry (Boss: Warden)
+  [
+    '....!..........!....',
+    '.##.#.!......!.#.##.',
+    '..!...@@!..!@@...!..',
+    '.#..#..........#..#.',
+    '..!.##.!.@@.!.##.!..',
+    '....#..........#....',
+    '.!..!.###..###.!..!.',
+    '....................',
+    '.##.!..##..##..!.##.',
+    '..!..@...##...@..!..',
+    '.#..!..#....#..!..#.',
+    '.......#....#.......',
+    '........####........'
+  ],
+  // Stage 10: Glacier Run (ice)
+  [
+    '....==........==....',
+    '.##.==.######.==.##.',
+    '....==........==....',
+    '=====..==@@==..=====',
+    '.~~.=..==..==..=.~~.',
+    '.~~.=====..=====.~~.',
+    '....=.%%....%%.=....',
+    '.##.=.%%.@@.%%.=.##.',
+    '....=..........=....',
+    '.======.====.======.',
+    '.#....=......=....#.',
+    '.....=.#....#.=.....',
+    '........####........'
+  ],
+  // Stage 11: Warp Hub (three portal pairs)
+  [
+    '....@...1..2...@....',
+    '.##.@.##....##.@.##.',
+    '....@..........@....',
+    '.3..@@@@.##.@@@@..3.',
+    '....#..........#....',
+    '.##.#.%%.@@.%%.#.##.',
+    '......%%....%%......',
+    '@@@.@@@@.##.@@@@.@@@',
+    '....!..........!....',
+    '.2#..............#1.',
+    '.##..##......##..##.',
+    '.......#....#.......',
+    '........####........'
+  ],
+  // Stage 12: Iron Crown (Final Boss: Dreadnought)
+  [
+    '....@..........@....',
+    '.1..#.!..@@..!.#..2.',
+    '.##...%%....%%...##.',
+    '@@v@=.%%.==.%%.=@v@@',
+    '....=====..=====....',
+    '.!..#....@@....#..!.',
+    '....#.!......!.#....',
+    '@@@v@@@^@..@^@@@v@@@',
+    '....%..........%....',
+    '.2..%.##....##.%..1.',
+    '.##...#......#...##.',
+    '.......#....#.......',
+    '........####........'
   ]
 ];
 
@@ -288,10 +386,54 @@ export const DUEL_MAPS: readonly string[][] = [
     '...#.##.!..!.##.#...',
     '.2.#..!.#..#.!..#.1.',
     '....!.#..@@..#.!....'
+  ],
+  // Arena 6: Lock Step (gates)
+  [
+    '....#....@@....#....',
+    '.@..>.........<..@..',
+    '...#..@.!..!.@..#...',
+    '.#..>...%%%%...<..#.',
+    '....@.@......@.@....',
+    '...%%.>..@@..<.%%...',
+    '.....@........@.....',
+    '...%%.>..@@..<.%%...',
+    '....@.@......@.@....',
+    '.#..>...%%%%...<..#.',
+    '...#..@.!..!.@..#...',
+    '.@..>.........<..@..',
+    '....#....@@....#....'
+  ],
+  // Arena 7: Warp Ring (portals & ice)
+  [
+    '.1......#..#......2.',
+    '...@@..........@@...',
+    '.3..@..!.##.!..@..3.',
+    '....@...%..%...@....',
+    '.##...==....==...##.',
+    '......==.@@.==......',
+    '.....#...@@...#.....',
+    '......==.@@.==......',
+    '.##...==....==...##.',
+    '....@...%..%...@....',
+    '....@..!.##.!..@....',
+    '...@@..........@@...',
+    '.2......#..#......1.'
   ]
 ];
 
 export const COOP_STAGE_COUNT = COOP_MAPS.length;
+/** Co-op stages fought in fog of war: you only see what is near your own tanks. */
+export const FOG_STAGES: ReadonlySet<number> = new Set([6]);
+export const BOSS_STAGES: ReadonlySet<number> = new Set([2, 5, 8, 11]);
+/** One-line briefing shown under the stage banner where a stage brings a new mechanic. */
+export const STAGE_TIPS: Readonly<Record<number, string>> = {
+  6: 'tip.fog',
+  7: 'tip.gate',
+  8: 'tip.warden',
+  9: 'tip.ice',
+  10: 'tip.portal3',
+  11: 'tip.final'
+};
 export const DUEL_ARENA_COUNT = DUEL_MAPS.length;
 
 export const BASE_COL = 9; // Eagle base occupies (9, 12) and (10, 12) or center at col 9/10, row 12
@@ -307,6 +449,8 @@ export const BASE_WALL_CELLS: ReadonlyArray< readonly [number, number] > = [
   [11, 11],
   [11, 12]
 ];
+
+const GATE_DIRS: Record<string, Direction> = { '^': 'up', v: 'down', '<': 'left', '>': 'right' };
 
 function charToTile(ch: string): TileCell {
   switch (ch) {
@@ -326,6 +470,13 @@ function charToTile(ch: string): TileCell {
       return { kind: 'portal', hp: 1, maxHp: 1, portalId: 1 };
     case '2':
       return { kind: 'portal', hp: 1, maxHp: 1, portalId: 2 };
+    case '3':
+      return { kind: 'portal', hp: 1, maxHp: 1, portalId: 3 };
+    case '^':
+    case 'v':
+    case '<':
+    case '>':
+      return { kind: 'gate', hp: 1, maxHp: 1, gateDir: GATE_DIRS[ch] };
     default:
       return { kind: 'empty', hp: 0, maxHp: 0 };
   }
@@ -360,14 +511,14 @@ export function buildGrid(mode: 'coop' | 'duel', mapIndex: number): TileCell[][]
       [18, 5], [18, 6], [18, 7], [17, 6]
     ];
     for (const [c, r] of clearDuel) {
-      if (grid[r][c].kind === 'brick' || grid[r][c].kind === 'steel' || grid[r][c].kind === 'water' || grid[r][c].kind === 'barrel') {
+      if (grid[r][c].kind !== 'empty' && grid[r][c].kind !== 'bush' && grid[r][c].kind !== 'ice') {
         grid[r][c] = { kind: 'empty', hp: 0, maxHp: 0 };
       }
     }
   }
 
   // Link portal pairs
-  for (const pid of [1, 2]) {
+  for (const pid of [1, 2, 3]) {
     const portals: Array<[number, number]> = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {

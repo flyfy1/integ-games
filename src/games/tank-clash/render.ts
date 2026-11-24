@@ -1,4 +1,4 @@
-import { baseHp, computeSightPath, DASH_COOLDOWN, DUEL_WIN_TARGET, enemiesLeft, type ArenaState } from './engine';
+import { baseHp, computeSightPath, DASH_COOLDOWN, DUEL_WIN_TARGET, enemiesLeft, FOG_SIGHT, type ArenaState } from './engine';
 import { t, type Key, type Lang } from './i18n';
 import {
   ARENA_H,
@@ -12,6 +12,7 @@ import {
   HEIGHT,
   POWERUP_INFO,
   ROWS,
+  STAGE_TIPS,
   TILE,
   WIDTH
 } from './maps';
@@ -221,11 +222,36 @@ function drawTileFloor(g: CanvasRenderingContext2D, state: ArenaState, time: num
         g.moveTo(x + 18, y + TILE - 8);
         g.lineTo(x + TILE - 8, y + 18);
         g.stroke();
+      } else if (cell.kind === 'gate' && cell.gateDir) {
+        // One-way gate: amber plate with chevrons pointing the only way through.
+        g.fillStyle = '#f59e0b22';
+        g.fillRect(x + 1, y + 1, TILE - 2, TILE - 2);
+        g.strokeStyle = '#f59e0b88';
+        g.lineWidth = 1.5;
+        g.strokeRect(x + 2.5, y + 2.5, TILE - 5, TILE - 5);
+        const angle = { up: -Math.PI / 2, down: Math.PI / 2, left: Math.PI, right: 0 }[cell.gateDir];
+        g.save();
+        g.translate(x + TILE / 2, y + TILE / 2);
+        g.rotate(angle);
+        const slide = ((time * 22) % 14) - 7;
+        g.strokeStyle = '#fbbf24';
+        g.lineWidth = 3.5;
+        g.lineCap = 'round';
+        for (const off of [-9, 5]) {
+          g.globalAlpha = 0.55 + 0.45 * ((off + slide + 16) / 32);
+          g.beginPath();
+          g.moveTo(off + slide - 6, -10);
+          g.lineTo(off + slide + 4, 0);
+          g.lineTo(off + slide - 6, 10);
+          g.stroke();
+        }
+        g.restore();
       } else if (cell.kind === 'portal') {
         const cx = x + TILE / 2;
         const cy = y + TILE / 2;
         const isBlue = cell.portalId === 1;
-        const ringColor = isBlue ? '#38bdf8' : '#fb923c';
+        const isGreen = cell.portalId === 3;
+        const ringColor = isBlue ? '#38bdf8' : isGreen ? '#4ade80' : '#fb923c';
         g.save();
         g.translate(cx, cy);
         g.rotate(time * (isBlue ? 2.5 : -2.5));
@@ -237,7 +263,7 @@ function drawTileFloor(g: CanvasRenderingContext2D, state: ArenaState, time: num
         g.beginPath();
         g.arc(0, 0, 11, Math.PI * 0.5, Math.PI * 1.9);
         g.stroke();
-        g.fillStyle = isBlue ? '#0284c788' : '#ea580c88';
+        g.fillStyle = isBlue ? '#0284c788' : isGreen ? '#16a34a88' : '#ea580c88';
         g.beginPath();
         g.arc(0, 0, 8, 0, Math.PI * 2);
         g.fill();
@@ -318,6 +344,49 @@ function drawTileFloor(g: CanvasRenderingContext2D, state: ArenaState, time: num
   }
 }
 
+const BOSS_COLORS: Partial<Record<string, [string, string]>> = {
+  'boss-behemoth': ['#9333ea', '#f43f5e'],
+  'boss-omega': ['#9333ea', '#f43f5e'],
+  'boss-warden': ['#b45309', '#fde047'],
+  'boss-dreadnought': ['#7f1d1d', '#fb923c']
+};
+
+let fogLayer: HTMLCanvasElement | null = null;
+
+/** Fog of war: darkness everywhere except a soft circle around each of your tanks and the Eagle. */
+function drawFog(g: CanvasRenderingContext2D, state: ArenaState, time: number): void {
+  if (typeof document === 'undefined') return;
+  fogLayer ??= document.createElement('canvas');
+  if (fogLayer.width !== ARENA_W) {
+    fogLayer.width = ARENA_W;
+    fogLayer.height = ARENA_H;
+  }
+  const f = fogLayer.getContext('2d');
+  if (!f) return;
+  f.globalCompositeOperation = 'source-over';
+  f.clearRect(0, 0, ARENA_W, ARENA_H);
+  f.fillStyle = '#060a12';
+  f.globalAlpha = 0.93;
+  f.fillRect(0, 0, ARENA_W, ARENA_H);
+  f.globalAlpha = 1;
+  f.globalCompositeOperation = 'destination-out';
+  const holes: Array<[number, number, number]> = [[10 * TILE, 12.2 * TILE, TILE * 2.4]];
+  for (const tk of state.tanks) {
+    if (tk.alive && tk.team !== 3) holes.push([tk.x, tk.y, FOG_SIGHT + Math.sin(time * 2 + tk.x) * 3]);
+  }
+  for (const [x, y, r] of holes) {
+    const grad = f.createRadialGradient(x, y, r * 0.55, x, y, r);
+    grad.addColorStop(0, '#000');
+    grad.addColorStop(1, '#0000');
+    f.fillStyle = grad;
+    f.beginPath();
+    f.arc(x, y, r, 0, Math.PI * 2);
+    f.fill();
+  }
+  f.globalCompositeOperation = 'source-over';
+  g.drawImage(fogLayer, 0, 0);
+}
+
 function drawBushes(g: CanvasRenderingContext2D, state: ArenaState, time: number): void {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -361,7 +430,7 @@ function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time:
   for (const warn of state.spawnWarnings) {
     const cx = (warn.col + 0.5) * TILE;
     const cy = TILE / 2;
-    const boss = warn.archetype === 'boss-behemoth' || warn.archetype === 'boss-omega';
+    const boss = warn.archetype.startsWith('boss-');
     const pulse = 0.5 + 0.5 * Math.sin(time * 18);
     g.save();
     g.translate(cx, cy);
@@ -455,8 +524,7 @@ function drawArenaEntities(g: CanvasRenderingContext2D, state: ArenaState, time:
       bodyColor = Math.sin(time * 10) > 0 ? '#f43f5e' : '#f59e0b';
       accentColor = '#fef08a';
     } else if (tank.isBoss) {
-      bodyColor = '#9333ea';
-      accentColor = '#f43f5e';
+      [bodyColor, accentColor] = BOSS_COLORS[tank.archetype ?? 'boss-behemoth'] ?? ['#9333ea', '#f43f5e'];
     } else {
       bodyColor = '#64748b';
       accentColor = '#f87171';
@@ -888,7 +956,7 @@ function drawArenaOverlays(g: CanvasRenderingContext2D, state: ArenaState, time:
     g.textBaseline = 'alphabetic';
     g.lineWidth = 4;
     g.strokeStyle = '#070b14';
-    const name = t(lang, boss.archetype === 'boss-omega' ? 'boss.omega' : 'boss.behemoth');
+    const name = t(lang, `boss.${(boss.archetype ?? 'boss-behemoth').slice(5)}` as Key);
     g.strokeText(name, ARENA_W / 2, by - 9);
     g.fillStyle = '#f5d0fe';
     g.fillText(name, ARENA_W / 2, by - 9);
@@ -939,6 +1007,7 @@ export function drawArenaScene(
   drawTileFloor(g, state, time);
   drawArenaEntities(g, state, time, lang, layout.ui);
   drawBushes(g, state, time);
+  if (state.fog) drawFog(g, state, time);
   drawArenaOverlays(g, state, time, lang, layout.ui);
   g.restore();
 
@@ -956,6 +1025,15 @@ export function drawArenaScene(
     const warn = state.bannerKey === 'banner.bossIncoming';
     drawRoundedRect(g, bx, by, bw, bh, 16, '#090d18eb', warn ? '#ff4d8d' : '#ffd15c', 3);
     label(g, text, layout.width / 2, by + bh / 2, size, '#ffffff', 'center', 900, bw - 28);
+    const tip = state.mode === 'coop' && state.bannerKey === 'banner.stageStart' ? STAGE_TIPS[state.stageIndex % COOP_STAGE_COUNT] : undefined;
+    if (tip) {
+      const tipSize = Math.round(17 * layout.ui);
+      const tipText = t(lang, tip as Key);
+      g.font = `800 ${tipSize}px ${FONT}`;
+      const tw = Math.min(layout.width - 24, g.measureText(tipText).width + 40);
+      drawRoundedRect(g, (layout.width - tw) / 2, by + bh + 8, tw, tipSize * 2, 12, '#090d18eb', '#fbbf24', 2);
+      label(g, tipText, layout.width / 2, by + bh + 8 + tipSize, tipSize, '#fde68a', 'center', 800, tw - 20);
+    }
     g.restore();
   }
 }

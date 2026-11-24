@@ -784,7 +784,7 @@ export const game: GameModule = {
     description:
       'Tank warfare for one or two: Co-op Eagle Base defense with an AI ally, 5-win Versus duels, four distinct tank chassis, warp portals, and chain-reaction barrels.',
     instructions:
-      'Pick Co-op Defense (guard the Eagle Base across 6 stages and 2 bosses, then harder laps) or Versus Duel (first to 5 rounds), with 1 player + AI ally, solo, or 2 players. Four tank classes. P1: WASD move, Space/J fire, K/F mine, L/G dash, P pause. P2: Arrows move, Enter/0 fire, Right Shift/. mine, comma or apostrophe dash. With one player both key sets drive your tank. Supports two gamepads (A fire, X mine, B dash) and touch (stick, FIRE, MINE, DASH).',
+      'Pick Co-op Defense (guard the Eagle Base across 12 stages and 4 bosses on Easy, Normal or Hard, pick a field upgrade after each stage, earn up to three stars per stage, then harder laps) or Versus Duel (first to 5 rounds), with 1 player + AI ally, solo, or 2 players. Four tank classes. P1: WASD move, Space/J fire, K/F mine, L/G dash, P pause. P2: Arrows move, Enter/0 fire, Right Shift/. mine, comma or apostrophe dash. With one player both key sets drive your tank. Supports two gamepads (A fire, X mine, B dash) and touch (stick, FIRE, MINE, DASH).',
     accent: ACCENT,
     mechanic: 'Co-op base defense & tank duels'
   },

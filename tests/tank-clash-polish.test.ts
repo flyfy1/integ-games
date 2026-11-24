@@ -3,6 +3,7 @@ import type { GameServices } from '../src/core/game-types';
 import {
   baseHp,
   computeNavField,
+  COOP_STAGE_COUNT,
   createArenaState,
   createEnemyTank,
   damageTank,
@@ -74,7 +75,7 @@ describe('Tank Clash navigation and enemy AI', () => {
   });
 
   it('enemies reach and destroy an undefended Eagle on every stage instead of getting stuck', () => {
-    for (let stage = 0; stage < 6; stage++) {
+    for (let stage = 0; stage < COOP_STAGE_COUNT; stage++) {
       const state = createArenaState({ mode: 'coop', teamSetup: '1p-solo', stageIndex: stage });
       run(state, 150, rng(11 + stage));
       expect(state.outcome, `stage ${stage + 1}`).toBe('coop-defeat');
@@ -83,7 +84,7 @@ describe('Tank Clash navigation and enemy AI', () => {
   });
 
   it('never stalls: two AI defenders finish every stage one way or the other', () => {
-    for (let stage = 0; stage < 6; stage++) {
+    for (let stage = 0; stage < COOP_STAGE_COUNT; stage++) {
       const state = createArenaState({ mode: 'coop', teamSetup: '1p-ai', stageIndex: stage });
       state.tanks[0].isAi = true;
       run(state, 300, rng(4444 + stage));
@@ -308,17 +309,17 @@ describe('Tank Clash shell: lobby, results and progression', () => {
       hook().step(2);
     };
     let score = 0;
-    for (let stage = 0; stage < 6; stage++) {
+    for (let stage = 0; stage < COOP_STAGE_COUNT; stage++) {
       expect(hook().getState().stageIndex).toBe(stage);
       clearStage();
       const s = hook().getState();
-      expect(s.outcome).toBe(stage === 5 ? 'coop-victory' : 'stage-clear');
+      expect(s.outcome).toBe(stage === COOP_STAGE_COUNT - 1 ? 'coop-victory' : 'stage-clear');
       expect(s.score).toBe(score + 1100);
       score = s.score;
       expect(hook().getScreen()).toBe('none'); // the board stays visible for a beat first
       hook().step(80);
       expect(hook().getScreen()).toBe('results');
-      expect(host.querySelector('.tc-title')?.textContent).toMatch(stage === 5 ? /VICTORY/ : /CLEARED/);
+      expect(host.querySelector('.tc-title')?.textContent).toMatch(stage === COOP_STAGE_COUNT - 1 ? /VICTORY/ : /CLEARED/);
       hook().action('res-next');
       expect(hook().getScreen()).toBe('none');
     }

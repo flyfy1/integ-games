@@ -8,6 +8,8 @@ import {
   CHASSIS_SPECS,
   COLS,
   COOP_STAGE_COUNT,
+  FOG_STAGES,
+  STAGE_TIPS,
   POWERUP_KINDS,
   ROWS,
   setBaseFortress,
@@ -175,6 +177,8 @@ export interface ArenaState {
   perks: PerkSet;
   /** Versus: P1 starts on the right, P2 on the left. */
   swapSides: boolean;
+  /** Fog of war: tanks only see (and are seen) up close. */
+  fog: boolean;
   /** Boss stages: the wave from the first boss onward, saved when that boss is called in. */
   checkpointWave: EnemyArchetype[] | null;
   checkpointScore: number;
@@ -201,7 +205,9 @@ export const ENEMY_STATS: Record<
   juggernaut: { hp: 6, speed: 78, reload: 1.4, bullet: 300, points: 400 },
   cargo: { hp: 3, speed: 135, reload: 2.2, bullet: 300, points: 200 },
   'boss-behemoth': { hp: 22, speed: 74, reload: 1.15, bullet: 330, points: 2000 },
-  'boss-omega': { hp: 26, speed: 84, reload: 1.0, bullet: 380, points: 3000 }
+  'boss-omega': { hp: 26, speed: 84, reload: 1.0, bullet: 380, points: 3000 },
+  'boss-warden': { hp: 22, speed: 80, reload: 1.2, bullet: 340, points: 2500 },
+  'boss-dreadnought': { hp: 32, speed: 70, reload: 1.05, bullet: 360, points: 4000 }
 };
 
 export function enemiesLeft(state: ArenaState): number {
@@ -253,11 +259,29 @@ export function buildWaveList(stageIndex: number): EnemyArchetype[] {
       return mix(['sniper', 'striker', 'scout', 'cargo', 'sniper', 'juggernaut', 'striker', 'scout', 'juggernaut'], 24);
     case 4:
       return mix(['striker', 'juggernaut', 'scout', 'cargo', 'sniper', 'striker', 'scout', 'juggernaut', 'sniper'], 22);
-    default:
+    case 5:
       return withBoss(
         withBoss(mix(['sniper', 'striker', 'scout', 'cargo', 'juggernaut', 'sniper', 'striker', 'scout'], 16), 6, 'boss-behemoth'),
         13,
         'boss-omega'
+      );
+    case 6:
+      // Fog Marsh: fast scouts out of the murk.
+      return mix(['scout', 'striker', 'scout', 'cargo', 'sniper', 'striker', 'juggernaut', 'scout'], 20);
+    case 7:
+      // One-Way Locks: they pour down their lanes, you flank up yours.
+      return mix(['striker', 'scout', 'sniper', 'striker', 'cargo', 'juggernaut', 'scout', 'striker'], 20);
+    case 8:
+      return withBoss(mix(['striker', 'scout', 'juggernaut', 'cargo', 'sniper', 'striker', 'scout'], 14), 7, 'boss-warden');
+    case 9:
+      return mix(['scout', 'striker', 'juggernaut', 'sniper', 'cargo', 'scout', 'juggernaut', 'striker'], 22);
+    case 10:
+      return mix(['sniper', 'scout', 'striker', 'cargo', 'juggernaut', 'sniper', 'striker', 'scout'], 22);
+    default:
+      return withBoss(
+        withBoss(mix(['striker', 'sniper', 'juggernaut', 'cargo', 'scout', 'striker', 'juggernaut', 'sniper'], 16), 5, 'boss-behemoth'),
+        12,
+        'boss-dreadnought'
       );
   }
 }
@@ -345,7 +369,9 @@ export function createEnemyTank(
     juggernaut: 'titan',
     cargo: 'vanguard',
     'boss-behemoth': 'titan',
-    'boss-omega': 'prism'
+    'boss-omega': 'prism',
+    'boss-warden': 'vanguard',
+    'boss-dreadnought': 'titan'
   };
   const chassis = chassisMap[archetype];
   const hp = Math.round(ENEMY_STATS[archetype].hp * (isBoss ? 1 + loop * 0.25 : 1)) + (isBoss ? 0 : Math.min(3, loop));
@@ -372,7 +398,7 @@ export function createEnemyTank(
     freezeTimer: 0,
     portalCooldown: 0,
     spawnProtected: 1.0,
-    weapon: archetype === 'boss-omega' ? 'spread' : null,
+    weapon: archetype === 'boss-omega' || archetype === 'boss-dreadnought' ? 'spread' : null,
     weaponTimer: isBoss ? 999 : 0,
     mines: 0,
     dashCooldown: 0,
@@ -481,7 +507,7 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
     screenShake: 0,
     bannerKey: mode === 'coop' ? 'banner.stageStart' : 'banner.roundStart',
     bannerParam: mode === 'coop' ? stageIndex + 1 : roundNumber,
-    bannerTimer: 2.4,
+    bannerTimer: mode === 'coop' && STAGE_TIPS[stageIndex % COOP_STAGE_COUNT] ? 3.6 : 2.4,
     score: opts.carryScore ?? 0,
     cues: [],
     loop: opts.loop ?? 0,
@@ -491,6 +517,7 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
     baseUntouched: true,
     perks,
     swapSides,
+    fog: mode === 'coop' && FOG_STAGES.has(stageIndex % COOP_STAGE_COUNT),
     checkpointWave: null,
     checkpointScore: 0,
     baseFlash: 0,
@@ -544,11 +571,18 @@ function canTankStandAt(state: ArenaState, tank: Tank, nx: number, ny: number): 
   const maxCol = Math.min(COLS - 1, Math.floor((nx + r) / TILE));
   const minRow = Math.max(0, Math.floor((ny - r) / TILE));
   const maxRow = Math.min(ROWS - 1, Math.floor((ny + r) / TILE));
+  const mdx = nx - tank.x;
+  const mdy = ny - tank.y;
   for (let row = minRow; row <= maxRow; row++) {
     for (let col = minCol; col <= maxCol; col++) {
       const cell = state.grid[row][col];
       if (isTileSolidForTank(cell.kind) && circleIntersectsTile(nx, ny, r, col, row)) {
         return false;
+      }
+      if (cell.kind === 'gate' && cell.gateDir && circleIntersectsTile(nx, ny, r, col, row)) {
+        // A one-way gate only refuses tanks pushing against its arrow.
+        const g = dirVector(cell.gateDir);
+        if (mdx * g.dx + mdy * g.dy < -1e-6) return false;
       }
     }
   }
@@ -856,7 +890,7 @@ export function fireTankWeapon(state: ArenaState, tank: Tank): void {
             : spec.colorAccent;
 
   const angles =
-    weapon === 'spread' || tank.archetype === 'boss-omega'
+    weapon === 'spread' || tank.archetype === 'boss-omega' || tank.archetype === 'boss-dreadnought'
       ? [angle - 0.22, angle, angle + 0.22]
       : spec.burstCount === 2
         ? [angle - 0.06, angle + 0.06]
@@ -947,17 +981,66 @@ function updateBossSpecial(state: ArenaState, tank: Tank, dt: number): void {
     splashRadius: 0,
     color: '#ff4d8d'
   };
-  if (tank.archetype === 'boss-omega') {
-    const count = enraged ? 12 : 8;
-    for (let i = 0; i < count; i++) pushBullet(state, tank, (Math.PI * 2 * i) / count + (enraged ? 0.26 : 0), 250, opts);
-  } else {
+  const phase = (tank.bossPhase = (tank.bossPhase ?? 0) + 1);
+  const ring = (count: number, offset: number) => {
+    for (let i = 0; i < count; i++) pushBullet(state, tank, (Math.PI * 2 * i) / count + offset, 250, opts);
+  };
+  const volley = (offsets: number[]) => {
     const targets = state.tanks.filter((t) => t.alive && t.team !== 3);
     if (targets.length === 0) return;
     const target = targets.sort(
       (a, b) => Math.hypot(a.x - tank.x, a.y - tank.y) - Math.hypot(b.x - tank.x, b.y - tank.y)
     )[0];
     const aim = Math.atan2(target.y - tank.y, target.x - tank.x);
-    for (const off of enraged ? [-0.3, -0.1, 0.1, 0.3] : [-0.16, 0, 0.16]) pushBullet(state, tank, aim + off, 290, opts);
+    for (const off of offsets) pushBullet(state, tank, aim + off, 290, opts);
+  };
+  switch (tank.archetype) {
+    case 'boss-omega':
+      ring(enraged ? 12 : 8, enraged ? 0.26 : 0);
+      break;
+    case 'boss-warden':
+      // Calls two scouts out of its hangar (a few times per fight), then fires a short volley.
+      summonEscorts(state, tank, enraged ? 2 : 1);
+      volley(enraged ? [-0.2, 0, 0.2] : [-0.12, 0.12]);
+      break;
+    case 'boss-dreadnought':
+      // Alternates a ring and an aimed fan; enraged, it does both every time.
+      if (enraged || phase % 2 === 1) ring(enraged ? 12 : 10, phase * 0.19);
+      if (enraged || phase % 2 === 0) volley([-0.32, -0.16, 0, 0.16, 0.32]);
+      break;
+    default:
+      volley(enraged ? [-0.3, -0.1, 0.1, 0.3] : [-0.16, 0, 0.16]);
+  }
+}
+
+const WARDEN_MAX_ESCORTS = 6;
+
+function summonEscorts(state: ArenaState, boss: Tank, count: number): void {
+  const onField = state.tanks.filter((t) => t.alive && t.team === 3).length;
+  for (let i = 0; i < count; i++) {
+    const cap = state.teamSetup === '1p-solo' ? WARDEN_MAX_ESCORTS / 2 : WARDEN_MAX_ESCORTS;
+    if ((boss.bossSummons ?? 0) >= cap || onField + i >= 8) return;
+    const [bc, br] = cellOfTank(boss);
+    const spots: Array<[number, number]> = [
+      [bc - 1, br],
+      [bc + 1, br],
+      [bc, br - 1],
+      [bc, br + 1]
+    ];
+    const spot = spots.find(([c, r]) => {
+      if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+      const kind = state.grid[r][c].kind;
+      if (kind !== 'empty' && kind !== 'bush' && kind !== 'ice') return false;
+      const p = cellCenter(c, r);
+      return !state.tanks.some((t) => t.alive && Math.hypot(t.x - p.x, t.y - p.y) < TILE * 0.9);
+    });
+    if (!spot) return;
+    const escort = createEnemyTank(`e${state.nextEntityId++}`, 'scout', spot[0], spot[1], state.loop);
+    escort.aiGoal = 'hunt';
+    state.tanks.push(escort);
+    state.totalEnemies += 1;
+    boss.bossSummons = (boss.bossSummons ?? 0) + 1;
+    addShockwave(state, escort.x, escort.y, 34, '#f59e0b');
   }
 }
 
@@ -1149,6 +1232,8 @@ function collectPowerUp(state: ArenaState, tank: Tank, item: PowerUpItem): void 
 // ---------------------------------------------------------------------------------------------
 
 export const NAV_BLOCKED = 9999;
+/** How far a tank sees in fog of war (the renderer clears the same radius around your tanks). */
+export const FOG_SIGHT = TILE * 3.6;
 const DIRS: readonly Direction[] = ['up', 'down', 'left', 'right'];
 const BASE_WALL_KEYS = new Set(BASE_WALL_CELLS.map(([c, r]) => r * COLS + c));
 
@@ -1157,6 +1242,7 @@ function navEnterCost(kind: TileCell['kind'], cellIndex: number, avoidBaseWalls:
     case 'empty':
     case 'bush':
     case 'ice':
+    case 'gate':
     case 'base':
       return 1;
     case 'portal':
@@ -1201,10 +1287,21 @@ export function computeNavField(
     const enter = best === 0 ? 1 : navEnterCost(grid[ur][uc].kind, u, avoidBaseWalls);
     if (enter >= NAV_BLOCKED) continue;
     const nd = best + enter;
-    if (uc > 0 && nd < dist[u - 1]) dist[u - 1] = nd;
-    if (uc < COLS - 1 && nd < dist[u + 1]) dist[u + 1] = nd;
-    if (ur > 0 && nd < dist[u - COLS]) dist[u - COLS] = nd;
-    if (ur < ROWS - 1 && nd < dist[u + COLS]) dist[u + COLS] = nd;
+    const gateU = grid[ur][uc].gateDir;
+    // Relax neighbour v, i.e. the forward move v -> u (dx, dy). Gates refuse moves against their arrow,
+    // both into the gate and back out of it.
+    const relax = (v: number, dx: number, dy: number) => {
+      if (nd >= dist[v]) return;
+      if (gateU && dirVector(gateU).dx === -dx && dirVector(gateU).dy === -dy) return;
+      const vc = v % COLS;
+      const gateV = grid[(v - vc) / COLS][vc].gateDir;
+      if (gateV && dirVector(gateV).dx === -dx && dirVector(gateV).dy === -dy) return;
+      dist[v] = nd;
+    };
+    if (uc > 0) relax(u - 1, 1, 0);
+    if (uc < COLS - 1) relax(u + 1, -1, 0);
+    if (ur > 0) relax(u - COLS, 0, 1);
+    if (ur < ROWS - 1) relax(u + COLS, 0, -1);
   }
   // Cells a tank can never stand in are not part of any route.
   for (let i = 0; i < n; i++) {
@@ -1275,6 +1372,7 @@ export function lineOfFire(state: ArenaState, tank: Tank, dir: Direction): LineH
 }
 
 function isHidden(state: ArenaState, target: Tank, viewer: Tank): boolean {
+  if (state.fog && Math.hypot(target.x - viewer.x, target.y - viewer.y) > FOG_SIGHT) return true;
   if (tileAtPixel(state.grid, target.x, target.y).cell?.kind !== 'bush') return false;
   return Math.hypot(target.x - viewer.x, target.y - viewer.y) > TILE * 2.6;
 }
@@ -1315,6 +1413,7 @@ function navStep(
     const nc = c + v.dx;
     const nr = r + v.dy;
     if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) continue;
+    if (againstGate(state.grid[nr][nc], v) || againstGate(state.grid[r][c], v)) continue;
     const val = field[nr * COLS + nc];
     // Prefer to keep rolling the way we already face when two routes tie.
     if (val < bestVal || (val === bestVal && bestDir !== null && d === tank.dir && val < here)) {
@@ -1337,6 +1436,12 @@ function navStep(
     if (Math.abs(off) > 3) return { dir: off > 0 ? 'right' : 'left', blocker: null, arrived: false };
   }
   return { dir: bestDir, blocker, arrived: false };
+}
+
+function againstGate(cell: TileCell, move: { dx: number; dy: number }): boolean {
+  if (!cell.gateDir) return false;
+  const g = dirVector(cell.gateDir);
+  return g.dx === -move.dx && g.dy === -move.dy;
 }
 
 function nearestBy<T extends { x: number; y: number }>(items: T[], x: number, y: number): T | undefined {
