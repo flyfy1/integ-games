@@ -102,25 +102,11 @@ const safeInteraction = {
     }, root);
     await page.waitForTimeout(1600);
   },
-  // Stages Old Gulp's yard through the game's debug handle: two busy trails, a cake on the move and the toad watching.
+  // Stages a puzzle mid-run through the game's debug handle: 2-4, the cube on its way home past a full spider.
   'ant-raid': async (page) => {
     const root = '[data-ant-raid]';
     await page.waitForFunction((selector) => !!document.querySelector(selector)?.__ar, root);
-    await page.evaluate(async (selector) => {
-      const ar = document.querySelector(selector).__ar;
-      ar.save.coach.off = true;
-      ar.start('1-5', ['worker', 'porter', 'soldier']);
-      const S = await import('/src/games/ant-raid/sim.ts');
-      const sim = ar.session.sim;
-      const id = (x, y) => y * 16 + x;
-      const trail = (cells) => { let prev = sim.nest; for (const [x, y] of cells) { S.paint(sim, id(x, y), prev); prev = id(x, y); } };
-      trail([[1, 5], [1, 6], [2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6]]);
-      trail([[1, 3], [1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 2], [11, 2], [12, 2], [13, 2]]);
-      sim.sugar = 900;
-      for (let i = 0; i < 1500 && !sim.foods[0].moving; i += 1) { if (i % 12 === 0) S.playCard(sim, i % 48 === 0 ? 'porter' : 'worker'); S.step(sim); }
-      for (let i = 0; i < 150; i += 1) S.step(sim);
-      S.drainEvents(sim);
-    }, root);
+    await page.evaluate((selector) => { document.querySelector(selector).__ar.stage('2-4', 2.6); }, root);
     await page.addStyleTag({ content: '.ar-hud{display:none!important}' });
     await page.waitForTimeout(900);
   },
@@ -162,23 +148,16 @@ const safeInteraction = {
   }
 };
 
-// Crumb Raiders' icon is a close-up, not the yard: a Porter crew carrying the strawberry home along a scent trail.
+// Crumb Raiders' icon is a close-up, not the yard: four ants carrying the strawberry home along a scent trail (1-6).
 async function antRaidIcon(page) {
   const clip = await page.evaluate(async () => {
     const ar = document.querySelector('[data-ant-raid]').__ar;
-    ar.start('1-2', ['worker', 'porter']);
-    const S = await import('/src/games/ant-raid/sim.ts');
-    const sim = ar.session.sim;
-    const id = (x, y) => y * 16 + x;
-    let prev = sim.nest;
-    for (const [x, y] of [[2, 4], [3, 4], [4, 4], [5, 4], [6, 4], [7, 4], [8, 4], [9, 4], [10, 4], [11, 4], [12, 4], [12, 3], [12, 2]]) { S.paint(sim, id(x, y), prev); prev = id(x, y); }
-    sim.sugar = 900;
-    const berry = sim.foods.find((f) => f.id === 'berry');
-    // Exactly three Porters (lift 9): big ants, all of them visible around the berry.
-    for (let i = 0; i < 3000 && !(berry.moving && berry.px < 9.4); i += 1) { if (i % 60 === 0 && i <= 120) S.playCard(sim, 'porter'); S.step(sim); }
-    S.drainEvents(sim);
+    ar.stage('1-6', 1.9);
+    const S = await import('/src/games/ant-raid/puzzle/sim.ts');
+    const run = ar.session.run;
+    const pose = S.itemPose(run, run.items[1]);
     ar.renderer.clean = true;
-    return ar.clip(berry.px - 0.2, berry.py, 2.1);
+    return ar.clip(pose.x, pose.y, 2.1);
   });
   await page.addStyleTag({ content: '.ar-hud{display:none!important}' });
   await page.waitForTimeout(500);

@@ -20,7 +20,8 @@ const services = (store = storage()) => ({
 
 const originalRaf = globalThis.requestAnimationFrame, originalCancel = globalThis.cancelAnimationFrame;
 let frames: FrameRequestCallback[] = [];
-const pump = (seconds: number) => { let now = performance.now(); for (let i = 0; i < seconds * 20; i++) { const next = frames; frames = []; now += 50; for (const cb of next) cb(now); } };
+let now = 0;
+const pump = (seconds: number) => { for (let i = 0; i < seconds * 20; i++) { const next = frames; frames = []; now += 50; for (const cb of next) cb(now); } };
 afterEach(() => { globalThis.requestAnimationFrame = originalRaf; globalThis.cancelAnimationFrame = originalCancel; frames = []; });
 const mount = (svc = services()) => {
   globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { frames.push(cb); return frames.length; }) as typeof requestAnimationFrame;
@@ -129,7 +130,8 @@ describe('ant-raid session input', () => {
   });
 });
 
-describe('ant-raid shell', () => {
+describe('ant-raid shell (puzzle mode)', () => {
+  const visible = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('.ar-hud .ar-top > *, .ar-hud .ar-bottom > *')].filter(el => !el.hidden && !el.closest('[hidden]'));
   it('mounts on the title, survives the lifecycle and clears its host', () => {
     const { host, controller, ar } = mount();
     expect(ar.screen).toBe('title');
@@ -137,34 +139,137 @@ describe('ant-raid shell', () => {
     controller.destroy();
     expect(host.childElementCount).toBe(0);
   });
-  it('reports a campaign win by level number and saves it', () => {
-    const svc = services();
-    const { ar, controller } = mount(svc);
-    ar.start('1-1');
-    const sim = ar.session.sim;
-    sim.crumbs = 999;
+  it('Play goes straight into 1-1 with no dialogue and no rule card; only the goal chip shows until the trail connects', () => {
+    const { ar, root, controller } = mount();
+    (root.querySelector('[data-action=play]') as HTMLButtonElement).click();
+    expect(ar.screen).toBeNull();
+    expect(ar.dialogue).toBe(false);
+    expect(ar.session.level.id).toBe('1-1');
+    expect(visible(root).map(el => el.dataset.ui)).toEqual(['goal']);
+    const s = ar.session;
+    s.dragStart(1, 4); for (let x = 2; x <= 7; x++) s.dragTo(x, 4); s.dragEnd();
+    pump(0.1);
+    expect(visible(root).map(el => el.dataset.ui)).toEqual(['goal', 'go']);
+    controller.destroy();
+  });
+  it('A6: no more than seven HUD elements on any chapter 1-2 level, every control labelled with words', () => {
+    const { ar, root, controller } = mount();
+    ar.save.levels['1-1'] = { win: true, elegant: false, fails: 0, best: 6 };
+    for (const id of ['1-2', '1-3', '1-4', '1-5', '1-6', '2-1', '2-2', '2-3', '2-4']) {
+      ar.play(id);
+      ar.go('title'); ar.play(id);
+      if (ar.screen === 'rule') (root.querySelector('[data-action=ok]') as HTMLButtonElement).click();
+      ar.session.dragStart(1, 4); ar.session.dragTo(2, 4); ar.session.dragEnd();
+      pump(0.1);
+      const items = visible(root);
+      expect(items.length, id).toBeLessThanOrEqual(7);
+      for (const el of items) if (el.tagName === 'BUTTON') expect(el.textContent!.trim().length, `${id} ${el.dataset.ui}`).toBeGreaterThan(1);
+    }
+    controller.destroy();
+  });
+  it('reports a win by level number, saves it under its own key and leaves the old save alone', () => {
+    const store = storage();
+    store.set('save', { v: 1, levels: { '1-1': { win: true } }, lang: 'zh', settings: { music: 0.2, sfx: 0.3, reducedFx: false } });
+    const svc = services(store);
+    const { ar, controller, root } = mount(svc);
+    expect(root.querySelector('.ar-notice')!.textContent).toContain('解谜');
+    ar.play('1-1');
+    const s = ar.session;
+    s.dragStart(1, 4); for (let x = 2; x <= 7; x++) s.dragTo(x, 4); s.dragEnd();
+    s.go();
     pump(4);
     expect(svc.reportComplete).toHaveBeenCalledWith(1);
-    expect(svc.reportScore).not.toHaveBeenCalled();
     expect(ar.screen).toBe('results');
-    expect(loadSave(svc.storage).levels['1-1'].win).toBe(true);
+    const saved = store.values.get('puzzle') as { levels: Record<string, { win: boolean }>; lang: string; settings: { music: number } };
+    expect(saved.levels['1-1'].win).toBe(true);
+    expect(saved.lang).toBe('zh');
+    expect(saved.settings.music).toBe(0.2);
+    expect((store.values.get('save') as { levels: Record<string, unknown> }).levels['1-1']).toEqual({ win: true });
     controller.destroy();
   });
-  it('reports Endless crumbs as the score, and keeps a destroyed raid from reporting twice', () => {
-    const svc = services();
-    const { ar, controller } = mount(svc);
-    ar.save.levels['1-5'] = { win: true, bonus: false, par: false, bestTime: 100, fails: 0 };
-    ar.endless(false);
-    pump(1);
-    const sim = ar.session.sim;
-    sim.crumbs = 37; sim.status = 'lost';
+  it('survives junk saves', () => {
+    for (const junk of [42, 'x', [1, 2], { levels: 7, rules: 'no', settings: null }, { levels: { '1-1': { win: 'yes' }, '9-9': { win: true } } }]) {
+      const store = storage(); store.set('puzzle', junk); store.set('save', junk);
+      const { ar, controller } = mount(services(store));
+      expect(ar.screen).toBe('title');
+      expect(ar.save.levels['9-9']).toBeUndefined();
+      controller.destroy();
+    }
+  });
+  it('A5: a failed run is back in Plan within 0.5 s of the verdict, trail kept, reason on the board', () => {
+    const { ar, root, controller } = mount();
+    ar.save.levels['1-3'] = { win: true, elegant: false, fails: 0, best: 10 };
+    ar.play('1-4');
+    if (ar.screen === 'rule') (root.querySelector('[data-action=ok]') as HTMLButtonElement).click();
+    const s = ar.session;
+    s.dragStart(1, 4); s.dragTo(1, 3); for (let x = 2; x <= 9; x++) s.dragTo(x, 3); s.dragTo(9, 4); s.dragEnd();
+    const cost = s.plan.cost;
+    s.go();
+    let verdictAt = -1, planAt = -1;
+    for (let k = 0; k < 400 && planAt < 0; k++) {
+      pump(0.05);
+      if (verdictAt < 0 && s.run && s.run.status === 'lost') verdictAt = k;
+      if (verdictAt >= 0 && s.mode === 'plan') planAt = k;
+    }
+    expect(planAt).toBeGreaterThan(0);
+    expect((planAt - verdictAt) * 0.05).toBeLessThanOrEqual(0.5 + 0.05);
+    expect(s.plan.cost).toBe(cost);
+    expect(root.querySelector('.ar-banner')!.textContent).toMatch(/spider|lost/i);
+    controller.destroy();
+  });
+  it('running out of Scent before the trail is useful says so and says what to do, until it is fixed', () => {
+    const { ar, root, controller } = mount();
+    ar.save.levels['1-1'] = { win: true, elegant: false, fails: 0, best: 6 };
+    ar.play('1-2');
+    if (ar.screen === 'rule') (root.querySelector('[data-action=ok]') as HTMLButtonElement).click();
+    const s = ar.session;
+    s.dragStart(1, 4); for (let y = 3; y >= 1; y--) s.dragTo(1, y); for (let x = 2; x <= 7; x++) s.dragTo(x, 1); for (let y = 2; y <= 4; y++) s.dragTo(7, y); s.dragEnd();
     pump(3);
-    expect(svc.reportScore).toHaveBeenCalledTimes(1);
-    expect(svc.reportScore).toHaveBeenCalledWith(37);
-    expect(svc.reportComplete).not.toHaveBeenCalled();
+    const banner = root.querySelector('.ar-banner') as HTMLElement;
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toMatch(/Out of Scent/);
+    expect(banner.textContent).toMatch(/Undo/);
+    s.undo(); pump(0.1);
+    expect(banner.hidden).toBe(true);
     controller.destroy();
-    expect(svc.reportScore).toHaveBeenCalledTimes(1);
   });
+  it('offers a hint after the third failed run, and the hint shows ghost dots', () => {
+    const { ar, root, controller } = mount();
+    for (const id of ['1-1', '1-2', '1-3']) ar.save.levels[id] = { win: true, elegant: false, fails: 0, best: 6 };
+    ar.play('1-4');
+    if (ar.screen === 'rule') (root.querySelector('[data-action=ok]') as HTMLButtonElement).click();
+    const s = ar.session, hint = root.querySelector('[data-ui=hint]') as HTMLButtonElement;
+    for (let i = 1; i <= 3; i++) {
+      s.clear();
+      for (const path of s.level.traps[0].plan.paths) { s.dragStart(...path[0]); for (const c of path.slice(1)) s.dragTo(...c); s.dragEnd(); }
+      s.go();
+      for (let k = 0; k < 400 && !(s.mode === 'plan' && s.fail); k++) pump(0.05);
+      pump(0.1);
+      expect(hint.hidden, `after fail ${i}`).toBe(i < 3);
+    }
+    hint.click(); pump(0.1);
+    expect(s.ghost.length).toBeGreaterThan(0);
+    controller.destroy();
+  });
+  it('A13: every rule a level introduces has a card in both languages', async () => {
+    const { RULES } = await import('../src/games/ant-raid/puzzle/rules');
+    const { PUZZLES } = await import('../src/games/ant-raid/puzzle/levels');
+    for (const level of PUZZLES) for (const id of level.rules) {
+      expect(RULES[id], `${level.id} ${id}`).toBeTruthy();
+      expect(RULES[id].title.en && RULES[id].title.zh && RULES[id].text.en && RULES[id].text.zh).toBeTruthy();
+    }
+  });
+  it('every rule card has a picture and at most twelve words', async () => {
+    const { RULES, wordCount } = await import('../src/games/ant-raid/puzzle/rules');
+    for (const card of Object.values(RULES)) {
+      expect(wordCount(card.text.en), card.id).toBeLessThanOrEqual(12);
+      expect(card.text.zh.length, card.id).toBeLessThanOrEqual(28);
+      expect(typeof card.draw).toBe('function');
+    }
+  });
+});
+
+describe('ant-raid classic data (kept out of the build path)', () => {
   it('every caste has bilingual names', () => {
     for (const caste of Object.values(CASTES)) expect(caste.name.en && caste.name.zh && caste.blurb.zh).toBeTruthy();
   });

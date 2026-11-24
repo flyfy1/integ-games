@@ -1,140 +1,144 @@
 #!/usr/bin/env node
 /**
- * Crumb Raiders UI replay: plays a level's stored reference script (src/games/ant-raid/data/solutions.ts) through the
- * real input path — mouse or touch drags to lay trail, taps on cards, food and Queen buttons — against a running dev
- * server, and prints the outcome. The sim is only read, never written, so a win proves the UI can do what the script does.
+ * Crumb Raiders (puzzle mode) first-timer replay, after the 2026-11-24 pivot audit. Plays page open -> title -> Play
+ * -> every level through the real UI: mouse drags on the canvas lay the trail, real clicks on GO / rule cards /
+ * results / story Skip. The page hook `__ar` is used READ-ONLY (session state for timing, layout for cell maths).
  *
- * Run: node scripts/ant-raid-replay.mjs <level> [device] [base-url] [shot-dir]
- *   e.g. node scripts/ant-raid-replay.mjs 1-5 "iPhone 13" http://127.0.0.1:5173 /tmp/shots
+ * Run: node scripts/ant-raid-replay.mjs [device=pixel7|iphone|desktop] [lang=zh|en] [mode=competent|realistic] [base] [outdir]
+ *   competent: the reference plan on every level (acceptance A12).
+ *   realistic: the first "obvious plan" (a trap) first on levels that have one, then the reference plan (A5 timing).
+ * Writes <outdir>/run-<device>-<lang>-<mode>.json and screenshots; prints a summary.
  */
 import { chromium, devices } from '@playwright/test';
+import fs from 'fs';
 
-const [levelId = '1-1', device = 'desktop', base = 'http://127.0.0.1:5173', shots = ''] = process.argv.slice(2);
+const [dev = 'pixel7', lang = 'zh', mode = 'competent', base = 'http://127.0.0.1:5173', out = '/tmp/ant-raid-replay'] = process.argv.slice(2);
+fs.mkdirSync(`${out}/shots`, { recursive: true });
+const tag = `${dev}-${lang}-${mode}`;
+const locale = lang === 'zh' ? 'zh-CN' : 'en-US';
 const browser = await chromium.launch();
-const context = await browser.newContext(device === 'desktop' ? { viewport: { width: 1280, height: 860 } } : devices[device]);
+const context = await browser.newContext(dev === 'pixel7' ? { ...devices['Pixel 7'], locale } : dev === 'iphone' ? { ...devices['iPhone 13'], locale } : { viewport: { width: 1280, height: 800 }, locale });
 const page = await context.newPage();
 const errors = [];
-page.on('pageerror', (error) => errors.push(String(error)));
-const touch = device !== 'desktop';
-const cdp = touch ? await context.newCDPSession(page) : null;
-const tag = `${device.replace(/\s+/g, '_')}-${levelId}`;
-const shot = async (name) => { if (shots) await page.screenshot({ path: `${shots}/${tag}-${name}.png` }); };
+page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)));
+const T0 = Date.now();
+const wall = () => +((Date.now() - T0) / 1000).toFixed(2);
+const report = { tag, timeline: [], levels: [], errors };
+const mark = (what, extra = {}) => { report.timeline.push({ t: wall(), what, ...extra }); console.log(wall(), what, JSON.stringify(extra)); };
+const shot = (name) => page.screenshot({ path: `${out}/shots/${tag}-${name}.png` }).catch(() => {});
+const R = '[data-ant-raid]';
 
-try {
-  await page.goto(`${base}/play/ant-raid/`);
-  const gate = page.getByRole('button', { name: 'Start game' });
-  await page.waitForTimeout(1200);
-  if (await gate.count()) await gate.click();
-  await page.waitForFunction(() => !!document.querySelector('[data-ant-raid]')?.__ar);
-  const script = await page.evaluate(async (id) => {
-    const { SOLUTIONS } = await import('/src/games/ant-raid/data/solutions.ts');
-    const ar = document.querySelector('[data-ant-raid]').__ar;
-    const solution = SOLUTIONS[id];
-    ar.start(id, solution.loadout);
-    return solution;
-  }, levelId);
-  await page.waitForFunction(() => !!document.querySelector('[data-ant-raid]').__ar.session);
+const state = () => page.evaluate(() => {
+  const root = document.querySelector('[data-ant-raid]'); const ar = root?.__ar; if (!ar) return null;
+  const s = ar.session, L = ar.renderer.layout, rect = root.querySelector('canvas').getBoundingClientRect();
+  return {
+    screen: ar.screen, dialogue: ar.dialogue, level: s?.level.id ?? null, mode: s?.mode ?? null, canGo: !!s?.canGo, ticks: s?.run?.tick ?? null, last: s?.lastRunTicks ?? 0,
+    cost: s?.plan.cost ?? 0, fail: s?.fail ? s.fail.reason : null, banner: root.querySelector('.ar-banner:not([hidden]) p')?.textContent ?? '',
+    layout: { rot: L.rot, cell: L.cell, ox: L.ox, oy: L.oy, w: L.width }, rect: { l: rect.left, t: rect.top, w: rect.width },
+    hud: [...root.querySelectorAll('.ar-hud .ar-top > *, .ar-hud .ar-bottom > *')].filter(el => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 2 && r.height > 2 && cs.display !== 'none' && !el.closest('[hidden]'); })
+      .map(el => ({ ui: el.dataset.ui, text: el.textContent.trim().slice(0, 40), button: el.tagName === 'BUTTON', w: Math.round(el.getBoundingClientRect().width) })),
+    plan: s ? { solution: s.level.solution, traps: s.level.traps } : null
+  };
+});
+const pt = (st, x, y) => { const L = st.layout, k = st.rect.w / L.w; const sx = L.rot ? L.ox + (y + 0.5) * L.cell : L.ox + (x + 0.5) * L.cell; const sy = L.rot ? L.oy + (16 - (x + 0.5)) * L.cell : L.oy + (y + 0.5) * L.cell; return { x: st.rect.l + sx * k, y: st.rect.t + sy * k }; };
+const waitFor = async (pred, ms = 8000) => { const t = Date.now(); for (;;) { const st = await state(); if (st && pred(st)) return st; if (Date.now() - t > ms) return st; await page.waitForTimeout(25); } };
 
-  const read = () => page.evaluate(() => {
-    const ar = document.querySelector('[data-ant-raid]').__ar;
-    const sim = ar.session?.sim;
-    if (!sim) return null;
-    const L = ar.renderer.layout;
-    const rect = document.querySelector('[data-ant-raid] canvas').getBoundingClientRect();
-    const counts = {};
-    for (const ant of sim.ants) if (ant.alive) counts[ant.caste] = (counts[ant.caste] ?? 0) + 1;
-    return {
-      t: sim.time, status: sim.status, sugar: sim.sugar, crumbs: sim.crumbs, lost: sim.stats.lost, counts,
-      trail: Array.from(sim.trailParent, (p) => p !== -1), nest: sim.nest,
-      foods: sim.foods.map((f) => ({ id: f.id, at: f.at, priority: f.priority })),
-      nap: sim.hazards.some((h) => h.kind === 'toad' && h.phase === 1) && sim.foods.some((f) => f.lift && f.moving), rally: sim.queen.rally.cd,
-      shoe: sim.shoe.left > 0 && sim.shoe.warn > 0 ? sim.shoe.warn : 0,
-      cards: Object.fromEntries(sim.cards.map((c) => [c.caste, c.cooldown])),
-      layout: { rot: L.rot, ox: L.ox, oy: L.oy, cell: L.cell, left: rect.left, top: rect.top }
-    };
-  });
-  const screen = (s, x, y) => s.layout.rot
-    ? { x: s.layout.left + s.layout.ox + (y + 0.5) * s.layout.cell, y: s.layout.top + s.layout.oy + (16 - (x + 0.5)) * s.layout.cell }
-    : { x: s.layout.left + s.layout.ox + (x + 0.5) * s.layout.cell, y: s.layout.top + s.layout.oy + (y + 0.5) * s.layout.cell };
-  const tap = async (pt) => {
-    if (!touch) { await page.mouse.click(pt.x, pt.y); return; }
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt] });
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  };
-  const drag = async (points) => {
-    if (!touch) {
-      await page.mouse.move(points[0].x, points[0].y); await page.mouse.down();
-      for (const pt of points.slice(1)) await page.mouse.move(pt.x, pt.y, { steps: 3 });
-      await page.mouse.up(); return;
+/** Draw a plan with real drags (a dig is a tap on the Digger tray, then a tap on the cell). */
+async function draw(plan) {
+  const digs = [...(plan.digs ?? [])];
+  for (const path of plan.paths) {
+    const st = await state();
+    const a = pt(st, ...path[0]);
+    await page.mouse.move(a.x, a.y); await page.mouse.down();
+    for (const c of path.slice(1)) { const q = pt(st, ...c); await page.mouse.move(q.x, q.y, { steps: 2 }); await page.waitForTimeout(16); }
+    await page.mouse.up();
+    for (const d of [...digs]) {
+      const on = await page.evaluate(([x, y]) => document.querySelector('[data-ant-raid]').__ar.session.plan.parent[y * 16 + x] !== -1, d);
+      if (!on) continue;
+      digs.splice(digs.indexOf(d), 1);
+      await page.locator(`${R} [data-ui=digger]`).click();
+      const q = pt(await state(), ...d); await page.mouse.click(q.x, q.y);
     }
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [points[0]] });
-    for (let i = 1; i < points.length; i += 1) for (let k = 1; k <= 3; k += 1) {
-      const a = points[i - 1], b = points[i];
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: a.x + (b.x - a.x) * k / 3, y: a.y + (b.y - a.y) * k / 3 }] });
-    }
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  };
-  const id = (x, y) => y * 16 + x;
-  const paintPath = async (s, cells) => {
-    const todo = cells.filter(([x, y]) => !s.trail[id(x, y)]);
-    if (!todo.length) return;
-    const [fx, fy] = todo[0];
-    const start = [[fx - 1, fy], [fx + 1, fy], [fx, fy - 1], [fx, fy + 1]].find(([x, y]) => x >= 0 && x < 16 && y >= 0 && y < 9 && (s.trail[id(x, y)] || id(x, y) === s.nest));
-    await drag([start, ...todo].map(([x, y]) => screen(s, x, y)));
-  };
-
-  const keeps = [], keepPaths = [], pending = [];
-  let lastRepaint = 0;
-  const reacts = new Set();
-  const ops = [...script.ops].sort((a, b) => a.t - b.t);
-  let next = 0, half = false, lastTap = 0, last = null;
-  if (process.env.FAST) await page.locator('[data-ant-raid] [data-ui="speed"]').click().catch(() => {});
-  for (let guard = 0; guard < 6000; guard += 1) {
-    const s = await read();
-    if (!s) { console.error('session vanished at', last?.t, 'screen', await page.evaluate(() => document.querySelector('[data-ant-raid]').__ar.screen)); break; }
-    last = s;
-    if (s.status !== 'playing') break;
-    while (next < ops.length && ops[next].t <= s.t) {
-      const op = ops[next++];
-      if (op.paint) { await paintPath(await read(), op.paint); if (op.keep) keepPaths.push(op.paint); }
-      else if (op.play) pending.push({ ...op, until: s.t + 12 });
-      else if (op.keep) keeps.push(op);
-      else if (op.react) reacts.add(op.react);
-      else if (op.priority) {
-        for (let i = 0; i < 3; i += 1) {
-          const now = await read(); const food = now.foods.find((f) => f.id === op.priority);
-          if (!food || food.priority === op.level) break;
-          await tap(screen(now, food.at % 16, Math.floor(food.at / 16))); await page.waitForTimeout(60);
-        }
-      } else if (op.queen) await page.locator(`[data-ant-raid] [data-queen="${op.queen}"]`).click();
-    }
-    // Card plays retry for a while (Sugar, cooldown) the way a player would tap again.
-    for (const op of [...pending]) {
-      const before = await page.evaluate(() => document.querySelector('[data-ant-raid]').__ar.session.sim.queue.length + document.querySelector('[data-ant-raid]').__ar.session.sim.ants.length);
-      await page.locator(`[data-ant-raid] [data-card="${op.play}"]`).click();
-      if (op.at) await tap(screen(s, op.at[0], op.at[1]));
-      if (await page.evaluate(() => !!document.querySelector('[data-ant-raid]').__ar.session?.view.card)) await page.locator(`[data-ant-raid] [data-card="${op.play}"]`).click();
-      const after = await page.evaluate(() => document.querySelector('[data-ant-raid]').__ar.session?.sim.queue.length + document.querySelector('[data-ant-raid]').__ar.session?.sim.ants.length);
-      if (after > before || s.t > op.until) pending.splice(pending.indexOf(op), 1);
-    }
-    if (keepPaths.length && s.t - lastRepaint > 1) { lastRepaint = s.t; for (const cells of keepPaths) await paintPath(await read(), cells); }
-    if (reacts.has('rally-nap') && s.nap && s.rally <= 0) await page.locator('[data-ant-raid] [data-queen="rally"]').click();
-    if (reacts.has('scatter-shoe') && s.shoe > 0 && s.shoe < 1.2) await page.locator('[data-ant-raid] [data-queen="scatter"]').click();
-    if (s.t - lastTap > 0.4) for (const keep of keeps) {
-      if (keep.until !== undefined && s.t > keep.until) continue;
-      if ((s.counts[keep.keep] ?? 0) >= keep.ants || s.cards[keep.keep] > 0) continue;
-      if (pending.length || s.sugar - (keep.reserve ?? 0) < (keep.keep === 'worker' ? 24 : 0)) continue;
-      await page.locator(`[data-ant-raid] [data-card="${keep.keep}"]`).click(); lastTap = s.t; break;
-    }
-    if (!half && s.t > 25) { half = true; await shot('mid'); }
-    await page.waitForTimeout(100);
   }
-  await page.waitForTimeout(600);
-  await shot('end');
-  await page.waitForTimeout(2400);
-  await shot('results');
-  const outcome = await page.evaluate(() => { const ar = document.querySelector('[data-ant-raid]').__ar; return { screen: ar.screen, status: ar.session?.sim.status, crumbs: ar.session?.sim.crumbs, lost: ar.session?.sim.stats.lost, t: ar.session?.sim.time }; });
-  console.log(JSON.stringify({ level: levelId, device, final: last && { status: last.status, t: Math.round(last.t), crumbs: last.crumbs, lost: last.lost }, ...outcome, errors: errors.slice(0, 3) }));
-} finally {
-  await browser.close();
 }
+const think = (ms) => page.waitForTimeout(ms);
+
+async function attempt(id, plan, label) {
+  const rec = { label, tPlanStart: wall() };
+  await draw(plan);
+  rec.drawSeconds = +(wall() - rec.tPlanStart).toFixed(2);
+  await shot(`${id}-${label}-plan`);
+  if (!(await state()).canGo) { rec.result = 'not drawable (scent ran out / blocked)'; await shot(`${id}-${label}-stuck`); return rec; }
+  const tGo = wall();
+  await page.locator(`${R} [data-ui=go]`).click({ force: true });
+  // Watch: until results (won) or back in plan with a reason (lost).
+  let verdictWall = null, st;
+  for (;;) {
+    st = await state();
+    if (verdictWall === null && st.mode && (st.mode === 'won' || st.mode === 'coast' || st.mode === 'beat')) verdictWall = wall();
+    if (st.screen === 'results' || (st.mode === 'plan' && st.fail)) break;
+    if (wall() - tGo > 30) break;
+    await page.waitForTimeout(20);
+  }
+  rec.result = st.screen === 'results' ? 'won' : 'lost';
+  rec.runSim = +(st.last / 120).toFixed(2);
+  rec.goToResultWall = +(wall() - tGo).toFixed(2);
+  rec.verdictToNextWall = verdictWall === null ? null : +(wall() - verdictWall).toFixed(2);
+  rec.reason = st.banner || null;
+  await shot(`${id}-${label}-${rec.result}`);
+  return rec;
+}
+
+// ---------------------------------------------------------------- go
+await page.goto(`${base}/play/ant-raid/`, { waitUntil: 'domcontentloaded' });
+mark('domcontentloaded');
+const gate = page.getByRole('button', { name: /Start game|开始游戏/ });
+await Promise.race([gate.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}), page.waitForFunction(() => !!document.querySelector('[data-ant-raid]')?.__ar, null, { timeout: 15000 }).catch(() => {})]);
+if (await gate.count() && await gate.first().isVisible()) { mark('site gate (extra tap)'); await page.waitForTimeout(600); await gate.first().click(); }
+await page.waitForFunction(() => !!document.querySelector('[data-ant-raid] [data-action=play]'));
+mark('title interactive'); await shot('00-title');
+await think(900);
+await page.locator(`${R} [data-action=play]`).click();
+const tPlay = wall(); mark('Play clicked');
+const ready = await waitFor(st => st.level === '1-1' && st.mode === 'plan' && !st.screen && !st.dialogue);
+report.A1_playToFirstInput = +(wall() - tPlay).toFixed(2);
+mark('1-1 accepts trail input', { A1: report.A1_playToFirstInput, hud: ready.hud.map(h => h.ui) });
+await shot('1-1-00-start');
+
+const ORDER = ['1-1', '1-2', '1-3', '1-4', '1-5', '1-6', '2-1', '2-2', '2-3', '2-4'];
+let firstWin = null;
+for (const id of ORDER) {
+  let st = await waitFor(s => s.level === id && s.mode === 'plan' && (s.screen === null || s.screen === 'rule') && !s.dialogue);
+  const rec = { level: id, wallStart: wall(), attempts: [] };
+  if (st.screen === 'rule') { rec.ruleCard = true; await shot(`${id}-rule`); await think(1200); await page.locator(`${R} [data-action=ok]`).click(); st = await waitFor(s => !s.screen); }
+  rec.hud = st.hud; rec.hudCount = st.hud.length; rec.iconOnly = st.hud.filter(h => h.button && h.text.length < 2).map(h => h.ui);
+  await think(id === '1-1' ? 1500 : 1500); // read the board
+  const trap = st.plan.traps.find(t => !t.wins);
+  if (mode === 'realistic' && trap) {
+    rec.attempts.push(await attempt(id, trap.plan, 'trap'));
+    if (rec.attempts[0].result !== 'won') { await think(1500); await page.locator(`${R} [data-ui=undo]`).click({ delay: 750 }); await think(300); }
+  }
+  const won = await attempt(id, st.plan.solution, 'solution');
+  rec.attempts.push(won);
+  if (won.result === 'won' && firstWin === null) { firstWin = wall(); report.A2_pageToFirstWin = firstWin; mark('first win', { A2: firstWin }); }
+  // Read the results, then Next (a story scene after a first clear: one tap on Skip).
+  await think(600);
+  rec.wallEnd = wall(); rec.wallDur = +(rec.wallEnd - rec.wallStart).toFixed(1);
+  report.levels.push(rec);
+  mark(`level ${id} ${won.result}`, { run: won.runSim, wall: rec.wallDur, hud: rec.hudCount });
+  if (id === ORDER[ORDER.length - 1]) break;
+  await page.locator(`${R} [data-screen=results] [data-action=next]`).click();
+  await page.waitForTimeout(150);
+  if ((await state()).dialogue) { await shot(`${id}-story`); await page.locator(`${R} .ar-dialogue [data-action=skip]`).click(); mark('story skipped (one tap)'); }
+}
+report.totalWall = wall();
+const runs = report.levels.map(l => l.attempts[l.attempts.length - 1].runSim).sort((a, b) => a - b);
+report.summary = {
+  A1: report.A1_playToFirstInput, A2: report.A2_pageToFirstWin, A3_median: runs[Math.floor(runs.length / 2)], A3_max: runs[runs.length - 1],
+  A5_failToPlan: report.levels.flatMap(l => l.attempts).filter(a => a.result === 'lost').map(a => a.verdictToNextWall),
+  A6_max: Math.max(...report.levels.map(l => l.hudCount)), A6_1_1: report.levels[0].hudCount, A12_total: report.totalWall,
+  iconOnly: report.levels.flatMap(l => l.iconOnly), errors: errors.length
+};
+fs.writeFileSync(`${out}/run-${tag}.json`, JSON.stringify(report, null, 1));
+console.log('SUMMARY', JSON.stringify(report.summary));
+await browser.close();
