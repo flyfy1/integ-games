@@ -226,7 +226,7 @@ export const CHAPTERS: ChapterDef[] = [
 export const NIGHT_LEVEL: LevelDef = {
   id: 'night', chapter: 0, index: 0, introduces: null, endless: true,
   name: { en: 'Night Shift', zh: '夜班' },
-  hint: { en: 'Orders arrive at stalls A and B. Fill them before their bars run out; three missed orders end the shift.', zh: '订单送到 A、B 两个摊位。进度条走完前做好；误了三单就收工。' },
+  hint: { en: 'Orders arrive at stalls A and B. Fill them before their bars run out; three missed orders end the shift. Pause stops the belts, not the customers.', zh: '订单送到 A、B 两个摊位。进度条走完前做好；误了三单就收工。暂停只停传送带，客人照样在等。' },
   grid: ['..........', '..........', '..........', '..........', '..........', '..........', '..........'],
   sources: [
     { x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 5, dir: 0, goods: ['paper'], every: 2 },

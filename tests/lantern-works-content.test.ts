@@ -372,6 +372,25 @@ describe('lantern works save and shell', () => {
     expect(host.querySelector('[data-lantern-works]')).toBeNull();
     host.remove();
   });
+  it('a gated Night Shift keeps saved Daily parts it cannot place', () => {
+    vi.useFakeTimers();
+    const host = document.createElement('div');
+    document.body.append(host);
+    const game = lanternWorks.mount(host, services());
+    const root = host.querySelector<HTMLElement>('[data-lantern-works]')!;
+    const api = (root as unknown as { __lw: { save: { levels: Record<string, unknown>; night: { build?: { kind: string; x: number; y: number }[] } }; openNight(mode: string): void; closeCard(): void; edit(e: unknown): boolean; play: { sim: Sim } | null } }).__lw;
+    for (const id of CHAPTERS[0].levels) api.save.levels[id] = { stars: [true, false, false], bestParts: null, bestBeats: null };
+    api.save.night.build = [{ kind: 'mixer', x: 5, y: 3, dir: 0 }, { kind: 'belt', x: 2, y: 2, dir: 0 }] as never;
+    api.openNight('night');
+    api.closeCard();
+    expect(api.play!.sim.parts.flatMap(p => (p ? [p.kind] : []))).toEqual(['belt']);
+    expect(api.edit({ op: 'place', kind: 'belt', x: 3, y: 2, dir: 0 })).toBe(true);
+    vi.advanceTimersByTime(1000);
+    const saved = (api.save.night as { build?: { kind: string }[] }).build ?? [];
+    expect(saved.map(p => p.kind).sort()).toEqual(['belt', 'belt', 'mixer']);
+    game.destroy(); host.remove();
+    vi.useRealTimers();
+  });
   it('every Night Shift part has a key, and its chip shows it', () => {
     const host = document.createElement('div');
     document.body.append(host);

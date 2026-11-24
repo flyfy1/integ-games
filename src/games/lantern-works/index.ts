@@ -327,7 +327,13 @@ export const lanternWorks: GameModule = {
       if (!play) return;
       const build = buildOf(play.sim);
       if (play.mode === 'campaign') { const rec = save.levels[play.level.id] ?? { stars: [false, false, false], bestParts: null, bestBeats: null }; rec.build = build; save.levels[play.level.id] = rec; }
-      else save.night.build = build;
+      else {
+        // Night and Daily share one build. A gated Night tray cannot place parts it does not hold (say a Mixer from a
+        // Daily build), so keep those saved parts rather than erase them, unless something new now sits in their cell.
+        const tray = play.level.tray;
+        const kept = (save.night.build ?? []).filter(q => tray[q.kind] === undefined && !build.some(b => b.x === q.x && b.y === q.y));
+        save.night.build = [...build, ...kept];
+      }
       persist();
     }
     let buildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -345,7 +351,8 @@ export const lanternWorks: GameModule = {
       titleRow.append(orders);
       const chips = h('div', { class: 'lw-chips' });
       // The level's hint stays on screen in portrait, where there is room: the intro card is gone once building starts.
-      top.append(titleRow, chips, p.level.endless ? h('p', { class: 'lw-hint', text: t('night.tray') }) : h('p', { class: 'lw-hint', text: i18n.tr(p.level.hint) }));
+      const gated = p.level.endless && Object.keys(p.level.tray).length < Object.keys(NIGHT_LEVEL.tray).length;
+      top.append(titleRow, chips, h('p', { class: 'lw-hint', text: gated ? t('night.tray') : i18n.tr(p.level.hint) }));
       const tray = h('div', { class: 'lw-tray', role: 'toolbar', 'aria-label': 'Parts' });
       const tools: { kind: Tool; el: HTMLButtonElement; count?: HTMLElement }[] = [];
       const kinds = trayKinds(p.level);
