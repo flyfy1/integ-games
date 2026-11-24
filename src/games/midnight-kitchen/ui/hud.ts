@@ -153,8 +153,9 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
 
   // ---- overlays ----
   const banner = h('div', { class: 'mk-banner', role: 'status', hidden: true });
-  // On a small screen the brief folds down to the title (and hint); a tap opens or folds it.
-  const brief = sim.prep ? h('button', { class: 'mk-pz-brief', type: 'button', 'data-hud': 'puzzle', 'aria-expanded': 'false', onclick: (event: Event) => { const el = event.currentTarget as HTMLElement; el.classList.toggle('open'); el.setAttribute('aria-expanded', String(el.classList.contains('open'))); } },
+  // The brief sits over the far end of the board, so taps pass straight through it to the cells; on a small screen it
+  // shows only the title and hint (the blurb was on the puzzle list).
+  const brief = sim.prep ? h('div', { class: 'mk-pz-brief', role: 'note', 'data-hud': 'puzzle' },
     h('b', null, tr(level.name)), h('span', { class: 'mk-pz-blurb' }, tr(level.blurb)),
     deps.hint ? h('span', { class: 'mk-pz-hint', 'data-hint': '' }, `💡 ${deps.hint}`) : null) : null;
   const notes = h('div', { class: 'mk-notes' }, brief, banner);
@@ -223,7 +224,7 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
     const d = view.selected === null ? undefined : sim.defenders.find(item => item.id === view.selected);
     if (!d || !layout) { if (!pop.hidden) { pop.hidden = true; popKey = ''; } return; }
     const def = sim.content.defenders[d.def], cost = upgradeCost(sim, d), refund = refundFor(sim, d), poor = cost !== null && sim.heat < cost;
-    const key = `${d.id}:${d.tier}:${poor}:${refund}:${d.recipes.join(',')}:${i18n.lang}`;
+    const key = `${d.id}:${d.tier}:${poor}:${refund}:${d.recipes.join(',')}:${i18n.lang}:${sim.prep}`;
     if (key !== popKey) {
       popKey = key;
       const recipeChips = d.recipes.map(id => sim.content.recipes.find(r => r.id === id)).filter(r => !!r).map(r => h('span', { class: 'mk-chip', style: `border-color:${r!.color}` }, `◆ ${tr(r!.name)}`));
@@ -231,6 +232,8 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
         h('h4', null, tr(def.name), h('span', { class: 'mk-pop-stars', 'aria-label': t('hud.tier', { n: d.tier + 1, max: def.tiers.length }) }, '★'.repeat(d.tier + 1) + '☆'.repeat(Math.max(0, def.tiers.length - d.tier - 1)))),
         recipeChips.length ? h('div', { class: 'mk-chips' }, recipeChips) : '',
         cost === null ? statRows(d.def, d.tier) : statRows(d.def, d.tier, true),
+        // Chef's Table: no upgrades, and taking a piece back just returns it to the hand (fixed pieces stay put).
+        sim.rules.puzzle ? h('div', { class: 'mk-pop-row' }, d.fixed || !sim.prep ? '' : h('button', { class: 'mk-btn danger', 'data-action': 'remove', 'aria-label': t('hud.remove'), onclick: () => session.removeAt(d.col, d.lane) }, h('b', null, t('hud.remove')))) :
         h('div', { class: 'mk-pop-row' },
           cost === null ? h('button', { class: 'mk-btn good', disabled: true }, h('b', null, t('hud.max')))
             : h('button', { class: `mk-btn good${poor ? ' is-poor' : ''}`, 'data-action': 'upgrade', 'aria-label': `${t('hud.upgrade')} ${cost}`, onclick: () => session.upgradeAt(d.col, d.lane) }, h('b', null, `▲ ${t('hud.upgrade')}`), h('span', null, `♨ ${cost}`)),

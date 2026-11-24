@@ -28,9 +28,14 @@ describe('midnight kitchen Daily Night', () => {
     expect(modeOf(level)).toBe('daily');
     expect(LEVEL_LIST.includes(level)).toBe(false);
     const before = wavesOf(key, 12);
-    // A played night pulls on the sim's own stream; the waves of a fresh copy of the same date stay identical.
+    // A played night pulls on the sim's own stream; the waves of a fresh copy of the same date stay identical,
+    // and so do the cached waves of the very level object a retry plays again.
+    const same = () => Array.from({ length: 12 }, (_, i) => JSON.stringify(level.waveGen!(i, () => 0.5)));
+    const cached = same();
     runBot(level, { seed: 7, loadout: level.cards!, ...BOT_PROFILES.casual, maxTime: 240 });
     expect(wavesOf(key, 12)).toEqual(before);
+    expect(same()).toEqual(cached);
+    expect(cached).toEqual(before);
     expect(wavesOf(DAYS[1], 12)).not.toEqual(before);
   });
 

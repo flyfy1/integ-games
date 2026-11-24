@@ -583,12 +583,12 @@ export const STYLES = `
 .mk-card.cook .mk-card-cost{background:var(--ink);color:#ffe9a8}
 .mk-card.cook .mk-card-cost::before{display:none}
 @keyframes mk-cook-pulse{50%{box-shadow:0 0 0 5px #ffd36b,0 4px 0 var(--ink)}}
-.mk-pz-brief{pointer-events:auto;cursor:pointer;font:inherit;max-width:min(560px,92%);margin:0 auto;padding:8px 14px;border-radius:14px;border:3px solid var(--ink);background:#fff4dc;color:var(--ink);font-weight:800;font-size:var(--fs-s);line-height:1.3;text-align:center;box-shadow:0 4px 0 var(--ink)}
+.mk-pz-brief{pointer-events:none;max-width:min(560px,92%);margin:0 auto;padding:8px 14px;border-radius:14px;border:3px solid var(--ink);background:#fff4dc;color:var(--ink);font-weight:800;font-size:var(--fs-s);line-height:1.3;text-align:center;box-shadow:0 4px 0 var(--ink)}
 .mk-pz-brief b{display:block;font-size:var(--fs-m);font-weight:900}
 .mk-pz-brief span{display:block}
 .mk-pz-hint{margin-top:4px;color:#7a4a2a}
 .mk.compact .mk-pz-brief{font-size:var(--fs-xs);padding:5px 10px}
-.mk.compact .mk-pz-brief:not(.open) .mk-pz-blurb{display:none}
+.mk.compact .mk-pz-brief .mk-pz-blurb{display:none}
 @media (prefers-reduced-motion:reduce){.mk-card.cook{animation:none}}
 .mk-daily-rules{display:grid;gap:8px}
 .mk-daily-rule{padding:8px 10px;border-radius:12px;border:2px solid rgba(255,233,168,.35);background:rgba(255,233,168,.08)}
