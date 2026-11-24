@@ -6,7 +6,7 @@ Classification should help a visitor answer two questions quickly: “what kind 
 
 ## Listed arcade (2026-11-11)
 
-The catalog installs 31 modules, but the arcade lists only the fifteen in `featuredSlugs` (`src/core/catalog.ts`), in this order: Midnight Kitchen (added 2026-11-11), Crumb Raiders (added 2026-11-24), Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Lantern Works (added 2026-11-24), Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
+The catalog installs 32 modules, but the arcade lists only the sixteen in `featuredSlugs` (`src/core/catalog.ts`), in this order: Midnight Kitchen (added 2026-11-11), Crumb Raiders (added 2026-11-24), Ashfall, Pelican Pedal, Tank Brawl, Pocket Survivor, Block Drop, Lantern Works (added 2026-11-24), Fruit Orbit, Merge 2048, Geo Quiz, Tank Clash, Pad Pals. The other sixteen are hidden from the home grid, search, category counts, "Continue playing" and recommendations; their direct links keep working.
 
 Listed categories: Puzzle & Strategy (Midnight Kitchen, Crumb Raiders, Merge 2048, Geo Quiz), Match & Build (Block Drop, Lantern Works, Fruit Orbit), Quick Reflex (Tank Brawl, Pocket Survivor, Pad Pals), Action & Adventure (Ashfall, Pelican Pedal, Tank Clash). Tank Brawl and Pocket Survivor moved to Quick Reflex because their rounds and runs are short. `recommendationsFor` returns only listed games: the editorial picks that are still listed, topped up in arcade order to four. The table below records the original 26-game editorial picks and is historical for hidden games.
 

@@ -36,8 +36,8 @@ describe('game module contract', () => {
   });
 
   it('has exactly thirty unique, importable catalog modules whose metadata matches', async () => {
-    expect(catalog).toHaveLength(31);
-    expect(new Set(catalog.map((game) => game.slug)).size).toBe(31);
+    expect(catalog).toHaveLength(32);
+    expect(new Set(catalog.map((game) => game.slug)).size).toBe(32);
     const loaded = [];
     for (const item of catalog) {
       expect(gameLoader(item.slug), `missing loader for ${item.slug}`).toBeTypeOf('function');

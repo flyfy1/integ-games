@@ -18,10 +18,10 @@ export const catalog: readonly CatalogGame[] = catalogRows.map(([slug, title, ca
  * from its direct link, but is hidden from the home grid, search, category counts and recommendations.
  */
 /** Pointer-first games where a controller is a poor fit: the play page hides its controller entry point. */
-export const noControllerSlugs: ReadonlySet<string> = new Set(['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz']);
+export const noControllerSlugs: ReadonlySet<string> = new Set(['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz', 'pebble-putt']);
 export function showsController(slug: string): boolean { return !noControllerSlugs.has(slug); }
 
-export const featuredSlugs = ['midnight-kitchen', 'shove-pond', 'ant-raid', 'ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'lantern-works', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals', 'tide-bell'] as const;
+export const featuredSlugs = ['shove-pond', 'tide-bell', 'pebble-putt', 'midnight-kitchen', 'lantern-works', 'ant-raid', 'ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals'] as const;
 const featuredSet = new Set<string>(featuredSlugs);
 
 export function isListed(slug: string): boolean { return featuredSet.has(slug); }

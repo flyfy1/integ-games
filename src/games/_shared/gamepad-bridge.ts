@@ -28,7 +28,8 @@ export const gamepadProfiles: Record<string, BridgeProfile> = {
   'lantern-works': { ...ARROWS, south: ' ', east: 'x', west: 'r', north: 't', l1: 'q', r1: 'e', l2: 'z', r2: 'f', select: 'Enter' },
   'ant-raid': { ...ARROWS, south: ' ', east: 'x', west: 'c', north: 'h', l1: 'q', r1: 'e', r2: 'Enter', select: 'f' },
   'tide-bell': { ...ARROWS, south: 'Enter', east: 'z', west: 'r', north: 'h', l1: 'z', r1: 'h', select: 'l' },
-  'shove-pond': { ...ARROWS, south: 'Enter', west: ' ', east: 'Backspace', north: '1', l1: '2', r1: '3', select: 'Escape' }
+  'shove-pond': { ...ARROWS, south: 'Enter', west: ' ', east: 'Backspace', north: '1', l1: '2', r1: '3', select: 'Escape' },
+  'pebble-putt': { ...ARROWS, south: ' ', west: 'r', select: 'r' }
 };
 
 /** Games that act once per key event need a held pad to repeat the way a keyboard does. Held-key games must not repeat. */
@@ -37,6 +38,8 @@ const cursorKeys = { ArrowUp: CURSOR, ArrowDown: CURSOR, ArrowLeft: CURSOR, Arro
 export const gamepadRepeat: Record<string, Record<string, Repeat>> = {
   'block-drop': { ArrowLeft: { delay: 0.14, every: 0.04 }, ArrowRight: { delay: 0.14, every: 0.04 }, ArrowDown: { delay: 0.05, every: 0.04 } },
   mines: cursorKeys, memory: cursorKeys, 'ant-raid': cursorKeys, sudoku: cursorKeys, 'word-grid': cursorKeys, 'hex-puzzle': cursorKeys, 'lantern-works': cursorKeys, 'tide-bell': cursorKeys,
+  // Aim and power step once per key press, so a held d-pad repeats quickly to sweep the aim.
+  'pebble-putt': { ArrowUp: { delay: 0.2, every: 0.05 }, ArrowDown: { delay: 0.2, every: 0.05 }, ArrowLeft: { delay: 0.2, every: 0.04 }, ArrowRight: { delay: 0.2, every: 0.04 } },
   bubble: { ArrowUp: { delay: 0.12, every: 0.03 }, ArrowDown: { delay: 0.12, every: 0.03 }, ArrowLeft: { delay: 0.12, every: 0.03 }, ArrowRight: { delay: 0.12, every: 0.03 } }
 };
 
@@ -57,7 +60,8 @@ const GAME_LABELS: Record<string, Record<string, Label>> = {
   'midnight-kitchen': { ' ': ['Place / confirm', '放置 / 确认'], Escape: ['Back', '返回'], u: ['Upgrade', '升级'], x: ['Spatula', '锅铲'], q: ['Previous card', '上一张牌'], e: ['Next card', '下一张牌'], f: ['Speed', '加速'] },
   'lantern-works': { ' ': ['Place (hold to draw) / confirm', '放置（按住连铺）/ 确认'], x: ['Remove / back', '拆除 / 返回'], r: ['Rotate', '旋转'], t: ['Setting', '设定'], q: ['Previous part', '上一个零件'], e: ['Next part', '下一个零件'], z: ['Undo', '撤销'], f: ['Speed', '速度'], Enter: ['Run / pause', '开工 / 暂停'] },
   'tide-bell': { Enter: ['Next / confirm', '下一关 / 确认'], z: ['Undo', '撤销'], r: ['Reset', '重来'], h: ['Hint', '提示'], l: ['Levels', '关卡'] },
-  'ant-raid': { ' ': ['Draw trail (hold while moving) / confirm', '画路线（按住移动）/ 确认'], x: ['Retry / back', '重来 / 返回'], c: ['Clear trail', '清空路线'], h: ['Rules', '规则'], q: ['Undo', '撤销'], e: ['Digger', '掘土蚁'], Enter: ['GO', '出发'], f: ['Speed up (hold)', '加速（按住）'] }
+  'ant-raid': { ' ': ['Draw trail (hold while moving) / confirm', '画路线（按住移动）/ 确认'], x: ['Retry / back', '重来 / 返回'], c: ['Clear trail', '清空路线'], h: ['Rules', '规则'], q: ['Undo', '撤销'], e: ['Digger', '掘土蚁'], Enter: ['GO', '出发'], f: ['Speed up (hold)', '加速（按住）'] },
+  'pebble-putt': { ArrowLeft: ['Aim left', '向左瞄'], ArrowRight: ['Aim right', '向右瞄'], ArrowUp: ['More power', '加力'], ArrowDown: ['Less power', '减力'], ' ': ['Shoot / fast-forward', '击球 / 快进'], r: ['Retry', '重打'] }
 };
 export type GameAction = { key: string; label: Label };
 /** Everything a game can be told to do, whether or not a player has left it bound. */
