@@ -119,11 +119,14 @@ export const LEVELS: LevelDef[] = [
   L({
     id: '3-2', chapter: 3, index: 2, introduces: 'wick',
     name: { en: 'Light It', zh: '点亮' },
-    hint: { en: 'A Wick lights a lantern with a candle. Candles come slowly; the rest can wait in line.', zh: '点灯台用蜡烛点亮灯笼。蜡烛来得慢，其余的排队等着。' },
+    hint: { en: 'A Wick lights a lantern with a candle. Candles come slowly; the rest can wait in line. There are two candle chutes: a Wick fed from both lights twice as often.', zh: '点灯台用蜡烛点亮灯笼。蜡烛来得慢，其余的排队等着。有两个蜡烛槽：两边一起供的点灯台，点得快一倍。' },
     grid: ['........', '........', '........', '........', '........', '........'],
-    sources: [{ x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 4, dir: 0, goods: ['hoop'], every: 2 }, { x: 5, y: 0, dir: 1, goods: ['candle'], every: 4 }],
+    sources: [
+      { x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 4, dir: 0, goods: ['hoop'], every: 2 },
+      { x: 5, y: 0, dir: 1, goods: ['candle'], every: 4 }, { x: 5, y: 5, dir: 3, goods: ['candle'], every: 4, offset: 3 }
+    ],
     stalls: [{ x: 7, y: 3, wants: [{ good: 'lantern lit', n: 6 }] }],
-    tray: { belt: 20, folder: 1, joiner: 1, wick: 1 }, parTidy: 13, parSwift: 28
+    tray: { belt: 20, folder: 1, joiner: 1, wick: 1 }, parTidy: 10, parSwift: 20
   }),
   L({
     id: '3-3', chapter: 3, index: 3, introduces: 'gate',
@@ -163,7 +166,7 @@ export const LEVELS: LevelDef[] = [
     grid: ['........', '........', '........', '........', '........', '........'],
     sources: [{ x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 4, dir: 0, goods: ['hoop'], every: 2 }],
     stalls: [{ x: 7, y: 3, wants: [{ good: 'lantern red fu', n: 8 }] }],
-    tray: { belt: 20, folder: 1, vat: 1, stamp: 1, joiner: 1, sorter: 1, bin: 1 }, vatColors: ['red', 'yellow'], parTidy: 10, parSwift: 26
+    tray: { belt: 20, folder: 1, vat: 1, stamp: 1, joiner: 1, sorter: 1, bin: 1 }, vatColors: ['red', 'yellow'], parTidy: 10, parSwift: 24
   }),
   L({
     id: '4-2', chapter: 4, index: 2, introduces: 'bundler',
@@ -223,7 +226,7 @@ export const CHAPTERS: ChapterDef[] = [
 export const NIGHT_LEVEL: LevelDef = {
   id: 'night', chapter: 0, index: 0, introduces: null, endless: true,
   name: { en: 'Night Shift', zh: '夜班' },
-  hint: { en: 'Orders arrive at stalls A and B. Fill them before their bars run out; three missed orders end the shift.', zh: '订单送到 A、B 两个摊位。进度条走完前做好；误了三单就收工。' },
+  hint: { en: 'Orders arrive at stalls A and B. Fill them before their bars run out; three missed orders end the shift. Pause stops the belts, not the customers.', zh: '订单送到 A、B 两个摊位。进度条走完前做好；误了三单就收工。暂停只停传送带，客人照样在等。' },
   grid: ['..........', '..........', '..........', '..........', '..........', '..........', '..........'],
   sources: [
     { x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 5, dir: 0, goods: ['paper'], every: 2 },
@@ -238,3 +241,12 @@ export const NIGHT_LEVEL: LevelDef = {
 export const levelById = (id: string) => LEVELS.find(l => l.id === id);
 export const LEVEL_IDS = LEVELS.map(l => l.id);
 export const nextLevelId = (id: string) => { const i = LEVEL_IDS.indexOf(id); return i >= 0 ? LEVEL_IDS[i + 1] : undefined; };
+
+/**
+ * Night Shift's tray: the Night parts that appear in levels the player has cleared (clearing 1-5 opens the shift
+ * with belt, folder, vat and joiner). The Daily Order keeps the full NIGHT_LEVEL tray so its queue stays shared.
+ */
+export function nightTray(cleared: (id: string) => boolean): LevelDef['tray'] {
+  const known = new Set(LEVELS.filter(l => cleared(l.id)).flatMap(l => Object.keys(l.tray)));
+  return Object.fromEntries(Object.entries(NIGHT_LEVEL.tray).filter(([kind]) => known.has(kind)));
+}

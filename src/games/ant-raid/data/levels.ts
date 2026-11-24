@@ -262,12 +262,14 @@ const CHAPTER3: LevelDef[] = [
       .....~....~.....`),
     nest: [1, 4], foods: [{ id: 'cookie', kind: 'cookie', x: 14, y: 4, crumbs: 45 }],
     hazards: [],
-    scent: 20, startSugar: 130, cards: ['worker', 'bridger'], sundown: 180, par: 80,
+    // Both bridges are on the house: before the second one stands no Worker can reach food, so spending the opening
+    // Sugar on Workers used to leave a newcomer waiting ~45 s on the trickle for the second Bridger play.
+    scent: 20, startSugar: 100, stock: { bridger: 2 }, cards: ['worker', 'bridger'], sundown: 180, par: 80,
     goal: { kind: 'crumbs', n: 30 }, bonus: { kind: 'scent', n: 14 },
     tutorial: [
       { text: t('Trail up to the water first.', '先把路线铺到水边。'), cells: [[2, 4], [3, 4], [4, 4]], until: { event: 'paint', n: 3 } },
-      { text: t('Pick Bridgers, then tap the water beside your trail. Three of them make one bridge cell.', '选搭桥蚁，再点路线旁边的水面。三只连成一格桥。'), ui: 'bridger', cells: [[5, 4]], until: { event: 'bridge' } },
-      { text: t('Trail across the bridge, then bridge the second stream the same way.', '从桥上铺过去，第二条小溪也照样搭桥。'), until: { event: 'connect' } }
+      { text: t('Pick Bridgers (two free plays today), then tap the water beside your trail. Three of them make one bridge cell.', '选搭桥蚁（今天免费两次），再点路线旁边的水面。三只连成一格桥。'), ui: 'bridger', cells: [[5, 4]], until: { event: 'bridge' } },
+      { text: t('Trail across the bridge, then bridge the second stream the same way. Workers cannot reach the cookie until both streams are crossed.', '从桥上铺过去，第二条小溪也照样搭桥。两条小溪都过了，工蚁才够得着饼干。'), until: { event: 'connect' } }
     ],
     intro: 'c3-intro'
   },
@@ -351,12 +353,12 @@ const CHAPTER3: LevelDef[] = [
       .....~....~.....
       .....~....~.....`),
     nest: [1, 4], foods: [{ id: 'biscuit', kind: 'biscuit', x: 14, y: 1, crumbs: 40, lift: 18 }, { id: 'cookie', kind: 'cookie', x: 3, y: 7, crumbs: 40 }, { id: 'grapes', kind: 'grape', x: 8, y: 1, crumbs: 30 }],
-    hazards: [{ kind: 'kingfisher', x: 8, y: 4, params: { first: 14, period: 8, warn: 2.6 } }],
+    hazards: [{ kind: 'kingfisher', x: 8, y: 4, params: { first: 14, period: 8, warn: 2.6, firstWarn: 5, grace: 1 } }],
     scent: 28, startSugar: 140, sundown: 260, par: 100,
     goal: { kind: 'item', food: 'biscuit' }, bonus: { kind: 'maxLost', n: 8 },
     tutorial: [
-      { text: t('Bluestreak dives at a bridge after a shadow warning. Tap the bridge to lift it: a lifted bridge is safe.', '蓝闪俯冲前会有影子预警。点桥可以收起，收起的桥很安全。'), until: { time: 12 } },
-      { text: t('Ants wait at a lifted bridge. Lower it again once the bird has gone.', '桥收起时蚂蚁会在桥头等。鸟一走就放下来。'), until: { event: 'strike' } }
+      { text: t('Bluestreak dives at a bridge after a shadow warning. When the shadow falls, press Lift (or tap the bridge): a lifted bridge is safe.', '蓝闪俯冲前会有影子预警。影子一出现就按「收桥」（或点桥）：收起的桥很安全。'), until: { time: 12 } },
+      { text: t('Ants wait at a lifted bridge. Press Lower once the bird has gone.', '桥收起时蚂蚁会在桥头等。鸟一走就按「放桥」。'), until: { event: 'strike', n: 2 } }
     ],
     intro: 'boss-kingfisher', outro: 'c3-outro', music: 'boss'
   }

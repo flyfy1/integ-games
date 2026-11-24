@@ -447,7 +447,7 @@ function runOrders(sim: Sim, events: SimEvent[]) {
   if (sim.beat >= sim.nextOrderAt && sim.orders.length < MAX_ORDERS) {
     const busy = sim.stalls.map((_, i) => sim.orders.filter(o => o.stall === i).length);
     const stall = busy.indexOf(Math.min(...busy));
-    const order = nextOrder(sim.rng, sim.served + sim.orders.length, sim.beat, sim.orderSeq++, stall);
+    const order = nextOrder(sim.rng, sim.served + sim.orders.length, sim.beat, sim.orderSeq++, stall, sim.level.tray);
     sim.orders.push(order);
     sim.nextOrderAt = sim.beat + ORDER_GAP(sim.served);
     events.push({ type: 'orderNew', order });
@@ -481,6 +481,19 @@ export function step(sim: Sim): SimEvent[] {
   }
   combine(sim, events);
   if (sim.level.endless && sim.status === 'run') runOrders(sim, events);
+  return events;
+}
+
+/**
+ * Night Shift while paused to edit: the belts stand still but the customers do not. Ages every open order by one
+ * beat, brings the next order a beat closer and runs expiry, exactly as a beat would. The campaign never calls it.
+ */
+export function waitBeat(sim: Sim): SimEvent[] {
+  if (!sim.level.endless || sim.status !== 'run') return [];
+  const events: SimEvent[] = [];
+  for (const order of sim.orders) order.born--;
+  sim.nextOrderAt--;
+  runOrders(sim, events);
   return events;
 }
 

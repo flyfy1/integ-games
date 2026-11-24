@@ -121,6 +121,9 @@ function loadout(ui: UiContext, params: ScreenParams): HTMLElement {
   const required = new Set<CasteId>(['worker', ...(level.required ?? [])]);
   let picked: CasteId[] = level.cards ? [...level.cards] : [...new Set([...save.loadout.filter(id => save.owned.includes(id)), ...required])].slice(0, Math.max(max, required.size));
   const owned = CASTE_ORDER.filter(id => save.owned.includes(id) || required.has(id));
+  // Holding a card costs nothing, so empty slots are filled with owned castes: a newcomer who just presses Start at
+  // 1-4 or the Old Gulp boss must not walk in without the Porter or Soldier they earned in the fixed-hand levels.
+  if (!level.cards) for (const id of owned) if (picked.length < max && !picked.includes(id)) picked.push(id);
   const count = h('span', { class: 'ar-sub' });
   const start = h('button', { class: 'ar-btn primary big', 'data-action': 'start', onclick: () => ui.startRaid(level.id, picked) }, t('loadout.start'));
   const grid = h('div', { class: 'ar-cards' });

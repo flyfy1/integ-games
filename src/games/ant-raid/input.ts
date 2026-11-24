@@ -6,7 +6,7 @@ import type { QueenCall } from './types';
  * In-raid input. Touch / mouse: drag from the anthill or the trail to paint; tap a food to change its priority; with
  * a post card selected, tap a lit cell. Keyboard (and the gamepad bridge): arrows move the cursor, Space paints
  * (hold it while moving to draw), X cuts, 1-6 or Q/E + Enter play cards, T or Tab cycles food priority, S / R / H
- * are the Queen calls, F speed, P or Esc pause. In portrait the yard is rotated, so arrows follow the screen.
+ * are the Queen calls, L lifts or lowers the bridge a kingfisher threatens, F speed, P or Esc pause. In portrait the yard is rotated, so arrows follow the screen.
  */
 export type InputDeps = {
   root: HTMLElement; canvas: HTMLCanvasElement;
@@ -31,6 +31,7 @@ export function attachInput(deps: InputDeps): () => void {
     pointer = event.pointerId;
     try { canvas.setPointerCapture(event.pointerId); } catch { /* synthetic events */ }
     session.dragStart(cell.x, cell.y);
+    root.classList.add('touching');
   };
   const onMove = (event: PointerEvent) => {
     const session = deps.session();
@@ -42,6 +43,7 @@ export function attachInput(deps: InputDeps): () => void {
   const onUp = (event: PointerEvent) => {
     if (pointer !== event.pointerId) return;
     pointer = null;
+    root.classList.remove('touching');
     deps.session()?.dragEnd();
   };
   const onLeave = () => deps.session()?.setHover(null);
@@ -64,6 +66,7 @@ export function attachInput(deps: InputDeps): () => void {
     if (key === 'x') { event.preventDefault(); if (!session.view.card || !session.cancel()) session.eraseAtCursor(); return; }
     if (key === 't' || key === 'Tab') { event.preventDefault(); session.priorityAtCursor(); return; }
     if (QUEEN[key]) { event.preventDefault(); if (!event.repeat) session.queen(QUEEN[key]); return; }
+    if (key === 'l') { event.preventDefault(); if (!event.repeat) session.bridgeAction(); return; }
     if (key === 'f') { event.preventDefault(); if (!event.repeat) deps.toggleSpeed(); return; }
     if (key === 'p' || key === 'Escape') {
       event.preventDefault(); event.stopPropagation();

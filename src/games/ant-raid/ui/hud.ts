@@ -51,7 +51,8 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
   const sun = h('div', { class: 'ar-sun', title: t('hud.sun'), role: 'img', 'aria-label': t('hud.sun') }, sunSvg);
   const speed = h('button', { class: 'ar-icon', 'data-ui': 'speed', 'aria-label': t('hud.speed'), 'aria-pressed': String(session.speed === 2), onclick: () => { actions.toggleSpeed(); speed.setAttribute('aria-pressed', String(session.speed === 2)); speed.textContent = session.speed === 2 ? '»' : '›'; } }, session.speed === 2 ? '»' : '›');
   const pause = h('button', { class: 'ar-icon', 'aria-label': t('hud.pause'), onclick: () => actions.pause() }, 'II');
-  const top = h('div', { class: 'ar-top' }, sugar, scent, goal, alarm, hearts, sun, speed, pause);
+  // On narrow portrait screens the bar is two rows: resources and the sun, then the goal with speed and pause.
+  const top = h('div', { class: 'ar-top' }, sugar, scent, goal, alarm, hearts, sun, h('i', { class: 'ar-brk', 'aria-hidden': 'true' }), speed, pause);
 
   // ------------------------------------------------------------ bottom
   const cardEls = new Map<CasteId, { el: HTMLButtonElement; cd: HTMLElement; stock: HTMLElement; cost: HTMLElement }>();
@@ -84,12 +85,17 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
     queens.append(el);
   }
   const bottom = h('div', { class: 'ar-bottom' }, hand, queens);
+  // Contextual bridge button: appears while a kingfisher's shadow is on a lowered bridge (Lift) and while a bridge
+  // is left lifted after the dive (Lower), so the boss answer is one big tap instead of finding a small cell in time.
+  const bridgeLabel = h('span', null, ''), bridgeKey = h('small', null, ctx.touch ? '' : ' (L)');
+  const bridgeBtn = h('button', { class: 'ar-bridgebtn', 'data-ui': 'bridge', hidden: true, onclick: () => { session.bridgeAction(); ctx.audio.sfx('select'); } }, bridgeLabel, bridgeKey) as HTMLButtonElement;
 
   // ------------------------------------------------------------ coach + toasts
-  const coachText = h('p'), coachCount = h('span'), coach = h('div', { class: 'ar-coach', role: 'status', hidden: true }, coachText,
+  // Tapping the tip folds it to one line (and back), so it never has to sit over the cells it talks about.
+  const coachText = h('p', { onclick: () => coach.classList.toggle('mini') }), coachCount = h('span'), coach = h('div', { class: 'ar-coach', role: 'status', hidden: true }, coachText,
     h('footer', null, coachCount, h('button', { onclick: () => { session.skipTutorial(); ctx.coach.skipAll(); syncCoach(); } }, t('hud.skip'))));
   const toasts = h('div', { class: 'ar-toasts', 'aria-live': 'polite' });
-  const element = h('div', { class: 'ar-hud' }, top, bottom, coach, toasts);
+  const element = h('div', { class: 'ar-hud' }, top, bottom, coach, toasts, bridgeBtn);
 
   let coachIndex = -2, lastCoachUi: string | undefined;
   function syncCoach(): void {
@@ -99,20 +105,20 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
     coachIndex = index;
     element.querySelectorAll('.coach').forEach(el => el.classList.remove('coach'));
     if (!step) { coach.hidden = true; return; }
-    coach.hidden = false;
+    coach.hidden = false; coach.classList.remove('mini');
     text(coachText, i18n.tr(step.text));
     text(coachCount, t('hud.tip', { i: index + 1, n: level.tutorial?.length ?? 1 }));
     lastCoachUi = step.ui;
     if (step.ui) element.querySelector(`[data-card="${step.ui}"], [data-queen="${step.ui}"], [data-ui="${step.ui}"]`)?.classList.add('coach');
   }
 
-  const toast = (message: string, kind: 'bad' | 'good' | '' = '') => {
+  const toast = (message: string, kind: 'bad' | 'good' | '' = '', ms = 2200) => {
     const same = [...toasts.children].find(child => child.textContent === message);
     if (same) same.remove();
     if (toasts.childElementCount > 2) toasts.firstElementChild?.remove();
     const el = h('div', { class: `ar-toast ${kind}` }, message);
     toasts.append(el);
-    setTimeout(() => el.remove(), 2200);
+    setTimeout(() => el.remove(), ms);
   };
   let lastDeny = 0, clock = 0;
 
@@ -120,6 +126,10 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
     element,
     insets() {
       const topH = top.getBoundingClientRect().height || 52, bottomH = bottom.getBoundingClientRect().height || 86;
+      if (element.parentElement?.classList.contains('side')) {
+        const handW = hand.getBoundingClientRect().width, queensW = queens.getBoundingClientRect().width;
+        return { top: topH + 2, right: queensW ? queensW + 12 : 0, bottom: 4, left: handW ? handW + 12 : 0 };
+      }
       return { top: topH + 2, right: 0, bottom: bottomH + 2, left: 0 };
     },
     tick(dt) {
@@ -157,6 +167,9 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
         ui.cd.style.background = k > 0 ? `conic-gradient(rgba(43,29,20,.55) ${k * 360}deg, transparent 0)` : 'none';
         ui.el.classList.toggle('active', q.active > 0);
       }
+      const hint = session.bridgeHint;
+      bridgeBtn.hidden = !hint;
+      if (hint) { text(bridgeLabel, `${hint === 'lift' ? '⤒' : '⤓'} ${t(hint === 'lift' ? 'hud.lift' : 'hud.lower')}`); bridgeBtn.classList.toggle('urgent', hint === 'lift'); }
       syncCoach();
       void lastCoachUi;
     },
@@ -171,6 +184,7 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
           break;
         case 'boss':
           if (event.what === 'nap') toast(t('hud.nap'), 'good');
+          else if (event.what === 'graze') toast(t('hud.graze'), 'bad', 5000);
           else if (event.what.startsWith('arrive')) toast(t('hud.arrive'));
           break;
         case 'rival': if (event.what === 'raid') toast(t('hud.raid'), 'bad'); if (event.what === 'cut') toast(t('hud.cut'), 'good'); break;

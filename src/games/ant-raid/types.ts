@@ -130,6 +130,8 @@ export type LevelDef = {
   night?: boolean;
   /** Puzzle levels: fixed ants, no hatching. */
   fixedAnts?: Partial<Record<CasteId, number>>;
+  /** Free plays of a card at the start (shown as stock on the card), e.g. the Bridgers a bridge lesson hands out. */
+  stock?: Partial<Record<CasteId, number>>;
   /** Passive sugar per second (default 1). */
   trickle?: number;
   boss?: string;

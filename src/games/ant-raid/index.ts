@@ -5,6 +5,7 @@ import { CHAPTERS, ENDLESS_UNLOCK, levelById, LEVEL_LIST, makeEndlessLevel, META
 import { createI18n, defaultLang, type Lang } from './i18n';
 import { attachInput } from './input';
 import { createRenderer, type ViewState } from './render/renderer';
+import { toScreen } from './render/layout';
 import { applyOutcome, buyUpgrade, isUnlocked, loadSave, metaOf, resetSave, respec, writeSave, type Save } from './save';
 import { createSession, type Session } from './session';
 import { starFlags } from './sim';
@@ -94,6 +95,9 @@ export const antRaid: GameModule = {
       root.style.setProperty('--ar-h', `${height}px`);
       root.classList.toggle('compact', width < 640 || height < 480);
       root.classList.toggle('narrow', width < 520);
+      // Short landscape (a phone on its side): the hand and the Queen calls stand in the side margins, so the
+      // yard gets the full height instead of sharing it with a bottom bar.
+      root.classList.toggle('side', height < 520 && width > height * 1.6);
       const pr = Math.min(2, window.devicePixelRatio || 1);
       const pw = Math.round(width * pr), ph = Math.round(height * pr);
       if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
@@ -375,7 +379,13 @@ export const antRaid: GameModule = {
     Object.defineProperty(root, '__ar', { configurable: true, value: {
       get session() { return session; }, get save() { return save; }, get screen() { return screen?.name ?? null; }, get renderer() { return renderer; },
       go: (name: ScreenName, params?: ScreenParams) => go(name, params), start: (id: string, loadout?: CasteId[]) => { const level = levelById(id); if (level) startRaid(level, loadout ?? level.cards ?? save.loadout); },
-      endless: (daily: boolean) => ui.startEndless(daily), persist, levels: LEVEL_LIST.map(level => level.id)
+      endless: (daily: boolean) => ui.startEndless(daily), persist, levels: LEVEL_LIST.map(level => level.id),
+      /** Page-space square of `cells` cells around yard point (x, y), for the art capture's icon close-up. */
+      clip(x: number, y: number, cells: number) {
+        const rect = canvas.getBoundingClientRect(), L = renderer.layout, k = rect.width / L.width;
+        const c = toScreen(L, x, y), half = (cells * L.cell) / 2;
+        return { x: rect.left + window.scrollX + (c.x - half) * k, y: rect.top + window.scrollY + (c.y - half) * k, width: 2 * half * k, height: 2 * half * k };
+      }
     } });
 
     layout();

@@ -1,12 +1,12 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { dailyKey, dailySeed, dailyShareText, readDaily, recordDaily } from '../_shared/daily';
 import { createAudio } from './audio';
-import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById, nextLevelId } from './data/levels';
+import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById, nextLevelId, nightTray } from './data/levels';
 import { createI18n, defaultLang, type Key, type Lang } from './i18n';
 import { DIAL_NAMES, PARTS, PART_ORDER, dialOptions } from './parts';
 import { createRenderer, type Tool, type ViewState } from './render/renderer';
 import { isUnlocked, loadSave, nightUnlocked, recordWin, totalStars, writeSave, type Save } from './save';
-import { DX, DY, T, applyEdit, buildOf, createSim, loadBuild, partAt, partsUsed, resetRun, run, starsOf, step, trayLeft, type Sim } from './sim';
+import { DX, DY, T, applyEdit, buildOf, createSim, loadBuild, partAt, partsUsed, resetRun, run, starsOf, step, trayLeft, waitBeat, type Sim } from './sim';
 import type { Dir, Edit, LevelDef, Part, PartKind, SimEvent } from './types';
 import { dialIcon, goodIcon, partIcon } from './ui/icons';
 import { STYLES } from './ui/styles';
@@ -27,9 +27,16 @@ type Play = {
   drawFrom: Pos | null;
   daily?: string;
   freshStars?: boolean[];
+  /** The first jam of a visit gets an explanation; later ones only the floating "!". */
+  jamTold?: boolean;
+  /** Night Shift: real time spent paused mid-shift, paid out as order-ageing beats. */
+  wait?: number;
 };
 
 const BEAT = 0.34;
+/** One key per tray slot, printed on the chip: 1-9, then 0, - and = (and ] for a thirteenth part). */
+const TOOL_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', ']'] as const;
+const trayKinds = (level: LevelDef) => PART_ORDER.filter(k => level.tray[k] !== undefined);
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> | null = null, ...children: (Node | string | null | undefined | false)[]) => {
   const el = document.createElement(tag);
   if (props) for (const [k, v] of Object.entries(props)) {
@@ -52,7 +59,7 @@ export const lanternWorks: GameModule = {
   meta: {
     slug: 'lantern-works', title: 'Lantern Works', category: 'puzzle',
     description: 'Lay belts, fold, dye and light: build a little workshop that fills every festival order.',
-    instructions: 'Pick a part from the tray and tap the floor to place it; drag to draw belts. Tap a machine to rotate it or change its setting, then press Run and watch: every machine plays a note on the beat. Keys: arrows move, 1-9 pick, Space places (hold to draw), R rotate, T setting, X remove, Z undo, Enter run, F speed.',
+    instructions: 'Pick a part from the tray and tap the floor to place it; drag to draw belts. Tap a machine to rotate it or change its setting, then press Run and watch: every machine plays a note on the beat. Keys: arrows move, 1-9 0 - = pick (shown on each part), Space places (hold to draw), R rotate, T setting, X remove, Z undo, Enter run, F speed.',
     accent: '#ffb347', mechanic: 'Build conveyor factories that fill orders'
   },
   mount(host: HTMLElement, services: GameServices): GameController {
@@ -106,6 +113,7 @@ export const lanternWorks: GameModule = {
       height = Math.floor(height);
       root.style.setProperty('--lw-h', `${height}px`);
       root.classList.toggle('compact', width < 420 || height < 520);
+      root.classList.toggle('tall', height > width * 1.25);
       const ratio = Math.min(2, window.devicePixelRatio || 1);
       const pw = Math.round(width * ratio), ph = Math.round(height * ratio);
       if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
@@ -300,8 +308,10 @@ export const lanternWorks: GameModule = {
       if (!nightUnlocked(save)) return;
       const key = dailyKey();
       const seed = mode === 'daily' ? dailySeed('lantern-works', key) : (Math.floor(services.random() * 2 ** 31) || 7);
-      // Every part is in the Night Shift tray, so every order on the shared Daily queue can be made by everyone.
-      const p = newPlay(NIGHT_LEVEL, mode, seed, save.night.build);
+      // Night Shift offers the parts of the chapters you have cleared (and only orders they can make). The Daily Order
+      // keeps every part, so every order on the shared queue can be made by everyone.
+      const level = mode === 'daily' ? NIGHT_LEVEL : { ...NIGHT_LEVEL, tray: nightTray(id => !!save.levels[id]?.stars[0]) };
+      const p = newPlay(level, mode, seed, save.night.build);
       p.daily = mode === 'daily' ? key : undefined;
       enterLevel(p);
     }
@@ -317,7 +327,13 @@ export const lanternWorks: GameModule = {
       if (!play) return;
       const build = buildOf(play.sim);
       if (play.mode === 'campaign') { const rec = save.levels[play.level.id] ?? { stars: [false, false, false], bestParts: null, bestBeats: null }; rec.build = build; save.levels[play.level.id] = rec; }
-      else save.night.build = build;
+      else {
+        // Night and Daily share one build. A gated Night tray cannot place parts it does not hold (say a Mixer from a
+        // Daily build), so keep those saved parts rather than erase them, unless something new now sits in their cell.
+        const tray = play.level.tray;
+        const kept = (save.night.build ?? []).filter(q => tray[q.kind] === undefined && !build.some(b => b.x === q.x && b.y === q.y));
+        save.night.build = [...build, ...kept];
+      }
       persist();
     }
     let buildTimer: ReturnType<typeof setTimeout> | null = null;
@@ -334,18 +350,21 @@ export const lanternWorks: GameModule = {
       const orders = h('div', { class: 'lw-orders', 'aria-live': 'polite' });
       titleRow.append(orders);
       const chips = h('div', { class: 'lw-chips' });
-      top.append(titleRow, chips);
+      // The level's hint stays on screen in portrait, where there is room: the intro card is gone once building starts.
+      const gated = p.level.endless && Object.keys(p.level.tray).length < Object.keys(NIGHT_LEVEL.tray).length;
+      top.append(titleRow, chips, h('p', { class: 'lw-hint', text: gated ? t('night.tray') : i18n.tr(p.level.hint) }));
       const tray = h('div', { class: 'lw-tray', role: 'toolbar', 'aria-label': 'Parts' });
       const tools: { kind: Tool; el: HTMLButtonElement; count?: HTMLElement }[] = [];
-      const kinds = PART_ORDER.filter(k => p.level.tray[k] !== undefined);
+      const kinds = trayKinds(p.level);
       kinds.forEach((kind, i) => {
         const count = h('b');
         const fresh = p.level.introduces === kind && kind !== 'belt';
         const el = h('button', { class: `lw-tool${fresh ? ' fresh' : ''}`, 'aria-label': i18n.tr(PARTS[kind].name), title: `${i18n.tr(PARTS[kind].name)}: ${i18n.tr(PARTS[kind].does)}`, onclick: () => { audio.unlock(); selectTool(kind); } },
-          img(partIcon(kind)), h('i', { text: String(i + 1) }), count) as HTMLButtonElement;
+          img(partIcon(kind)), h('i', { text: TOOL_KEYS[i] ?? '' }), count) as HTMLButtonElement;
         tools.push({ kind, el, count }); tray.append(el);
       });
-      const eraseEl = h('button', { class: 'lw-tool', 'aria-label': t('hud.erase'), title: t('hud.erase'), onclick: () => selectTool('erase') }, h('span', { style: 'font-size:1.5rem', text: '✕' })) as HTMLButtonElement;
+      const eraseKey = kinds.length < 10 ? '0' : '';
+      const eraseEl = h('button', { class: 'lw-tool', 'aria-label': t('hud.erase'), title: t('hud.erase'), onclick: () => selectTool('erase') }, h('span', { style: 'font-size:1.5rem', text: '✕' }), eraseKey ? h('i', { text: eraseKey }) : null) as HTMLButtonElement;
       tools.push({ kind: 'erase', el: eraseEl }); tray.append(eraseEl);
       const runBtn = h('button', { class: 'lw-btn primary run', onclick: () => { audio.unlock(); toggleRun(); } }) as HTMLButtonElement;
       const speedBtn = h('button', { class: 'lw-btn', 'aria-label': t('hud.speed'), onclick: () => cycleSpeed() }) as HTMLButtonElement;
@@ -391,6 +410,7 @@ export const lanternWorks: GameModule = {
         const list: [string, string][] = [];
         if (level.endless) {
           list.push([t('hud.score', { n: sim.score }), 'good'], [t('hud.strikes', { n: sim.strikes }), sim.strikes ? 'bad' : ''], [t('hud.beat', { n: sim.beat }), 'dim']);
+          if (running && !play.running) list.push([t('night.waiting'), 'bad']);
         } else {
           list.push([t('hud.beat', { n: sim.beat }), running && sim.wonAt === null && sim.beat > level.parSwift ? 'dim' : '']);
           list.push([`${t('hud.parts', { n: parts })} · ${t('hud.tidy', { n: level.parTidy })}`, parts <= level.parTidy ? 'good' : 'dim']);
@@ -412,16 +432,39 @@ export const lanternWorks: GameModule = {
 
     // ------------------------------------------------------------ popover for a selected machine
     function closePop() { pop?.remove(); pop = null; }
+    /**
+     * The machine menu never sits on the floor it edits. It docks in the empty band below (or above) the board when
+     * there is one (portrait phones), else in a side margin wide enough (desktop), else on the half of the board away
+     * from the selected cell (short landscape). The renderer's insets do not change, so the board never jumps.
+     */
     function placePop() {
       if (!pop || !play?.selected) return;
-      const c = renderer.center(play.selected.x, play.selected.y), s = renderer.layout.cell;
-      const w = pop.offsetWidth || 220, ph = pop.offsetHeight || 120;
-      const left = clamp(c.x - w / 2, 4, renderer.layout.width - w - 4);
-      let top = c.y - s * 0.6 - ph;
-      const minTop = (hud?.top.offsetHeight ?? 0) + 2;
-      if (top < minTop) top = c.y + s * 0.6;
-      if (top + ph > renderer.layout.height - (hud?.bottom.offsetHeight ?? 0)) top = Math.max(minTop, c.y - ph / 2);
-      pop.style.left = `${left}px`; pop.style.top = `${top}px`;
+      const L = renderer.layout, c = renderer.center(play.selected.x, play.selected.y), s = L.cell;
+      let w = pop.offsetWidth || 220, ph = pop.offsetHeight || 120;
+      const gap = 6;
+      const minTop = (hud?.top.offsetHeight ?? 0) + 2, maxBottom = L.height - (hud?.bottom.offsetHeight ?? 0) - 2;
+      // The frame is drawn a little outside the cells; the lantern string hangs 0.8 cell above them.
+      const boardTop = L.oy - s * 0.8, boardBottom = L.oy + L.h * s + s * 0.3, boardLeft = L.ox - s * 0.25, boardRight = L.ox + L.w * s + s * 0.25;
+      const below = maxBottom - boardBottom, above = boardTop - minTop;
+      let left: number, top: number;
+      pop.classList.remove('docked');
+      pop.style.maxWidth = '';
+      // A side margin of at least 190 px takes the menu, narrowed to fit (desktop and phones on their side).
+      const sideRoom = Math.max(L.width - boardRight, boardLeft) - gap * 2;
+      if (Math.max(below, above) < ph + gap * 2 && sideRoom >= 190 && sideRoom < w) { pop.style.maxWidth = `${sideRoom}px`; w = pop.offsetWidth; ph = pop.offsetHeight; }
+      if (Math.max(below, above) >= ph + gap * 2) {
+        pop.classList.add('docked'); left = (L.width - pop.offsetWidth) / 2;
+        top = below >= above ? boardBottom + gap : boardTop - pop.offsetHeight - gap;
+      }
+      else if (L.width - boardRight >= w + gap * 2 || boardLeft >= w + gap * 2) {
+        left = L.width - boardRight >= w + gap * 2 ? boardRight + gap : boardLeft - w - gap;
+        top = clamp(c.y - ph / 2, minTop, maxBottom - ph);
+      } else {
+        // Far side: the opposite corner from the cell, so the cell and its neighbours stay in view.
+        left = c.x < L.width / 2 ? L.width - w - 4 : 4;
+        top = c.y < (boardTop + boardBottom) / 2 ? maxBottom - ph : minTop;
+      }
+      pop.style.left = `${clamp(left, 4, L.width - pop.offsetWidth - 4)}px`; pop.style.top = `${clamp(top, minTop, Math.max(minTop, maxBottom - ph))}px`;
     }
     function openPop(pos: Pos) {
       closePop();
@@ -534,6 +577,17 @@ export const lanternWorks: GameModule = {
       if (d === undefined) return;
       const pa = partAt(sim, a.x, a.y);
       if (floorAt(a) && (!pa || pa.kind === 'belt') && (!pa || pa.dir !== d) && edit({ op: 'place', kind: 'belt', x: a.x, y: a.y, dir: d }, !gesture.snapped, true)) gesture.snapped = true;
+      // Dragging out of a machine aims its output that way (newcomers draw the belt first and expect the machine to follow).
+      else if (pa && pa.kind !== 'belt' && !pa.fixed && pa.kind !== 'bin' && pa.kind !== 'bridge' && pa.dir !== d && !partAt(sim, b.x, b.y)) {
+        let ok = false;
+        if (pa.kind === 'sorter') ok = edit({ op: 'place', kind: 'sorter', x: a.x, y: a.y, dir: d, dial: pa.dial, flip: pa.flip }, !gesture.snapped, true);
+        else for (let k = 0; k < 3 && !ok; k++) {
+          if (!edit({ op: 'rotate', x: a.x, y: a.y }, !gesture.snapped, true)) break;
+          gesture.snapped = true;
+          ok = partAt(sim, a.x, a.y)?.dir === d;
+        }
+        if (ok) { gesture.snapped = true; say(t('hud.aimed', { part: i18n.tr(PARTS[pa.kind].name) }), 1400); }
+      }
       const pb = partAt(sim, b.x, b.y);
       if (floorAt(b) && !pb && edit({ op: 'place', kind: 'belt', x: b.x, y: b.y, dir: d }, !gesture.snapped, true)) gesture.snapped = true;
       audio.ui('tap');
@@ -625,9 +679,9 @@ export const lanternWorks: GameModule = {
       }
       if (k === ' ') { e.preventDefault(); if (!e.repeat) { spaceHeld = true; spaceGesture = { snapped: false }; play.cursor ??= cur; placeTool(play.cursor); } return; }
       const lower = k.length === 1 ? k.toLowerCase() : k;
-      const kinds = PART_ORDER.filter(p => play!.level.tray[p] !== undefined);
-      if (/^[1-9]$/.test(k)) { const kind = kinds[Number(k) - 1]; if (kind) { e.preventDefault(); selectTool(kind); } return; }
-      if (k === '0') { selectTool(kinds[9] ?? 'erase'); return; }
+      const kinds = trayKinds(play.level);
+      const slot = (TOOL_KEYS as readonly string[]).indexOf(k);
+      if (slot >= 0) { const kind = kinds[slot] ?? (k === '0' ? 'erase' : undefined); if (kind) { e.preventDefault(); selectTool(kind); } return; }
       const at = play.cursor ?? play.selected;
       switch (lower) {
         case 'q': case 'e': {
@@ -687,7 +741,8 @@ export const lanternWorks: GameModule = {
           services.reportComplete(campaignNumber(p.level.id));
           renderer.celebrate(p.sim, p.level.id === '4-5' || p.level.index === 5);
           setTimeout(() => { if (play === p && !p.winShown && !card) { p.winShown = true; winCard(); } }, reducedNow() ? 600 : 1900);
-        } else if (e.type === 'spoiled') { p.running = false; setTimeout(() => { if (play === p && !card) spoilCard(); }, 700); }
+        } else if (e.type === 'jam' && !p.jamTold && p.mode === 'campaign') { p.jamTold = true; say(t('hud.jam'), 4200); }
+        else if (e.type === 'spoiled') { p.running = false; setTimeout(() => { if (play === p && !card) spoilCard(); }, 700); }
         else if (e.type === 'shiftOver') {
           p.running = false;
           const newBest = e.score > save.night.best;
@@ -723,7 +778,15 @@ export const lanternWorks: GameModule = {
           }
           if (play.acc > beatDur) play.acc = 0;
           beatT = play.acc / beatDur;
-        } else beatT = 1;
+        } else {
+          beatT = 1;
+          // Night Shift paused mid-shift: the belts stop but the orders keep ageing at the normal 1x beat.
+          if (play.mode !== 'campaign' && sim.status === 'run' && !play.running && !card && !screen) {
+            play.wait = (play.wait ?? 0) + dt;
+            let guard = 0;
+            while (play.wait >= BEAT && guard++ < 4) { play.wait -= BEAT; const ev = waitBeat(sim); renderer.onEvents(sim, ev); audio.beat(ev, BEAT); handle(ev); }
+          }
+        }
         hud?.update();
       }
       renderer.update(dt);

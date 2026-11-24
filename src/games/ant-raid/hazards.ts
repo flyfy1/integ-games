@@ -285,7 +285,8 @@ const kingfisher: Handler = {
       bridges.sort((a, b) => crowd(sim, b) - crowd(sim, a) || a - b);
       h.cells = [bridges[0]];
       h.px = cx(bridges[0]); h.py = cy(bridges[0]);
-      h.phase = 1; h.warn = num(h, 'warn', 3) + extraWarn(sim) * 2;
+      // The first dive of the day gives a longer shadow (`firstWarn`): that is when a newcomer learns to lift.
+      h.phase = 1; h.warn = (h.count === 0 ? num(h, 'firstWarn', num(h, 'warn', 3)) : num(h, 'warn', 3)) + extraWarn(sim) * 2;
       emit(sim, { type: 'warn', kind: 'dive', cells: h.cells, x: h.px, y: h.py, time: h.warn });
       return;
     }
@@ -294,7 +295,10 @@ const kingfisher: Handler = {
     if (h.warn > 0) return;
     const c = h.cells[0];
     let hits = 0;
-    if (sim.bridged[c]) {
+    h.count++;
+    // `grace` dives only graze a lowered bridge: nobody falls and the bridge holds, and the HUD explains the lift.
+    if (sim.bridged[c] && h.t < num(h, 'grace', 0)) { h.t++; emit(sim, { type: 'boss', what: 'graze' }); }
+    else if (sim.bridged[c]) {
       for (const ant of sim.ants) if (ant.alive && ant.caste === 'bridger' && ant.post === c && ant.state === 'post') { killAnt(sim, ant, 'dive'); hits++; }
       if (sim.bridged[c]) { sim.bridged[c] = 0; emit(sim, { type: 'bridge', cell: c, up: false }); dropOffBridge(sim, c); }
     }

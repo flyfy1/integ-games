@@ -90,6 +90,36 @@ describe('ant-raid session input', () => {
     expect(session.view.card).toBeNull();
     expect(session.sim.queue.some(q => q.caste === 'soldier' && q.post === idx(5, 4))).toBe(true);
   });
+  it('Bluestreak: the first dive only grazes a lowered bridge, then the Lift / Lower button saves it', () => {
+    const session = createSession(levelById('3-5')!, { random: mulberry32(1), loadout: ['worker', 'porter', 'bridger'] });
+    const sim = session.sim, bridge = idx(5, 4);
+    for (let x = 2; x <= 4; x++) paint(sim, idx(x, 4));
+    playCard(sim, 'bridger', bridge);
+    const bridgers = () => sim.ants.filter(a => a.alive && a.caste === 'bridger').length;
+    const until = (ok: () => boolean, limit = 60) => { const events = []; for (let t = 0; t < limit && !ok(); t += 0.1) events.push(...session.advance(0.1)); return events; };
+    until(() => !!sim.bridged[bridge]);
+    expect(sim.bridged[bridge]).toBe(1);
+    for (let x = 5; x <= 9; x++) paint(sim, idx(x, 4));
+    const dive = sim.hazards.find(h => h.kind === 'kingfisher')!;
+    // First dive: the shadow is long, the button says Lift, and a newcomer who ignores it loses nobody.
+    until(() => dive.phase === 1);
+    expect(dive.warn).toBeGreaterThan(4);
+    expect(session.bridgeHint).toBe('lift');
+    const before = bridgers();
+    const events = until(() => dive.phase === 0, 10);
+    expect(events.some(e => e.type === 'boss' && e.what === 'graze')).toBe(true);
+    expect(bridgers()).toBe(before);
+    expect(sim.bridged[bridge]).toBe(1);
+    // Second dive: Lift from the button, the dive misses, and Lower puts the bridge back.
+    until(() => dive.phase === 1);
+    session.bridgeAction();
+    expect(sim.bridged[bridge]).toBe(0);
+    until(() => dive.phase === 0, 10);
+    expect(bridgers()).toBe(before);
+    expect(session.bridgeHint).toBe('lower');
+    session.bridgeAction();
+    expect(sim.bridged[bridge]).toBe(1);
+  });
   it('a tap on a starred food cycles its priority', () => {
     const session = createSession(levelById('1-2')!, { random: mulberry32(1) });
     session.dragStart(1, 4); for (let x = 2; x <= 7; x++) session.dragTo(x, 4); for (let y = 5; y <= 7; y++) session.dragTo(7, y); session.dragEnd();

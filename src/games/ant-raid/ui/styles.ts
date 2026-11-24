@@ -34,7 +34,7 @@ export const STYLES = `
 /* screens */
 .ar-screen{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;overflow-y:auto;overflow-x:hidden;padding:14px 16px 20px;
   background:radial-gradient(120% 90% at 50% 0%,rgba(63,117,54,.55),rgba(20,40,18,.9));-webkit-overflow-scrolling:touch;animation:ar-fade .22s ease-out}
-.ar-screen.clear{background:radial-gradient(90% 70% at 50% 45%,rgba(20,40,18,.15),rgba(20,40,18,.75))}
+.ar-screen.clear{background:radial-gradient(90% 70% at 50% 45%,rgba(20,40,18,.62),rgba(20,40,18,.88))}
 .ar-screen button{scroll-margin:70px 0 90px}
 @keyframes ar-fade{from{opacity:0}to{opacity:1}}
 .ar.reduced .ar-screen,.ar.reduced .ar-toast,.ar.reduced .ar-coach{animation:none}
@@ -51,11 +51,15 @@ export const STYLES = `
 .ar-stars i.on{color:var(--honey);text-shadow:0 1px 0 var(--ink)}
 
 /* title */
-.ar-title{justify-content:center;gap:14px;text-align:center;background:radial-gradient(80% 60% at 50% 40%,rgba(20,40,18,.25),rgba(20,40,18,.82))}
-.ar-logo{font-size:clamp(40px,8vw,70px);font-weight:900;line-height:.95;color:#fff1c0;text-shadow:0 4px 0 var(--ink),0 0 24px rgba(255,201,74,.45);letter-spacing:-1px}
+.ar-title{gap:14px;text-align:center;background:radial-gradient(80% 60% at 50% 40%,rgba(20,40,18,.25),rgba(20,40,18,.82))}
+.ar-title>:first-child{margin-top:auto}
+.ar-title>:last-child{margin-bottom:auto}
+.ar-logo{font-size:clamp(34px,min(8vw,10vh),70px);font-weight:900;line-height:.95;color:#fff1c0;text-shadow:0 4px 0 var(--ink),0 0 24px rgba(255,201,74,.45);letter-spacing:-1px}
 .ar-logo-zh{font-size:var(--fs-l);font-weight:900;letter-spacing:6px;color:#ffe9a8;text-shadow:0 2px 0 var(--ink)}
 .ar-tag{max-width:440px;font-size:var(--fs-m);color:var(--paper);text-shadow:0 2px 0 rgba(0,0,0,.4)}
-.ar-menu{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:min(440px,100%)}
+.ar-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:min(440px,100%)}
+.ar-menu .ar-btn{min-width:0;padding-left:10px;padding-right:10px;white-space:normal;text-align:center;line-height:1.2}
+@media (max-height:500px){.ar-title{gap:8px;padding-top:8px}.ar-title .ar-tag{display:none}.ar-menu .ar-btn.big{min-height:50px}}
 .ar-menu .wide{grid-column:1/-1}
 .ar-lang{display:flex;border:3px solid var(--ink);border-radius:14px;overflow:hidden;box-shadow:0 4px 0 var(--ink)}
 .ar-lang button{flex:1;min-height:44px;border:0;background:#3a6b31;color:var(--paper);font-weight:800}
@@ -132,7 +136,7 @@ export const STYLES = `
 .ar-coach{position:absolute;left:50%;bottom:var(--ar-bottom,96px);z-index:4;transform:translateX(-50%);width:min(440px,calc(100% - 20px));padding:10px 14px;border-radius:16px;background:linear-gradient(var(--paper),var(--paper2));color:var(--ink);border:3px solid var(--ink);box-shadow:0 5px 0 rgba(0,0,0,.35);pointer-events:none;animation:ar-fade .25s}
 .ar-coach button{pointer-events:auto}
 .ar.rot .ar-coach{bottom:auto;top:var(--ar-top,60px)}
-.ar.rot .ar-toasts{top:auto;bottom:var(--ar-bottom,96px)}
+.ar.rot .ar-toasts{top:auto;bottom:calc(var(--ar-bottom,96px) + 62px)}
 .ar.is-immersive .ar-top,.ar.is-immersive .ar-head{padding-left:56px}
 .ar-coach p{font-size:var(--fs-m);font-weight:800}
 .ar-coach footer{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:var(--fs-xs);font-weight:800;color:var(--red2)}
@@ -177,10 +181,47 @@ export const STYLES = `
 .ar.compact .ar-queen .glyph{font-size:17px}
 .ar.compact .ar-pill{min-height:36px;padding:3px 8px;font-size:14px}
 .ar.compact .ar-sun{width:50px}
+.ar-brk{display:none}
 .ar.narrow .ar-pill .lbl{display:none}
-.ar.narrow .ar-bottom{flex-wrap:wrap}
-.ar.narrow .ar-hand{order:2;width:100%;justify-content:center}
-.ar.narrow .ar-queens{order:1}
-.ar.narrow .ar-top{flex-wrap:wrap}
-.ar.narrow .ar-pill.goal{order:5;flex-basis:100%}
+.ar.narrow .ar-pill .bar{width:40px}
+.ar.narrow .ar-pill{gap:5px;padding:3px 7px}
+/* Narrow (portrait phone): every row taken from the HUD is board height, and the board is height-bound there.
+   Top: two rows. Bottom: hand and Queen calls share one row when they fit; otherwise the calls wrap above it. */
+.ar.narrow .ar-top{flex-wrap:wrap;row-gap:4px;padding-top:4px;padding-bottom:2px}
+.ar.narrow .ar-brk{display:block;order:4;flex-basis:100%;height:0}
+.ar.narrow .ar-pill.goal{order:5;flex:1 1 0}
+.ar.narrow .ar-top [data-ui=speed]{order:6}
+.ar.narrow .ar-top .ar-icon:last-child{order:7}
+.ar.narrow .ar-top .ar-icon{width:40px;height:38px;min-height:38px}
+.ar.narrow .ar-bottom{flex-wrap:wrap-reverse;align-items:center;row-gap:4px;gap:4px;padding:4px 4px 6px}
+.ar.narrow .ar-hand{gap:4px;padding:4px;max-width:100%}
+.ar.narrow .ar-card{width:56px;min-width:56px;height:64px}
+.ar.narrow .ar-card b{font-size:10.5px;letter-spacing:-.2px}
+.ar.narrow .ar-card canvas{width:28px;height:24px}
+.ar.narrow .ar-hand .ar-icon{width:40px;height:40px;min-height:40px;align-self:center}
+.ar.narrow .ar-queens{gap:4px}
+.ar.narrow .ar-queen{width:46px;height:56px;border-radius:16px;font-size:9.5px}
+.ar.narrow .ar-queen .key{display:none}
+/* While a finger is on the yard the coach bubble steps back so it never hides the cells being drawn. */
+.ar-coach{transition:opacity .15s}
+.ar.touching .ar-coach{opacity:.18}
+.ar-coach p{pointer-events:auto;cursor:pointer}
+.ar.narrow .ar-coach{padding:7px 12px;border-radius:14px;width:calc(100% - 16px)}
+.ar.narrow .ar-coach p{font-size:15px;line-height:1.25}
+.ar.narrow .ar-coach footer{margin-top:2px}
+.ar.narrow .ar-coach button{min-height:30px}
+.ar.ar .ar-coach.mini{width:auto;max-width:calc(100% - 16px);padding:4px 12px}
+.ar.ar .ar-coach.mini p{font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70vw}
+.ar.ar .ar-coach.mini footer{display:none}
+/* side: short landscape. Hand down the left edge, Queen calls down the right, the yard between them. */
+.ar.side .ar-bottom{top:var(--ar-top,56px);bottom:0;align-items:center;justify-content:space-between;padding:4px 6px 6px}
+.ar.side .ar-hand{flex-direction:column;align-items:center;max-height:100%;overflow-y:auto;overflow-x:hidden}
+.ar.side .ar-queens{flex-direction:column}
+.ar.side .ar-coach{bottom:8px;width:min(440px,calc(100% - 180px));padding:6px 12px}
+.ar.side .ar-coach p{font-size:15px;line-height:1.25}
+.ar.side .ar-coach footer{margin-top:2px}
+.ar-bridgebtn{position:absolute;left:50%;bottom:calc(var(--ar-bottom,96px) + 4px);transform:translateX(-50%);z-index:5;min-height:52px;padding:8px 22px;border-radius:999px;border:3px solid var(--ink);background:linear-gradient(#ffe08a,var(--honey) 50%,var(--honey2));color:var(--ink);font-weight:900;font-size:var(--fs-l);box-shadow:0 4px 0 var(--ink);pointer-events:auto;white-space:nowrap}
+.ar-bridgebtn small{font-size:var(--fs-xs);opacity:.7}
+.ar-bridgebtn.urgent{background:linear-gradient(#ff9a8a,var(--red) 60%,var(--red2));color:#fff;animation:ar-glow .45s infinite alternate}
+.ar.reduced .ar-bridgebtn.urgent{animation:none}
 `;

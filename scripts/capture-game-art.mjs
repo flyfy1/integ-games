@@ -150,6 +150,29 @@ const safeInteraction = {
   }
 };
 
+// Crumb Raiders' icon is a close-up, not the yard: a Porter crew carrying the strawberry home along a scent trail.
+async function antRaidIcon(page) {
+  const clip = await page.evaluate(async () => {
+    const ar = document.querySelector('[data-ant-raid]').__ar;
+    ar.start('1-2', ['worker', 'porter']);
+    const S = await import('/src/games/ant-raid/sim.ts');
+    const sim = ar.session.sim;
+    const id = (x, y) => y * 16 + x;
+    let prev = sim.nest;
+    for (const [x, y] of [[2, 4], [3, 4], [4, 4], [5, 4], [6, 4], [7, 4], [8, 4], [9, 4], [10, 4], [11, 4], [12, 4], [12, 3], [12, 2]]) { S.paint(sim, id(x, y), prev); prev = id(x, y); }
+    sim.sugar = 900;
+    const berry = sim.foods.find((f) => f.id === 'berry');
+    // Exactly three Porters (lift 9): big ants, all of them visible around the berry.
+    for (let i = 0; i < 3000 && !(berry.moving && berry.px < 9.4); i += 1) { if (i % 60 === 0 && i <= 120) S.playCard(sim, 'porter'); S.step(sim); }
+    S.drainEvents(sim);
+    ar.renderer.clean = true;
+    return ar.clip(berry.px - 0.2, berry.py, 2.1);
+  });
+  await page.addStyleTag({ content: '.ar-hud{display:none!important}' });
+  await page.waitForTimeout(500);
+  return page.screenshot({ type: 'png', clip });
+}
+
 function jpegSize(buffer) {
   if (buffer[0] !== 0xff || buffer[1] !== 0xd8) throw new Error('not a JPEG');
   for (let index = 2; index < buffer.length - 9;) {
@@ -195,7 +218,9 @@ async function verify() {
   console.log(`Verified ${expected.length} JPEGs (${Math.round(total / 1024)} KiB total).`);
 }
 
-const vite = await createServer({ root, logLevel: 'error', server: { host: '127.0.0.1', port: 5189, strictPort: true } });
+// ART_PORT lets a second checkout capture while another one holds 5189.
+const port = Number(process.env.ART_PORT ?? 5189);
+const vite = await createServer({ root, logLevel: 'error', server: { host: '127.0.0.1', port, strictPort: true } });
 let browser;
 try {
   await mkdir(outputDir, { recursive: true });
@@ -209,7 +234,7 @@ try {
   });
   const composer = await context.newPage();
   for (const slug of selectedSlugs) {
-    await page.goto(`http://127.0.0.1:5189/play/${slug}${slug === 'ashfall' ? '?ashfall-debug' : ''}`, { waitUntil: 'networkidle' });
+    await page.goto(`http://127.0.0.1:${port}/play/${slug}${slug === 'ashfall' ? '?ashfall-debug' : ''}`, { waitUntil: 'networkidle' });
     await page.locator('[data-stage]').waitFor({ state: 'visible' });
     await page.waitForFunction(() => !document.querySelector('[data-stage][aria-busy]'));
     const target = page.locator(slug === 'merge-2048' ? '.merge-game' : slug === 'capital-quiz' ? '.game-stage [data-cq]' : '.game-stage canvas').first();
@@ -225,8 +250,9 @@ try {
     // cover keeps both fruits legible, so it is the most recognisable icon crop.
     // Lantern Works' icon is a close-up of the finale's red stall and its wick, not the whole workshop.
     const iconSource = slug === 'lantern-works' ? await page.screenshot({ type: 'png', clip: await page.evaluate(() => document.querySelector('[data-lantern-works]').__lw.clip(6, 0, 9, 3)) })
-      : (slug === 'fruit-merge' || slug === 'midnight-kitchen' || slug === 'ant-raid') ? await readFile(coverPath) : source;
-    await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen' || slug === 'ant-raid') ? 'image/jpeg' : 'image/png' });
+      : slug === 'ant-raid' ? await antRaidIcon(page)
+      : (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
+    await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' || slug === 'ant-raid' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? 'image/jpeg' : 'image/png' });
     console.log(`Captured ${slug}`);
   }
   await verify();
