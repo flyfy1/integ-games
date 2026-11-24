@@ -15,15 +15,16 @@ import type { Particle, Popup } from './types';
 const ACCENT = '#ff9f1c';
 
 /**
- * A stage is open once it has been ridden, or the stage before it in play order has. The original four stages also
- * open from the old straight 1-2-3-4 chain, so a save from before the coasts loses nothing.
+ * A stage is open once it has been ridden, or the stage before it in play order has. For a save that already had
+ * progress on the original four stages before the coasts arrived (`legacy`), those four also keep opening along the
+ * old straight 1-2-3-4 chain, so nobody loses a stage they could play before.
  */
-export function stageOpen(id: number, bests: readonly (StageBest | null | undefined)[]): boolean {
+export function stageOpen(id: number, bests: readonly (StageBest | null | undefined)[], legacy = false): boolean {
   if (bests[id]) return true;
   const pos = ORDER.indexOf(id);
   if (pos === 0) return true;
   if (pos > 0 && bests[ORDER[pos - 1]]) return true;
-  return id > 0 && id <= 3 && !!bests[id - 1];
+  return legacy && id > 0 && id <= 3 && !!bests[id - 1];
 }
 /** The next stage on the same coast, or -1 after its finale. */
 export function nextInCoast(id: number): number {
@@ -162,7 +163,11 @@ export const pelicanBike: GameModule = {
     // Normal and storm bests are kept apart ('stages' is the original key, by stage id).
     const bests = loadBests('stages');
     const stormBests = loadBests('storm');
-    const isOpen = (id: number) => stageOpen(id, bests);
+    // Decided once, the first time this version loads: did the save already have progress on the original stages?
+    let legacy = services.storage.get<boolean | null>('legacyChain', null);
+    if (typeof legacy !== 'boolean') { legacy = bests.slice(0, 4).some(Boolean); services.storage.set('legacyChain', legacy); }
+    const legacyChain = legacy;
+    const isOpen = (id: number) => stageOpen(id, bests, legacyChain);
     const coastOpen = (ci: number) => isOpen(COASTS[ci].stages[0]);
     const firstFresh = () => ORDER.find((id) => isOpen(id) && !bests[id]) ?? ORDER.filter(isOpen).pop() ?? 0;
     /** A coast's storm remixes open together once all three of its stages are cleared. */
@@ -184,7 +189,8 @@ export const pelicanBike: GameModule = {
     let state: State = 'title';
     let paused = false, userPaused = false, stateT = 0;
     let sel = firstFresh();
-    let sim: Sim = createSim(0);
+    let sim: Sim = createSim(sel);
+    audio.setTheme(LEVELS[sel].theme);
     let baseScore = 0, result: UiResult | null = null;
     let particles: Particle[] = [], popups: Popup[] = [];
     let camX = 0, lookDir = 1, shakeT = 0, shakeM = 0, bannerT = 0, gtime = 0, acc = 0;

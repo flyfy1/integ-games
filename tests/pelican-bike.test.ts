@@ -45,6 +45,19 @@ describe('pelican-bike module', () => {
     }
   });
 
+  it('marks a save from before the coasts once, so its old stage chain keeps working', () => {
+    const host = document.createElement('div');
+    const old = services({ stages: [{ time: 31.2, fish: 40, stars: 3, medals: 7 }] });
+    pelicanBike.mount(host, old).destroy();
+    expect(old.storage.set).toHaveBeenCalledWith('legacyChain', true);
+    const fresh = services({});
+    pelicanBike.mount(host, fresh).destroy();
+    expect(fresh.storage.set).toHaveBeenCalledWith('legacyChain', false);
+    const marked = services({ legacyChain: false, stages: [{ time: 31.2, fish: 40, stars: 3, medals: 7 }] });
+    pelicanBike.mount(host, marked).destroy();
+    expect(marked.storage.set).not.toHaveBeenCalledWith('legacyChain', expect.anything());
+  });
+
   it('ignores keys typed into a text field elsewhere on the page', () => {
     const host = document.createElement('div');
     document.body.append(host);
