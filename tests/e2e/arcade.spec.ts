@@ -7,8 +7,8 @@ test('all catalog routes render without a page error', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   const listed = await page.locator('[data-grid] article.game-card a').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
-  expect(listed).toHaveLength(13);
-  expect(allSlugs).toHaveLength(29);
+  expect(listed).toHaveLength(14);
+  expect(allSlugs).toHaveLength(30);
   // Hidden cabinets stay playable from their direct links, so every installed route is still exercised.
   for (const gameRoute of allSlugs.map((slug) => `/play/${slug}/`)) {
     await page.goto(gameRoute);

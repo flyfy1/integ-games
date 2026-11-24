@@ -1,6 +1,6 @@
 # Integ Games
 
-A touch-friendly browser arcade at [games.integ.life](https://games.integ.life). The arcade lists **thirteen** original games; scores, settings, saves, and recently played games stay in local storage, and the optional `backend/` adds sign-in and a shared leaderboard without being needed to play.
+A touch-friendly browser arcade at [games.integ.life](https://games.integ.life). The arcade lists **fourteen** original games; scores, settings, saves, and recently played games stay in local storage, and the optional `backend/` adds sign-in and a shared leaderboard without being needed to play.
 
 ## Games
 
