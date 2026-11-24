@@ -14,3 +14,4 @@ export { META_UPGRADES } from './meta';
 export { CHAPTERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVELS, LEVEL_LIST, UPCOMING_CHAPTERS, levelById, modeOf, nextLevelId, ownedAt, registerLevels, type NightMode } from './levels';
 export { endlessWave } from './endless';
 export { AFTER_HOURS, AFTER_HOURS_BY_ID, AFTER_HOURS_STARS } from './afterhours';
+export { PUZZLES, PUZZLE_SEED, type PuzzleDef } from './puzzles';

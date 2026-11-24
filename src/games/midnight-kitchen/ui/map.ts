@@ -1,4 +1,4 @@
-import { AFTER_HOURS, CHAPTERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVELS, META_UPGRADES, RECIPES } from '../data';
+import { AFTER_HOURS, PUZZLES, CHAPTERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVELS, META_UPGRADES, RECIPES } from '../data';
 import { canBuy, isUnlocked, starsOf, totalStars, type Save } from '../save';
 import type { ChapterDef, LevelDef, Loc } from '../types';
 import type { Screen } from './context';
@@ -71,7 +71,10 @@ export const mapScreen: Screen = (ui, params) => {
 
   const endlessOpen = !!save.levels[ENDLESS_UNLOCK]?.win, shopReady = META_UPGRADES.some(upgrade => canBuy(save, upgrade));
   const ahOpen = AFTER_HOURS.filter(level => isUnlocked(save, level.id)).length;
+  const pzOpen = isUnlocked(save, PUZZLES[0].level.id), pzSolved = PUZZLES.filter(item => save.puzzles.includes(item.level.id)).length;
   const extra = h('div', { class: 'mk-map-extra' },
+    h('button', { class: 'mk-door puzzle', 'data-action': 'puzzles', disabled: !pzOpen, onclick: () => ui.go('puzzles') },
+      h('span', { class: 'mk-door-ico', 'aria-hidden': 'true' }, '♛'), h('span', null, h('b', null, t('pz.door')), h('small', null, pzOpen ? t('pz.count', { n: pzSolved, total: PUZZLES.length }) : t('pz.lockFirst', { n: '1–2' })))),
     h('button', { class: 'mk-door ah', 'data-action': 'afterhours', onclick: () => ui.go('afterhours') },
       h('span', { class: 'mk-door-ico', 'aria-hidden': 'true' }, '☾'), h('span', null, h('b', null, t('ah.door')), h('small', null, ahOpen ? t('ah.count', { n: ahOpen }) : t('ah.need', { n: 3 })))),
     h('button', { class: 'mk-door endless', 'data-level': ENDLESS_LEVEL.id, disabled: !endlessOpen, onclick: () => ui.openLevel(ENDLESS_LEVEL.id) },

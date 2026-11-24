@@ -1,5 +1,5 @@
 import type { ViewState } from './render/renderer';
-import { canPlace, createSim, defenderAt, drainEvents, place, remove, step, STEP, upgrade } from './sim';
+import { canPlace, cook, createSim, defenderAt, drainEvents, place, remove, step, STEP, upgrade } from './sim';
 import type { ActionResult, Difficulty, LevelDef, MetaState, RecipeDef, Sim, SimEvent, TutorialStep } from './types';
 
 /**
@@ -40,6 +40,8 @@ export type Session = {
   skipTutorial(): void;
   /** Advance by real seconds (scaled by speed); returns the sim events produced. */
   advance(seconds: number): SimEvent[];
+  /** Chef's Table: end the placing phase and let the night run. */
+  cook(): void;
 };
 
 export type SessionOptions = {
@@ -168,6 +170,7 @@ export function createSession(level: LevelDef, options: SessionOptions): Session
     },
     confirm() { if (!view.cursor) { session.moveCursor(0, 0); return; } session.tapCell(view.cursor.col, view.cursor.lane); },
     upgradeAt(col, lane) { const result = upgrade(sim, col, lane); if (!result.ok) deny(result.reason); },
+    cook() { if (sim.prep) { cook(sim); this.cancel(); } },
     removeAt(col, lane) { const result = remove(sim, col, lane); if (!result.ok) deny(result.reason); else view.selected = null; },
     upgradeTarget() { const d = target(); if (d) session.upgradeAt(d.col, d.lane); else deny('empty'); },
     removeTarget() { const d = target(); if (d) session.removeAt(d.col, d.lane); else session.toggleSpatula(); },

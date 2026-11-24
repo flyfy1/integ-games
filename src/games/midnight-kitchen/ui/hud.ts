@@ -40,7 +40,7 @@ export type Hud = {
   announceCard(def: string | null): void;
 };
 export type HudActions = { pause(): void; toggleSpeed(): void };
-export type HudDeps = { i18n: I18n; audio: Audio; touch: boolean; coach: CoachStore };
+export type HudDeps = { i18n: I18n; audio: Audio; touch: boolean; coach: CoachStore; /** Chef's Table: the puzzle's hint, once it is offered. */ hint?: string };
 
 function iconCanvas(size: number, paint: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasElement {
   const canvas = document.createElement('canvas'), ratio = Math.min(3, (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1) || 1);
@@ -123,7 +123,10 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
   let cards: CardView[] = sim.cards.map(cardView), handVersion = sim.handVersion;
   const spatula = h('button', { class: 'mk-card spatula', 'data-action': 'spatula', 'aria-label': `${t('hud.spatula')}. ${t('hud.spatulaHint')}`, title: `${t('hud.spatula')} (X)` },
     deps.touch ? null : h('span', { class: 'mk-card-key', 'aria-hidden': 'true' }, 'X'), spatulaIcon(54), h('span', { class: 'mk-card-cost' }, t('hud.spatula')));
-  const hand = h('div', { class: 'mk-hand', role: 'toolbar', 'aria-label': t('hud.hand') }, cards.map(card => card.button), spatula);
+  // Chef's Table: place everything, then Cook (K) starts the night; the button leaves once the pests are coming.
+  const cookButton = sim.prep ? h('button', { class: 'mk-card cook', 'data-action': 'cook', 'aria-label': t('pz.cookAria'), title: `${t('pz.cook')} (K)`, onclick: () => { session.cook(); deps.audio.sfx('ui'); } },
+    deps.touch ? null : h('span', { class: 'mk-card-key', 'aria-hidden': 'true' }, 'K'), h('span', { class: 'mk-cook-ico', 'aria-hidden': 'true' }, '▶'), h('span', { class: 'mk-card-cost' }, t('pz.cook'))) : null;
+  const hand = h('div', { class: 'mk-hand', role: 'toolbar', 'aria-label': t('hud.hand') }, cards.map(card => card.button), spatula, cookButton);
   // A portrait phone with a big hand keeps it on one row that scrolls sideways (a second row would steal the height
   // the tall board needs): the side with more cards fades out, and a card picked by key or pad is scrolled into view.
   const handEdges = () => {
@@ -144,12 +147,17 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
     // Fresh buttons each time, so the number keys on them stay in hand order.
     cards = sim.cards.map(cardView);
     hand.replaceChildren(...cards.map(card => card.button), spatula);
+    if (cookButton && sim.prep) hand.append(cookButton);
     if (view.card && !sim.cards.some(card => card.def === view.card)) session.selectCard(null);
   };
 
   // ---- overlays ----
   const banner = h('div', { class: 'mk-banner', role: 'status', hidden: true });
-  const notes = h('div', { class: 'mk-notes' }, banner);
+  // On a small screen the brief folds down to the title (and hint); a tap opens or folds it.
+  const brief = sim.prep ? h('button', { class: 'mk-pz-brief', type: 'button', 'data-hud': 'puzzle', 'aria-expanded': 'false', onclick: (event: Event) => { const el = event.currentTarget as HTMLElement; el.classList.toggle('open'); el.setAttribute('aria-expanded', String(el.classList.contains('open'))); } },
+    h('b', null, tr(level.name)), h('span', { class: 'mk-pz-blurb' }, tr(level.blurb)),
+    deps.hint ? h('span', { class: 'mk-pz-hint', 'data-hint': '' }, `💡 ${deps.hint}`) : null) : null;
+  const notes = h('div', { class: 'mk-notes' }, brief, banner);
   const barkFace = h('span'), barkText = h('span');
   const bark = h('div', { class: 'mk-bark', hidden: true, role: 'log' }, barkFace, barkText);
   const toast = h('div', { class: 'mk-toast', role: 'alert', hidden: true });
@@ -355,11 +363,12 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
     if (progress !== lastFill) { lastFill = progress; fill.style.width = `${progress}%`; waves.setAttribute('aria-valuenow', String(Math.round(progress))); for (const mark of marks) mark.el.classList.toggle('done', sim.wave >= mark.wave); }
     // Endless: the board rule in force rides along in the wave label (its description is the tooltip).
     const rule = endless && sim.modifier ? ` · ${tr(sim.modifier.name)}` : '';
-    const text = sim.wave < 0 ? (sim.nextWave ? t('hud.firstIn', { s: Math.max(0, Math.ceil(sim.waveTimer)) }) : t('hud.ready')) : endless ? t('hud.waveEndless', { n: sim.wave + 1 }) + rule : sim.wave >= sim.totalWaves - 1 ? t('hud.final') : t('hud.wave', { n: sim.wave + 1, total: sim.totalWaves });
+    const text = sim.prep ? t('pz.prep') : sim.wave < 0 ? (sim.nextWave ? t('hud.firstIn', { s: Math.max(0, Math.ceil(sim.waveTimer)) }) : t('hud.ready')) : endless ? t('hud.waveEndless', { n: sim.wave + 1 }) + rule : sim.wave >= sim.totalWaves - 1 ? t('hud.final') : t('hud.wave', { n: sim.wave + 1, total: sim.totalWaves });
     if (text !== lastLabel) { lastLabel = text; label.textContent = text; waves.setAttribute('aria-valuetext', text); waves.title = endless && sim.modifier ? tr(sim.modifier.desc) : ''; }
     if (endless && sim.score !== lastScore) { lastScore = sim.score; scoreValue.textContent = String(sim.score); }
     if (session.speed !== lastSpeed) { lastSpeed = session.speed; speed.textContent = `×${session.speed}`; speed.classList.toggle('is-on', session.speed === 2); speed.setAttribute('aria-pressed', String(session.speed === 2)); }
     if (sim.handVersion !== handVersion) rebuildHand();
+    if (cookButton && !sim.prep && cookButton.isConnected) { cookButton.remove(); brief?.remove(); }
     for (const card of cards) {
       const state = sim.cards.find(item => item.def === card.def), def = sim.content.defenders[card.def];
       if (!state) continue;

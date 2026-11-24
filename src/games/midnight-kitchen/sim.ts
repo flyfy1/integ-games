@@ -177,7 +177,8 @@ function dealLeftovers(ids: string[], n: number, random: () => number, content: 
 export function createSim(level: LevelDef, options: SimOptions): Sim {
   const content = options.content ?? CONTENT;
   const bonus = metaBonuses(content, options.meta);
-  const difficulty: Difficulty = options.difficulty ?? 'standard', tune = DIFFICULTY[difficulty], rules = level.rules ?? {};
+  // Set puzzles are always Standard so their stored answers hold whatever the picker says.
+  const difficulty: Difficulty = level.rules?.puzzle ? 'standard' : options.difficulty ?? 'standard', tune = DIFFICULTY[difficulty], rules = level.rules ?? {};
   const activeLanes = level.activeLanes ?? Array.from({ length: level.lanes }, (_, lane) => lane);
   const cells: Cell[][] = Array.from({ length: level.lanes }, (_, lane) => Array.from({ length: level.cols }, () => freshCell(!activeLanes.includes(lane))));
   for (const [col, lane] of level.blocked ?? []) if (cells[lane]?.[col]) cells[lane][col].blocked = true;

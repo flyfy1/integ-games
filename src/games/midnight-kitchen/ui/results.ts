@@ -1,10 +1,10 @@
-import { AFTER_HOURS_BY_ID, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, modeOf, RECIPES } from '../data';
+import { AFTER_HOURS_BY_ID, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, modeOf, PUZZLES, RECIPES } from '../data';
 import { clock, type Key } from '../i18n';
 import { spriteIcon } from '../render/sprites';
 import type { Screen, UiContext } from './context';
 import { crumbs, h, head } from './dom';
 import { bonusText } from './loadout';
-import { grannyOffered } from '../save';
+import { grannyOffered, hintOffered } from '../save';
 import { helpPanel, settingsBody } from './settings';
 
 const TIPS: Key[] = ['tip.burners', 'tip.lanes', 'tip.walls', 'tip.upgrade', 'tip.recipes'];
@@ -24,7 +24,7 @@ export const resultsScreen: Screen = (ui, params) => {
   const { level, won, flags, reward } = data, endless = level.id === ENDLESS_LEVEL.id, stats = data.stats, mode = modeOf(level);
   /** The campaign's very last night gets the dawn ending; side nights never do. */
   const lastNight = mode === 'campaign' && LEVEL_LIST[LEVEL_LIST.length - 1]?.id === level.id;
-  const eyebrow = mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : t('map.chapter', { n: level.chapter });
+  const eyebrow = mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : mode === 'puzzle' ? t('pz.eyebrow', { n: level.index }) : t('map.chapter', { n: level.chapter });
   const box = h('div', { class: `mk-results${won || endless ? '' : ' lost'}`, 'data-result': endless ? 'endless' : won ? 'won' : 'lost' });
   const element = h('div', { class: 'mk-screen', 'data-screen': 'results' }, box);
   let d = 0.35;
@@ -41,6 +41,12 @@ export const resultsScreen: Screen = (ui, params) => {
         h('p', { style: 'margin-top:4px' }, reward.newBest && reward.prevBest?.score ? t('results.beat', { n: reward.prevBest.score }) : reward.newBest ? t('results.first') : t('results.bestWas', { n: ui.save.endless.bestScore }))),
       h('div', { class: 'mk-statgrid' }, stat(t('results.waves'), data.wave), stat(t('results.kills'), data.kills), stat(t('results.recipesCooked'), stats?.recipes.length ?? 0), stat(t('results.heatSpent'), stats?.heatSpent ?? 0), stat(t('results.time'), clock(data.time))));
     if (best) chime(ui, element, [0.3]);
+  } else if (mode === 'puzzle') {
+    // Chef's Table: solved or not, no stars. A second miss in a row brings the hint (also shown on the counter).
+    const puzzle = PUZZLES.find(item => item.level === level);
+    box.append(h('div', { class: 'mk-eyebrow' }, `${eyebrow} · ${tr(level.name)}`), h('h2', null, won ? t('pz.solvedHead') : t('pz.missHead')), h('p', { class: 'mk-tag' }, won ? t(reward.firstClear ? 'pz.solvedSub' : 'pz.againSub') : t('pz.missSub')),
+      !won && puzzle && hintOffered(ui.save, level.id) ? h('div', { class: 'mk-panel paper', 'data-hint': '', style: 'width:100%;text-align:left' }, h('p', { class: 'mk-lead' }, `💡 ${tr(puzzle.hint)}`)) : '');
+    if (won && reward.firstClear) chime(ui, element, [0.3]);
   } else if (won) {
     // The campaign's last level gets its own heading; remembering the Bloom (not beating it) gets its own line.
     const last = lastNight, head = last ? t('results.finaleHead') : t('results.win'), sub = last && stats?.remembered ? t('results.rememberedSub') : t('results.winSub');
@@ -71,7 +77,7 @@ export const resultsScreen: Screen = (ui, params) => {
   }
 
   if (!endless) box.append(h('div', { class: 'mk-statgrid' }, stat(t('results.time'), clock(data.time)), stat(t('results.kills'), data.kills),
-    stats ? stat(t('results.heatSpent'), stats.heatSpent) : null, stats ? stat(t('results.recipesCooked'), stats.recipes.length) : null));
+    stats && mode !== 'puzzle' ? stat(t('results.heatSpent'), stats.heatSpent) : null, stats ? stat(t('results.recipesCooked'), stats.recipes.length) : null));
   if (reward.crumbs > 0) box.append(h('div', { class: 'mk-row center', style: `animation:mk-rise .4s backwards;animation-delay:${next()}s` }, h('span', { class: 'mk-eyebrow' }, t('results.earned')), crumbs(ui, reward.crumbs), h('span', { class: 'mk-chip' }, t('results.purse', { n: ui.save.crumbs }))));
   for (const id of reward.unlocked) {
     const def = DEFENDERS[id];

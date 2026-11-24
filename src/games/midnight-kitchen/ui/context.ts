@@ -8,7 +8,7 @@ import type { Difficulty, LevelDef, SimStats } from '../types';
  * functions `(ui, params) => HTMLElement`; they never touch the sim, the canvas or storage directly.
  * To add a screen: write the function, add its name to `ScreenName`, and register it in `ui/index.ts`.
  */
-export type ScreenName = 'title' | 'map' | 'loadout' | 'cookbook' | 'shop' | 'settings' | 'results' | 'pause' | 'afterhours';
+export type ScreenName = 'title' | 'map' | 'loadout' | 'cookbook' | 'shop' | 'settings' | 'results' | 'pause' | 'afterhours' | 'puzzles';
 
 export type ResultsData = {
   level: LevelDef; won: boolean; flags: { win: boolean; flawless: boolean; bonus: boolean };

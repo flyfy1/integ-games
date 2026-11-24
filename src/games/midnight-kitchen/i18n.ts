@@ -130,7 +130,23 @@ export const EN = {
   'ah.rule': 'Tonight\'s rule',
   'ah.leftovers': 'Six cards are dealt at random from everything you own when the night starts (always a Burner).',
   'ah.belt': 'These ride in on the belt, in turn:',
-  'ah.opened': 'New After Hours night: {name}'
+  'ah.opened': 'New After Hours night: {name}',
+  'pz.title': 'Chef\'s Table',
+  'pz.door': 'Chef\'s Table',
+  'pz.intro': 'Twelve set puzzles. The board, the pieces and the pests are fixed and there is no Heat: place every piece where you think it belongs, then press Cook and watch. One slice, no second chances, but you can try as often as you like.',
+  'pz.count': '{n}/{total} solved',
+  'pz.lockFirst': 'Win night {n} to open',
+  'pz.lock': 'Solve the one before',
+  'pz.solved': 'Solved',
+  'pz.eyebrow': 'Chef\'s Table {n}',
+  'pz.cook': 'Cook!',
+  'pz.cookAria': 'Cook: start the night with the pieces where they are',
+  'pz.solvedHead': 'Solved!',
+  'pz.solvedSub': 'Granny would have done it the same way.',
+  'pz.againSub': 'Still works.',
+  'pz.missHead': 'Not quite',
+  'pz.missSub': 'Try again: your pieces stay where you left them, so you can change just one.',
+  'pz.prep': 'Place every piece, then Cook'
 } as const;
 export type Key = keyof typeof EN;
 
@@ -253,7 +269,23 @@ export const ZH: Record<Key, string> = {
   'ah.rule': '今晚的规则',
   'ah.leftovers': '开局时从你拥有的卡牌里随机发六张（一定有炉头）。',
   'ah.belt': '这些卡牌会轮流坐着传送带过来：',
-  'ah.opened': '新的加班夜开放：{name}'
+  'ah.opened': '新的加班夜开放：{name}',
+  'pz.title': '主厨考题',
+  'pz.door': '主厨考题',
+  'pz.intro': '十二道定好的考题。棋盘、手里的东西、来的害虫都是固定的，也没有火候：先把每样东西放到你觉得对的位置，再按「开火」看结果。只有一块蛋糕，错了就没了，不过可以随便重来。',
+  'pz.count': '已解 {n}/{total}',
+  'pz.lockFirst': '通过第 {n} 关后开放',
+  'pz.lock': '先解开上一题',
+  'pz.solved': '已解开',
+  'pz.eyebrow': '主厨考题 {n}',
+  'pz.cook': '开火！',
+  'pz.cookAria': '开火：按现在的摆法开始',
+  'pz.solvedHead': '解开了！',
+  'pz.solvedSub': '奶奶也会这么摆。',
+  'pz.againSub': '这招还是灵。',
+  'pz.missHead': '差一点',
+  'pz.missSub': '再来一次：东西会留在原位，只改一样也行。',
+  'pz.prep': '摆好所有东西，再开火'
 };
 
 const TABLES: Record<Lang, Record<Key, string>> = { en: EN, zh: ZH };

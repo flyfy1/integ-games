@@ -185,6 +185,7 @@ export function attachInput(host: InputHost): () => void {
     else if (key === ' ' || key === 'Enter') { if (!event.repeat) session.confirm(); }
     else if (key === 'u' || key === 'U') session.upgradeTarget();
     else if (key === 'x' || key === 'X') session.removeTarget();
+    else if ((key === 'k' || key === 'K') && session.sim.prep) session.cook();
     else if (key === 'f' || key === 'F') host.toggleSpeed();
     else if (key === 'p' || key === 'P') host.pause();
     else if (key === 'Escape') { if (!session.cancel()) host.pause(); }

@@ -1,5 +1,5 @@
 import type { GameStorage } from '../../core/game-types';
-import { AFTER_HOURS, AFTER_HOURS_STARS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, STARTING_DEFENDERS } from './data';
+import { AFTER_HOURS, AFTER_HOURS_STARS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, PUZZLES, STARTING_DEFENDERS } from './data';
 import { isLang, type Lang } from './i18n';
 import { isDifficulty } from './sim';
 import type { Difficulty, LevelDef, MetaState, MetaUpgradeDef } from './types';
@@ -148,19 +148,28 @@ export const afterHoursStars = (save: Save): number => AFTER_HOURS.reduce((sum, 
 /** Every star the player owns: what opens the After Hours nights. */
 export const allStars = (save: Save): number => totalStars(save) + afterHoursStars(save) + save.challenges.length;
 /** A level opens once the one before it has been won. */
+/** Chef's Table opens once the second night is won; each puzzle after that opens when the one before it is solved. */
+export const PUZZLES_OPEN_AFTER = 'c1-2';
 export function isUnlocked(save: Save, levelId: string): boolean {
   if (levelId in AFTER_HOURS_STARS) return allStars(save) >= AFTER_HOURS_STARS[levelId];
+  const puzzle = PUZZLES.findIndex(item => item.level.id === levelId);
+  if (puzzle >= 0) return puzzle === 0 ? !!save.levels[PUZZLES_OPEN_AFTER]?.win : save.puzzles.includes(PUZZLES[puzzle - 1].level.id);
   const index = LEVEL_LIST.findIndex(level => level.id === levelId);
   return index <= 0 ? index === 0 : !!save.levels[LEVEL_LIST[index - 1].id]?.win;
 }
 export const metaOf = (save: Save): MetaState => ({ upgrades: save.upgrades });
 /** Two losses in a row on a night: Granny offers a free tier-2 guard. */
 export const GRANNY_AFTER = 2;
-export const grannyOffered = (save: Save, levelId: string): boolean => (save.losses[levelId] ?? 0) >= GRANNY_AFTER;
+export const grannyOffered = (save: Save, levelId: string): boolean => (save.losses[levelId] ?? 0) >= GRANNY_AFTER && !PUZZLES.some(item => item.level.id === levelId);
+/** A puzzle shows its hint after this many failed attempts in a row. */
+export const HINT_AFTER = 2;
+export const hintOffered = (save: Save, levelId: string): boolean => (save.losses[levelId] ?? 0) >= HINT_AFTER;
 
 // ---------------------------------------------------------------- progress updates
 
 export const CRUMBS_PER_STAR = 15;
+/** First solve of a Chef's Table puzzle. */
+export const CRUMBS_PUZZLE = 20;
 export const CRUMBS_REPLAY = 5;
 /** First win of a night on Chef difficulty. */
 export const CRUMBS_CHEF = 25;
@@ -188,6 +197,16 @@ export function applyOutcome(save: Save, level: LevelDef, outcome: Outcome): Rew
   for (const id of outcome.recipes) if (!save.cookbook.recipes.includes(id)) { save.cookbook.recipes.push(id); reward.newRecipes.push(id); }
   for (const id of outcome.enemiesSeen) if (!save.cookbook.enemies.includes(id)) save.cookbook.enemies.push(id);
   for (const id of outcome.defendersUsed) if (!save.cookbook.defenders.includes(id)) save.cookbook.defenders.push(id);
+  if (level.rules?.puzzle) {
+    // Puzzles keep their own list, so campaign stars, the arcade progress number and After Hours unlocks never move.
+    if (outcome.won) {
+      reward.firstClear = !save.puzzles.includes(level.id);
+      if (reward.firstClear) { save.puzzles.push(level.id); reward.crumbs = CRUMBS_PUZZLE; }
+      delete save.losses[level.id];
+    } else save.losses[level.id] = Math.min(99, (save.losses[level.id] ?? 0) + 1);
+    save.crumbs += reward.crumbs;
+    return reward;
+  }
   if (level.id === ENDLESS_LEVEL.id) {
     reward.crumbs = Math.floor(outcome.score / 100);
     reward.newBest = outcome.score > save.endless.bestScore;

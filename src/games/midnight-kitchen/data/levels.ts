@@ -4,6 +4,7 @@ import { CAMPAIGN, tuned } from './campaign';
 import { STARTING_DEFENDERS } from './defenders';
 import { endlessWave } from './endless';
 import { AFTER_HOURS_BY_ID } from './afterhours';
+import { PUZZLES } from './puzzles';
 
 /**
  * Campaign levels. A level is a row: board, economy, a wave script, a bonus goal and its story hooks.
@@ -173,7 +174,7 @@ export const ENDLESS_LEVEL: LevelDef = {
 };
 
 /** Side nights (After Hours, Chef's Table, Daily) register here so `levelById` finds them; campaign lists stay untouched. */
-const EXTRA_LEVELS: Record<string, LevelDef> = { ...AFTER_HOURS_BY_ID };
+const EXTRA_LEVELS: Record<string, LevelDef> = { ...AFTER_HOURS_BY_ID, ...Object.fromEntries(PUZZLES.map(p => [p.level.id, p.level])) };
 export const registerLevels = (levels: LevelDef[]): void => { for (const level of levels) EXTRA_LEVELS[level.id] = level; };
 export const levelById = (id: string): LevelDef | undefined => (id === ENDLESS_LEVEL.id ? ENDLESS_LEVEL : LEVELS[id] ?? EXTRA_LEVELS[id]);
 /** Defender ids a player owns when they first reach `levelId` (starting cards plus every earlier unlock). */
