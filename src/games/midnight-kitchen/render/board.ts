@@ -612,3 +612,42 @@ export function drawCake(ctx: Ctx, layout: BoardLayout, slices: number, maxSlice
   }
   ctx.restore();
 }
+
+/**
+ * Gentle difficulty: one Oven Mitt per lane, hung at the cake end of the lane (a quilted red mitten with a white cuff).
+ * It disappears once it has swept its lane.
+ */
+export function drawMitts(ctx: Ctx, layout: BoardLayout, mitts: number[], time: number, reduced: boolean): void {
+  const size = layout.unit * 0.3;
+  for (let lane = 0; lane < mitts.length; lane++) {
+    if (!(mitts[lane] > 0)) continue;
+    const p = layout.point(-0.1, lane + 0.28), sway = reduced ? 0 : Math.sin(time * 1.6 + lane) * 0.08;
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-0.35 + sway); ctx.scale(size / 50, size / 50);
+    ctx.lineJoin = 'round'; ctx.lineWidth = 5; ctx.strokeStyle = INK;
+    // mitten body and thumb
+    ctx.fillStyle = '#e0533d';
+    ctx.beginPath(); ctx.moveTo(-22, 26); ctx.lineTo(-24, -18); ctx.quadraticCurveTo(-22, -46, 2, -46); ctx.quadraticCurveTo(24, -46, 22, -16); ctx.lineTo(20, 26); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(20, 0); ctx.quadraticCurveTo(40, -8, 36, -24); ctx.quadraticCurveTo(30, -34, 21, -18); ctx.fill(); ctx.stroke();
+    // quilting
+    ctx.strokeStyle = 'rgba(255,220,200,0.55)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-16, -30); ctx.lineTo(10, 4); ctx.moveTo(-18, -6); ctx.lineTo(4, 22); ctx.moveTo(14, -34); ctx.lineTo(-14, 10); ctx.stroke();
+    // cuff
+    ctx.fillStyle = '#fff5ea'; ctx.strokeStyle = INK; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.roundRect(-26, 20, 50, 16, 6); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/** Plughole night: an open drain grate in the given column of every lane in play (pests climb out of it). */
+export function drawPlugholes(ctx: Ctx, layout: BoardLayout, col: number, lanes: number[]): void {
+  const r = layout.unit * 0.2;
+  for (const lane of lanes) {
+    const p = layout.point(col + 0.5, lane);
+    ctx.save(); ctx.translate(p.x, p.y + layout.unit * 0.18);
+    ctx.fillStyle = '#1a1d2b'; ctx.strokeStyle = '#9aa3b8'; ctx.lineWidth = Math.max(2, r * 0.18);
+    ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.62, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(154,163,184,0.8)'; ctx.lineWidth = Math.max(1.5, r * 0.1);
+    ctx.beginPath(); for (const dx of [-0.45, 0, 0.45]) { ctx.moveTo(dx * r, -r * 0.5); ctx.lineTo(dx * r, r * 0.5); } ctx.stroke();
+    ctx.restore();
+  }
+}

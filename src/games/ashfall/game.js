@@ -8,6 +8,7 @@ import { VIEW_W, VIEW_H, FLOOR as BASE_FLOOR } from './level.js';
 import { LEVELS, levelFromParam, nextLevel } from './levels.js';
 import { createLevelUI, levelStyles } from './ui.js';
 import { loadProgress, loadBest, saveBest, readStorage, writeStorage, saveProgress, loadResume, saveResume } from './progress.js';
+import { MODES, MUTATORS, loadRecords, medalFor, recordMark, recordTime, rushTargets, stageTargets } from './challenge.js';
 import { drawPlayer, drawEnemy, drawBoss, bladeLocal, MUZZLE } from './sprites.js';
 
 const DT = 1 / 60;
@@ -65,6 +66,9 @@ export function createAshfall(host, services) {
   const learnedActions = new Set();
   let pitHintShown = false;
   let loadRequest = 0, run;
+  // Challenge modes (time attack, boss rush, mutator replays). Chosen fresh on every load; they write only their own
+  // keys (see challenge.js), never progress, bests or the campaign resume.
+  let mode = 'campaign', mutator = 'none', challenge = null, challengeResult = null, records = loadRecords(services.storage, difficulty);
   let arenaFloorY = BASE_FLOOR;
   let level, ZONES, ARENA, WORLD_END, zoneIndexAt, buildSolids, PITS, ENEMIES, MEDKITS, CHECKPOINTS, LIGHTS, PROPS, AMBUSHES, BOSS;
   let art, patterns;
@@ -215,8 +219,11 @@ export function createAshfall(host, services) {
   const ui = createLevelUI(root, screen, LEVELS, {
     select: chooseLevel, start: launchSelection, continue: () => continueRun(true),
     replay: () => launchSelection(runStartLevelId), menu: showMenu, resume: () => launchSelection(resume?.level, true),
-    difficulty: value => { if (g.mode !== 'title' || !Object.hasOwn(DIFFICULTIES, value)) return; difficulty = value; persist(writeStorage(services.storage, 'ashfall-difficulty', value)); progress = loadProgress(services.storage, value); resume = loadResume(services.storage, value); const url = new URL(location.href); url.searchParams.set('difficulty', value); history.replaceState(history.state, '', url); syncUI(); },
+    difficulty: value => { if (g.mode !== 'title' || !Object.hasOwn(DIFFICULTIES, value)) return; difficulty = value; persist(writeStorage(services.storage, 'ashfall-difficulty', value)); progress = loadProgress(services.storage, value); records = loadRecords(services.storage, value); if (mutator !== 'none' && !progress.has(selectedLevel.id)) mutator = 'none'; resume = loadResume(services.storage, value); const url = new URL(location.href); url.searchParams.set('difficulty', value); history.replaceState(history.state, '', url); syncUI(); },
     language: () => { locale = locale === 'zh' ? 'en' : 'zh'; persist(writeStorage(services.storage, 'ashfall-language', locale)); syncUI(); },
+    mode: value => { if (g.mode !== 'title' || !Object.hasOwn(MODES, value)) return; mode = value; if (mode !== 'time') mutator = 'none'; syncUI(); },
+    mutator: value => { if (g.mode !== 'title' || mode !== 'time' || !Object.hasOwn(MUTATORS, value) || (value !== 'none' && !progress.has(selectedLevel.id))) return; mutator = value; syncUI(); },
+    challenge: () => ({ mode, mutator, active: challenge, result: challengeResult, records }),
     reward: key => { if (g.mode !== 'interlude' || !['edge','guard','reload'].includes(key) || perk(key) >= 3) return; reward = key; checkpointRun(); syncUI(); },
     options: () => ({ difficulty, locale, saved, resume, reward, paused: userPaused || shellPaused }),
     playerX: () => player.x, boss: () => boss, player: () => player
@@ -237,20 +244,28 @@ export function createAshfall(host, services) {
   function chooseLevel(id) {
     if (g.mode !== 'title') return;
     selectedLevel = LEVELS.find(l => l.id === id) || LEVELS[0];
+    if (mutator !== 'none' && !progress.has(selectedLevel.id)) mutator = 'none';
     const url = new URL(location.href); url.searchParams.set('ashfall-level', String(selectedLevel.id));
     history.replaceState(history.state, '', url); syncUI();
   }
   function launchSelection(id = selectedLevel.id, restoring = false) {
     if (g.mode === 'loading' || (g.mode !== 'title' && g.mode !== 'victory')) return;
     audio.unlock(); clearInput(); userPaused = false;
-    const target = LEVELS.find(l => l.id === id) || LEVELS[0];
+    let target = LEVELS.find(l => l.id === id) || LEVELS[0];
+    challengeResult = null;
+    if (restoring || mode === 'campaign') challenge = null;
+    else {
+      const ids = mode === 'rush' ? LEVELS.filter(l => l.act === target.act).map(l => l.id) : [target.id];
+      challenge = { kind: mode, mutator: mode === 'time' ? mutator : 'none', ids, idx: 0, act: target.act, t0: 0, stageT0: 0, fights: [] };
+      target = LEVELS.find(l => l.id === ids[0]);
+    }
     g.loadingNext = null; g.mode = 'loading'; syncUI();
     const request = ++loadRequest;
     // Give the loading panel a paint before building the next level's canvases.
     // Only the active art object is retained; simulation stays frozen while building.
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (destroyed || request !== loadRequest) return;
-      resetGame(target); if (restoring && resume) { runStartLevelId = resume.start; Object.assign(run, structuredClone(resume.run)); if (resume.reward && perk(resume.reward) < 3) run.forge[resume.reward]++; for (const k of ['T','Deaths','Kills','Score']) g[`levelStart${k}`] = run[{T:'playT',Deaths:'deaths',Kills:'kills',Score:'score'}[k]]; } startGame(); canvas.focus(); last = 0; acc = 0;
+      resetGame(target); if (restoring && resume) { runStartLevelId = resume.start; Object.assign(run, structuredClone(resume.run)); if (resume.reward && perk(resume.reward) < 3) run.forge[resume.reward]++; for (const k of ['T','Deaths','Kills','Score']) g[`levelStart${k}`] = run[{T:'playT',Deaths:'deaths',Kills:'kills',Score:'score'}[k]]; } startGame(); if (challenge) enterChallengeStage(); canvas.focus(); last = 0; acc = 0;
     }));
   }
   function continueRun(deferArt = false) {
@@ -266,10 +281,63 @@ export function createAshfall(host, services) {
   }
   function showMenu() {
     loadRequest++; clearInput(); userPaused = false; audio.setMode('title');
+    challenge = null; challengeResult = null;
     resetGame(LEVELS.find(l => l.id === runStartLevelId));
     selectedLevel = LEVELS.find(l => l.id === runStartLevelId); syncUI(); ui.focusSelection();
   }
 
+
+  // ---------- challenge modes ----------
+  /** Move the rider to x the way a checkpoint would: right height for the terrain, camera and checkpoint caught up. */
+  function warpTo(x) {
+    player.x = x; player.y = level.terrain === 'ascent' ? floorY(x) : surfaceY(x, 0) ?? arenaFloorY; player.safe = { x: player.x, y: player.y };
+    if (level.terrain === 'ascent') g.cam.y = player.y - 360;
+    g.cam.x = clamp(x - VIEW_W * 0.42, 0, WORLD_END - VIEW_W);
+    for (let i = CHECKPOINTS.length - 1; i >= 0; i--) if (x >= CHECKPOINTS[i]) { g.cpIdx = Math.max(g.cpIdx, i); break; }
+  }
+  /** Called after every challenge stage starts: a boss rush walks straight into the arena. */
+  function enterChallengeStage() {
+    const c = challenge;
+    if (c.kind === 'rush') warpTo(ARENA.left + 40);
+    g.levelStartT = g.playT; g.levelStartDeaths = g.deaths; g.levelStartKills = g.kills; g.levelStartScore = g.score;
+    c.stageT0 = g.playT; if (c.idx === 0) c.t0 = g.playT;
+  }
+  /** A challenge guardian fell: start the next rush fight, or settle the challenge and record it under its own keys. */
+  function settleChallenge() {
+    const c = challenge;
+    g.levelSettled = true; clearInput(); g.cine = null;
+    c.fights.push({ id: level.id, numeral: level.numeral, time: g.playT - c.stageT0, falls: g.deaths - g.levelStartDeaths });
+    audio.play('clear');
+    if (c.kind === 'rush' && c.idx < c.ids.length - 1) {
+      c.idx++;
+      const next = LEVELS.find(l => l.id === c.ids[c.idx]), hp = player.hp;
+      g.mode = 'loading'; g.loadingNext = next; syncUI();
+      const request = ++loadRequest;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (destroyed || request !== loadRequest) return;
+        resetGame(next, true); startGame(); enterChallengeStage();
+        // Health carries between guardians, with a small patch-up.
+        player.hp = player.hpGhost = Math.min(MAX_HP, hp + 30);
+        canvas.focus(); last = 0; acc = 0;
+      }));
+      return;
+    }
+    g.mode = 'victory'; g.victoryT = 0;
+    const time = c.kind === 'rush' ? g.playT - c.t0 : g.playT - c.stageT0, falls = c.fights.reduce((n, f) => n + f.falls, 0);
+    const res = { kind: c.kind, mutator: c.mutator, act: c.act, ids: c.ids, fights: c.fights, time, falls, medal: 0, targets: null, best: null, improved: false, mark: null, freshMark: false };
+    if (c.kind === 'time' && c.mutator !== 'none') {
+      const r = recordMark(services.storage, difficulty, level.id, c.mutator); persist(r.saved); res.mark = c.mutator; res.freshMark = r.fresh;
+    } else {
+      res.targets = c.kind === 'rush' ? rushTargets(c.ids) : stageTargets(level.id);
+      res.medal = medalFor(time, res.targets);
+      const r = recordTime(services.storage, difficulty, c.kind, c.kind === 'rush' ? c.act : level.id, time); persist(r.saved);
+      res.best = r.best; res.improved = r.improved;
+    }
+    records = loadRecords(services.storage, difficulty);
+    challengeResult = res;
+    services.sound?.play?.('success');
+    syncUI();
+  }
 
   function checkpointRun() {
     const next = nextLevel(level); if (!next) return;
@@ -315,9 +383,15 @@ export function createAshfall(host, services) {
     };
     player.scarf = Array.from({ length: 7 }, (_, i) => ({ x: player.x - i * 5, y: player.y - 48 }));
     enemies = ENEMIES.map(([type, x], i) => spawnEnemy(type, x, i));
+    // Double enemies: a second pack right beside the first, nudged off any pit (the level data itself is untouched).
+    if (challenge?.mutator === 'double') ENEMIES.forEach(([type, x], i) => enemies.push(spawnEnemy(type, besideSafe(x), ENEMIES.length + i)));
     boss = makeBoss();
     if (level.flood) resetFlood(level.flood.startGrace);
     g.cam.x = 0; Object.assign(g, settings); syncUI();
+  }
+  function besideSafe(x) {
+    const clear = v => v > 40 && v < ARENA.left - 60 && !PITS.some(p => v >= p.x - 40 && v <= p.x + p.w + 40);
+    return [x + 70, x - 70, x + 140, x - 140].find(clear) ?? x;
   }
   function advanceLevel() {
     const next = nextLevel(level);
@@ -489,7 +563,8 @@ export function createAshfall(host, services) {
     if (g.upgrades.has('guard')) dmg *= 0.85;
     dmg *= tuning().incoming * (1 - .07 * perk('guard'));
     g.streak = 0; g.streakT = 0; g.heat = Math.max(0, g.heat - 20);
-    p.hp -= dmg; p.iframe = 0.9; p.flash = 0.12; p.hurtT = 0.28; p.atk = null; p.reloading = false;
+    p.hp -= dmg; if (challenge?.mutator === 'glass') p.hp = 0;
+    p.iframe = 0.9; p.flash = 0.12; p.hurtT = 0.28; p.atk = null; p.reloading = false;
     p.vx = Math.sign(p.x - srcX || 1) * knock; p.vy = -230; p.grounded = false; p.rolling = false;
     audio.play('hurt'); addShake(8); hitStop(0.075); if (coarse) navigator.vibrate?.(35); g.dmgVignette = 1; flash('#7a0c08', 0.25);
     for (let i = 0; i < 8; i++) part({ kind: 'ichor', x: p.x, y: p.y - 40, vx: (rand() - 0.5) * 220, vy: -rand() * 260, g: 1200, life: 0.6, size: 2.2, color: '#5a1410' });
@@ -563,6 +638,7 @@ export function createAshfall(host, services) {
     }
     updateAttack(dt);
     // --- shotgun ---
+    if (challenge?.mutator === 'noshot' && buffers.shoot > 0) { buffers.shoot = 0; if (control) { audio.play('empty'); p.shootCd = 0.25; } }
     if (control && buffers.shoot > 0 && !p.rolling && p.shootCd <= 0 && (!p.atk || p.atk.phase === 'recover')) {
       buffers.shoot = 0;
       if (p.ammo > 0) fire(); else { audio.play('empty'); p.shootCd = 0.25; if (!p.reloading) startReload(); }
@@ -1078,6 +1154,7 @@ export function createAshfall(host, services) {
     const b = boss, t = b.t;
     if (t < 2.4 && t >= (b.nextBoom || 0)) { b.nextBoom = t + 0.17; explosion(b.x + (rand() - 0.5) * 150, b.y - 30 - rand() * 190, 0.8); }
     if (t > 2.4 && !b.bigBoom) { b.bigBoom = true; explosion(b.x, b.y - 120, 2.4); flash('#ffffff', 1); audio.play('slam'); addShake(20); }
+    if (t > 4.2 && g.mode === 'play' && !g.levelSettled && challenge) { settleChallenge(); return; }
     if (t > 4.2 && g.mode === 'play' && !g.levelSettled) {
       g.levelSettled = true; clearInput();
       g.mode = nextLevel(level) ? 'interlude' : 'victory'; g.victoryT = 0; g.cine = null;
@@ -1168,6 +1245,7 @@ export function createAshfall(host, services) {
       a.wave.forEach(([type, x], i) => {
         const e = spawnEnemy(type, x, 100 + enemies.length + i); e.ambush = true; e.state = 'chase'; e.cd = 0.8 + i * 0.3; e.face = Math.sign(p.x - x) || 1;
         enemies.push(e); ashBurst(e); light(x, e.y - 30, 220, 'warm', 0.4, 1.2);
+        if (challenge?.mutator === 'double') { const e2 = spawnEnemy(type, x + (x > p.x ? 50 : -50), 200 + enemies.length + i); e2.ambush = true; e2.state = 'chase'; e2.cd = 1.1 + i * 0.3; e2.face = e.face; enemies.push(e2); ashBurst(e2); }
       });
       return;
     }
@@ -2022,9 +2100,9 @@ export function createAshfall(host, services) {
     globalThis.__ashfall = {
       get level() { return level; }, get g() { return g; }, get player() { return player; }, get boss() { return boss; }, get enemies() { return enemies; },
       start() { if (g.mode !== 'play') { if (level !== selectedLevel) resetGame(selectedLevel); startGame(); } },
-      continue() { continueRun(); }, get difficulty() { return difficulty; }, get runStartLevelId() { return runStartLevelId; }, bot(on = true) { g.bot = on; }, manual(on = true) { g.manual = on; },
+      continue() { continueRun(); }, get difficulty() { return difficulty; }, get challenge() { return challenge; }, get challengeResult() { return challengeResult; }, get runStartLevelId() { return runStartLevelId; }, bot(on = true) { g.bot = on; }, manual(on = true) { g.manual = on; },
       step(n = 1) { for (let i = 0; i < n; i++) if (!userPaused && !shellPaused && !visibilityPaused) tick(DT); }, render() { render(); },
-      warp(x) { player.x = x; player.y = level.terrain === 'ascent' ? floorY(x) : surfaceY(x, 0) ?? arenaFloorY; player.safe = { x: player.x, y: player.y }; if (level.terrain === 'ascent') g.cam.y = player.y - 360; g.cam.x = clamp(x - VIEW_W * 0.42, 0, WORLD_END - VIEW_W); for (let i = CHECKPOINTS.length - 1; i >= 0; i--) if (x >= CHECKPOINTS[i]) { g.cpIdx = Math.max(g.cpIdx, i); break; } },
+      warp(x) { warpTo(x); },
       press(a, d = true) { pressAction(a, d); }
     };
   }
@@ -2032,7 +2110,12 @@ export function createAshfall(host, services) {
   return {
     pause() { shellPaused = true; last = 0; acc = 0; audio.suspend(); clearInput(); },
     resume() { shellPaused = false; last = 0; if (!userPaused && !visibilityPaused) audio.resume(); },
-    restart() { shellPaused = false; audio.resume(); loadRequest++; resetGame(); startGame(); userPaused = false; },
+    restart() {
+      shellPaused = false; audio.resume(); loadRequest++;
+      if (challenge) { challenge.idx = 0; challenge.fights = []; challengeResult = null; resetGame(LEVELS.find(l => l.id === challenge.ids[0])); startGame(); enterChallengeStage(); }
+      else { resetGame(); startGame(); }
+      userPaused = false;
+    },
     destroy() {
       destroyed = true; loadRequest++; cancelAnimationFrame(raf); ro?.disconnect(); audio.destroy();
       listeners.forEach(([t, type, fn, opt]) => t.removeEventListener(type, fn, opt));

@@ -1,9 +1,11 @@
-import { CHAPTERS, DEFENDERS, ENDLESS_LEVEL, RECIPES } from '../data';
+import { AFTER_HOURS_BY_ID, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, modeOf, PUZZLES, RECIPES } from '../data';
 import { clock, type Key } from '../i18n';
+import { dailyShareText } from '../../_shared/daily';
 import { spriteIcon } from '../render/sprites';
 import type { Screen, UiContext } from './context';
 import { crumbs, h, head } from './dom';
 import { bonusText } from './loadout';
+import { grannyOffered, hintOffered } from '../save';
 import { helpPanel, settingsBody } from './settings';
 
 const TIPS: Key[] = ['tip.burners', 'tip.lanes', 'tip.walls', 'tip.upgrade', 'tip.recipes'];
@@ -20,13 +22,31 @@ const stat = (label: string, value: string | number) => h('div', { class: 'mk-st
 export const resultsScreen: Screen = (ui, params) => {
   const { t, tr } = ui.i18n, data = params.results;
   if (!data) return h('div', { class: 'mk-screen', 'data-screen': 'results' });
-  const { level, won, flags, reward } = data, endless = level.id === ENDLESS_LEVEL.id, stats = data.stats;
+  const { level, won, flags, reward } = data, mode = modeOf(level), endless = level.id === ENDLESS_LEVEL.id || mode === 'daily', stats = data.stats;
+  /** The campaign's very last night gets the dawn ending; side nights never do. */
+  const lastNight = mode === 'campaign' && LEVEL_LIST[LEVEL_LIST.length - 1]?.id === level.id;
+  const eyebrow = mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : mode === 'puzzle' ? t('pz.eyebrow', { n: level.index }) : t('map.chapter', { n: level.chapter });
   const box = h('div', { class: `mk-results${won || endless ? '' : ' lost'}`, 'data-result': endless ? 'endless' : won ? 'won' : 'lost' });
   const element = h('div', { class: 'mk-screen', 'data-screen': 'results' }, box);
   let d = 0.35;
   const next = () => (d += 0.18).toFixed(2);
 
-  if (endless) {
+  if (data.daily) {
+    // Daily Night: today's score against today's best, the streak, and a line to share.
+    const day = data.daily, share = dailyShareText(t('title.name'), data.score, day.streak, day.key, ui.i18n.lang === 'zh');
+    const status = h('span', { role: 'status', 'aria-live': 'polite', class: 'mk-sub' });
+    box.append(
+      h('div', { class: 'mk-eyebrow' }, `☀ ${tr(level.name)} · ${day.key}`),
+      h('h2', null, t('results.endless', { n: data.wave })),
+      day.newBest ? h('div', { class: 'mk-pb', role: 'status' }, '★ ', t('daily.newBest')) : '',
+      h('div', { class: 'mk-panel', style: 'width:100%', 'data-daily-result': '' },
+        h('div', { class: 'mk-eyebrow' }, t('hud.score')), h('div', { class: 'mk-bigscore' }, String(data.score)),
+        h('p', { style: 'margin-top:4px' }, t('daily.todayBest', { n: day.best }), ' · ', t('daily.streakN', { n: day.streak })),
+        h('div', { class: 'mk-row center', style: 'margin-top:8px' },
+          h('button', { class: 'mk-btn small', 'data-action': 'share', onclick: async () => { status.textContent = (await ui.copy(share)) ? t('daily.copied') : share; } }, `⧉ ${t('daily.share')}`), status)),
+      h('div', { class: 'mk-statgrid' }, stat(t('results.waves'), data.wave), stat(t('results.kills'), data.kills), stat(t('results.recipesCooked'), stats?.recipes.length ?? 0), stat(t('results.time'), clock(data.time))));
+    if (day.newBest) chime(ui, element, [0.3]);
+  } else if (endless) {
     const best = reward.newBest || reward.newBestWave;
     box.append(
       h('div', { class: 'mk-eyebrow' }, tr(level.name)),
@@ -37,14 +57,20 @@ export const resultsScreen: Screen = (ui, params) => {
         h('p', { style: 'margin-top:4px' }, reward.newBest && reward.prevBest?.score ? t('results.beat', { n: reward.prevBest.score }) : reward.newBest ? t('results.first') : t('results.bestWas', { n: ui.save.endless.bestScore }))),
       h('div', { class: 'mk-statgrid' }, stat(t('results.waves'), data.wave), stat(t('results.kills'), data.kills), stat(t('results.recipesCooked'), stats?.recipes.length ?? 0), stat(t('results.heatSpent'), stats?.heatSpent ?? 0), stat(t('results.time'), clock(data.time))));
     if (best) chime(ui, element, [0.3]);
+  } else if (mode === 'puzzle') {
+    // Chef's Table: solved or not, no stars. A second miss in a row brings the hint (also shown on the counter).
+    const puzzle = PUZZLES.find(item => item.level === level);
+    box.append(h('div', { class: 'mk-eyebrow' }, `${eyebrow} · ${tr(level.name)}`), h('h2', null, won ? t('pz.solvedHead') : t('pz.missHead')), h('p', { class: 'mk-tag' }, won ? t(reward.firstClear ? 'pz.solvedSub' : 'pz.againSub') : t('pz.missSub')),
+      !won && puzzle && hintOffered(ui.save, level.id) ? h('div', { class: 'mk-panel paper', 'data-hint': '', style: 'width:100%;text-align:left' }, h('p', { class: 'mk-lead' }, `💡 ${tr(puzzle.hint)}`)) : '');
+    if (won && reward.firstClear) chime(ui, element, [0.3]);
   } else if (won) {
     // The campaign's last level gets its own heading; remembering the Bloom (not beating it) gets its own line.
-    const last = !data.nextLevel, head = last ? t('results.finaleHead') : t('results.win'), sub = last && stats?.remembered ? t('results.rememberedSub') : t('results.winSub');
+    const last = lastNight, head = last ? t('results.finaleHead') : t('results.win'), sub = last && stats?.remembered ? t('results.rememberedSub') : t('results.winSub');
     const before = reward.prior ?? [false, false, false], list: [boolean, string][] = [[flags.win, t('results.star.win')], [flags.flawless, t('results.star.flawless')], [flags.bonus, bonusText(ui, level.bonus)]];
     // Stars already earned on an earlier run sit still; the new ones pop in one by one with a chime.
     const delays: number[] = [];
     box.append(
-      h('div', { class: 'mk-eyebrow' }, `${t('map.chapter', { n: level.chapter })} · ${tr(level.name)}`),
+      h('div', { class: 'mk-eyebrow' }, `${eyebrow} · ${tr(level.name)}`),
       h('h2', null, head), h('p', { class: 'mk-tag' }, sub),
       h('div', { class: 'mk-bigstars', role: 'img', 'aria-label': t('results.starsAria', { n: list.filter(([on], i) => on || before[i]).length }) }, list.map(([on, label], i) => {
         if (on && !before[i]) {
@@ -55,14 +81,19 @@ export const resultsScreen: Screen = (ui, params) => {
       })));
     chime(ui, element, delays);
     if (delays.length) d = delays[delays.length - 1] + 0.2;
+    if (reward.chefWin) box.append(h('div', { class: 'mk-pb', role: 'status', 'data-chef-win': '' }, '♛ ', t('results.chefWin')));
   } else {
     // An early loss is nearly always an economy problem, so say that first; later losses rotate through the rest.
     box.append(h('div', { class: 'mk-eyebrow' }, tr(level.name)), h('h2', null, t('results.lose')), h('p', { class: 'mk-tag' }, t('results.loseSub')),
       h('div', { class: 'mk-panel paper', style: 'width:100%;text-align:left' }, h('p', { class: 'mk-lead' }, t(data.kills < 20 ? 'tip.burners' : TIPS[Math.floor(data.time) % TIPS.length]))));
+    // Two losses in a row: Granny offers a free tier-2 guard on the briefing screen.
+    if (grannyOffered(ui.save, level.id)) box.append(h('div', { class: 'mk-panel paper mk-granny-head', 'data-granny-offer': '', style: 'width:100%;text-align:left' }, spriteIcon('character', 'granny', 48),
+      h('div', { class: 'mk-grow' }, h('b', null, t('granny.title')), h('p', { style: 'margin:2px 0 6px' }, t('granny.askHint')),
+        h('button', { class: 'mk-btn primary', 'data-action': 'granny', onclick: () => ui.go('loadout', { level: level.id }) }, t('granny.ask')))));
   }
 
   if (!endless) box.append(h('div', { class: 'mk-statgrid' }, stat(t('results.time'), clock(data.time)), stat(t('results.kills'), data.kills),
-    stats ? stat(t('results.heatSpent'), stats.heatSpent) : null, stats ? stat(t('results.recipesCooked'), stats.recipes.length) : null));
+    stats && mode !== 'puzzle' ? stat(t('results.heatSpent'), stats.heatSpent) : null, stats ? stat(t('results.recipesCooked'), stats.recipes.length) : null));
   if (reward.crumbs > 0) box.append(h('div', { class: 'mk-row center', style: `animation:mk-rise .4s backwards;animation-delay:${next()}s` }, h('span', { class: 'mk-eyebrow' }, t('results.earned')), crumbs(ui, reward.crumbs), h('span', { class: 'mk-chip' }, t('results.purse', { n: ui.save.crumbs }))));
   for (const id of reward.unlocked) {
     const def = DEFENDERS[id];
@@ -80,7 +111,12 @@ export const resultsScreen: Screen = (ui, params) => {
       h('div', null, h('div', { class: 'mk-eyebrow' }, t('results.chapterOpen')), h('h3', null, plan ? tr(plan.name) : t('map.chapter', { n: data.chapterOpened })))));
   }
   // The campaign's last level: a proper ending line and a door straight into Endless Night.
-  const finale = won && !endless && !data.nextLevel;
+  for (const id of data.ahOpened ?? []) {
+    const night = AFTER_HOURS_BY_ID[id];
+    if (night) box.append(h('div', { class: 'mk-panel mk-reward', 'data-ah-opened': id, style: `--d:${next()}s` }, h('span', { class: 'mk-door-ico', style: 'font-size:26px' }, '☾'),
+      h('div', null, h('div', { class: 'mk-eyebrow' }, t('ah.title')), h('h3', null, t('ah.opened', { name: tr(night.name) })))));
+  }
+  const finale = won && lastNight;
   if (finale) box.append(h('div', { class: 'mk-panel paper mk-reward mk-finale', style: `--d:${next()}s` }, h('span', { class: 'mk-door-ico', style: 'font-size:28px' }, '☀'),
     h('div', null, h('h3', null, t('results.finaleTitle')), h('p', null, t('results.finale')))));
 

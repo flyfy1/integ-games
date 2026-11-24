@@ -1,6 +1,6 @@
 import type { ViewState } from './render/renderer';
-import { canPlace, createSim, defenderAt, drainEvents, place, remove, step, STEP, upgrade } from './sim';
-import type { ActionResult, LevelDef, MetaState, RecipeDef, Sim, SimEvent, TutorialStep } from './types';
+import { canPlace, cook, createSim, defenderAt, drainEvents, place, remove, step, STEP, upgrade } from './sim';
+import type { ActionResult, Difficulty, LevelDef, MetaState, RecipeDef, Sim, SimEvent, TutorialStep } from './types';
 
 /**
  * One night on the counter: the sim plus everything about how the player is touching it (selected card, spatula
@@ -40,10 +40,15 @@ export type Session = {
   skipTutorial(): void;
   /** Advance by real seconds (scaled by speed); returns the sim events produced. */
   advance(seconds: number): SimEvent[];
+  /** Chef's Table: end the placing phase and let the night run. */
+  cook(): void;
 };
 
 export type SessionOptions = {
-  random: () => number; loadout: string[]; meta: MetaState; speed?: 1 | 2; onDeny?: (reason: DenyReason) => void;
+  random: () => number; loadout: string[]; meta?: MetaState; speed?: 1 | 2; onDeny?: (reason: DenyReason) => void;
+  difficulty?: Difficulty;
+  /** Granny's help: one free tier-2 placement of this card. */
+  gift?: string;
   /** First tutorial step to show (steps already completed in an earlier attempt are not repeated). */
   tutorialFrom?: number;
   /** Called with the new index whenever a tutorial step completes. */
@@ -82,7 +87,7 @@ export function recipesIfPlaced(sim: Sim, def: string, col: number, lane: number
 }
 
 export function createSession(level: LevelDef, options: SessionOptions): Session {
-  const sim = createSim(level, { random: options.random, loadout: options.loadout, meta: options.meta });
+  const sim = createSim(level, { random: options.random, loadout: options.loadout, meta: options.meta, difficulty: options.difficulty, gift: options.gift });
   const view: ViewState = { sim, time: 0, card: null, spatula: false, hover: null, cursor: null, selected: null, focusCell: null, focusDefender: null, preview: null, dragging: false };
   const steps = level.tutorial ?? [];
   let tutorialIndex = Math.max(0, Math.min(steps.length, options.tutorialFrom ?? 0)), accumulator = 0;
@@ -165,6 +170,7 @@ export function createSession(level: LevelDef, options: SessionOptions): Session
     },
     confirm() { if (!view.cursor) { session.moveCursor(0, 0); return; } session.tapCell(view.cursor.col, view.cursor.lane); },
     upgradeAt(col, lane) { const result = upgrade(sim, col, lane); if (!result.ok) deny(result.reason); },
+    cook() { if (sim.prep) { cook(sim); this.cancel(); } },
     removeAt(col, lane) { const result = remove(sim, col, lane); if (!result.ok) deny(result.reason); else view.selected = null; },
     upgradeTarget() { const d = target(); if (d) session.upgradeAt(d.col, d.lane); else deny('empty'); },
     removeTarget() { const d = target(); if (d) session.removeAt(d.col, d.lane); else session.toggleSpatula(); },

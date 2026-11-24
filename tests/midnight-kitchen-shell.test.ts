@@ -125,7 +125,7 @@ describe('midnight kitchen save v3', () => {
   it('migrates a v2 save: progress kept, coach and settings get defaults', () => {
     const v2 = { v: 2, lang: 'en', crumbs: 90, owned: ['burner', 'pepper', 'dough'], loadout: ['burner'], upgrades: {}, levels: { 'c1-1': { win: true, flawless: false, bonus: false, bestTime: 80 } }, cookbook: { defenders: [], enemies: ['ant'], recipes: [] }, scenes: ['c1-1-intro'], endless: { bestScore: 10, bestWave: 2 }, speed: 2 };
     const save = migrate(v2);
-    expect(save.v).toBe(3);
+    expect(save.v).toBe(SAVE_VERSION);
     expect(save.crumbs).toBe(90);
     expect(save.levels['c1-1'].win).toBe(true);
     expect(save.speed).toBe(2);

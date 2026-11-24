@@ -1,14 +1,14 @@
 import type { Audio } from '../audio';
 import type { I18n, Lang } from '../i18n';
 import type { Reward, Save, Settings } from '../save';
-import type { LevelDef, SimStats } from '../types';
+import type { Difficulty, LevelDef, SimStats } from '../types';
 
 /**
  * What a menu screen gets: the save to read, strings, and the handful of actions it may trigger. Screens are plain
  * functions `(ui, params) => HTMLElement`; they never touch the sim, the canvas or storage directly.
  * To add a screen: write the function, add its name to `ScreenName`, and register it in `ui/index.ts`.
  */
-export type ScreenName = 'title' | 'map' | 'loadout' | 'cookbook' | 'shop' | 'settings' | 'results' | 'pause';
+export type ScreenName = 'title' | 'map' | 'loadout' | 'cookbook' | 'shop' | 'settings' | 'results' | 'pause' | 'afterhours' | 'puzzles';
 
 export type ResultsData = {
   level: LevelDef; won: boolean; flags: { win: boolean; flawless: boolean; bonus: boolean };
@@ -17,6 +17,10 @@ export type ResultsData = {
   stats?: SimStats;
   /** Chapter number that this win opened for the first time, if any. */
   chapterOpened?: number | null;
+  /** After Hours nights that the stars from this run opened. */
+  ahOpened?: string[];
+  /** Daily Night: the date, today's best, the streak, and whether this run set the best. */
+  daily?: { key: string; best: number; streak: number; newBest: boolean };
 };
 export type ScreenParams = { level?: string; results?: ResultsData; from?: ScreenName; tab?: string; chapter?: number; panel?: string };
 
@@ -32,8 +36,14 @@ export type UiContext = {
   go(screen: ScreenName, params?: ScreenParams): void;
   /** Level chosen on the map: plays its intro scene the first time, then opens the loadout (or the level). */
   openLevel(levelId: string): void;
-  /** Loadout confirmed: start playing. */
-  startNight(levelId: string, loadout: string[]): void;
+  /** Loadout confirmed: start playing (with Granny's gift card, when she offered and one was picked). */
+  startNight(levelId: string, loadout: string[], gift?: string): void;
+  /** Difficulty for campaign and After Hours nights (kept in the save). */
+  setDifficulty(difficulty: Difficulty): void;
+  /** Daily Night record from the shared daily kit (today's best score, streak). */
+  daily(): { key: string; best: number | null; streak: number; bestStreak: number };
+  /** Copy a line to the clipboard; resolves true when it worked. */
+  copy(text: string): Promise<boolean>;
   /** Leave the results screen for the next step (outro scene, then map or next level). */
   afterResults(results: ResultsData, choice: 'next' | 'retry' | 'map' | 'endless'): void;
   resume(): void;

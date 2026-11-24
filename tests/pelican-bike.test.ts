@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pelicanBike } from '../src/games/pelican-bike';
 import { LEVELS } from '../src/games/pelican-bike/levels';
-import { cloneSim, createSim, medalsFor, mergeBest, noInput, respawn, STEP, stepSim } from '../src/games/pelican-bike/sim';
+import { CHASE_GAP, CHASE_GRACE, chaseX, cloneSim, createSim, CYCLE, gustPower, medalsFor, mergeBest, noInput, poolLevel, respawn, STEP, stepSim } from '../src/games/pelican-bike/sim';
 import type { Input, Sim } from '../src/games/pelican-bike/sim';
-import { PH } from '../src/games/pelican-bike/theme';
+import { PH, PW } from '../src/games/pelican-bike/theme';
 import type { GameServices } from '../src/core/game-types';
 
 const services = (stored: Record<string, unknown> = {}): GameServices => ({
@@ -43,6 +43,19 @@ describe('pelican-bike module', () => {
       const controller = pelicanBike.mount(host, services({ hiscore: 1200, stages }));
       controller.destroy();
     }
+  });
+
+  it('marks a save from before the coasts once, so its old stage chain keeps working', () => {
+    const host = document.createElement('div');
+    const old = services({ stages: [{ time: 31.2, fish: 40, stars: 3, medals: 7 }] });
+    pelicanBike.mount(host, old).destroy();
+    expect(old.storage.set).toHaveBeenCalledWith('legacyChain', true);
+    const fresh = services({});
+    pelicanBike.mount(host, fresh).destroy();
+    expect(fresh.storage.set).toHaveBeenCalledWith('legacyChain', false);
+    const marked = services({ legacyChain: false, stages: [{ time: 31.2, fish: 40, stars: 3, medals: 7 }] });
+    pelicanBike.mount(host, marked).destroy();
+    expect(marked.storage.set).not.toHaveBeenCalledWith('legacyChain', expect.anything());
   });
 
   it('ignores keys typed into a text field elsewhere on the page', () => {
@@ -262,5 +275,96 @@ describe('pelican-bike simulation', () => {
     const frozen = s.time;
     run(s, 0.5, { right: true });
     expect(s.time).toBe(frozen);
+  });
+});
+
+const findStage = (pred: (s: Sim) => boolean) => LEVELS.findIndex((_l, i) => pred(createSim(i)));
+
+describe('pelican-bike coast hazards', () => {
+  it('rising air lifts a rider holding the button and only slows one who lets go', () => {
+    const lv = findStage((s) => s.vents.length > 0);
+    const make = () => { const s = createSim(lv); const v = s.vents.find((vv) => vv.y === 440)!; s.P.x = v.x + v.w / 2 - PW / 2; s.P.y = v.y - PH - 30; s.P.vy = 0; s.P.ground = false; s.P.jumps = 2; return s; };
+    const hold = make(), drop = make(), y0 = hold.P.y;
+    run(hold, 1, { jump: true });
+    run(drop, 0.3, {});
+    expect(hold.P.y).toBeLessThan(y0 - 150);
+    expect(hold.P.y + PH / 2).toBeGreaterThan(140 - 40); // rides to the top of the column, not beyond
+    expect(drop.P.vy).toBeGreaterThan(0);
+  });
+
+  it('a chase pursuer waits, then sweeps forward; it wipes out a rider it catches and restarts behind the checkpoint', () => {
+    const lv = LEVELS.findIndex((l) => l.chase);
+    const s = createSim(lv);
+    settle(s);
+    expect(chaseX(s)).toBe(s.spawnX - CHASE_GAP);
+    run(s, CHASE_GRACE + 1, {});
+    expect(chaseX(s)).toBeCloseTo(s.spawnX - CHASE_GAP + s.chaseSpeed * (s.time - CHASE_GRACE), 3);
+    while (!s.deaths && s.time < 10) run(s, STEP, {});
+    expect(s.deaths).toBe(1);
+    expect(chaseX(s)).toBeGreaterThan(s.P.x);
+    while (s.P.dead) run(s, STEP, {});
+    expect(chaseX(s)).toBe(s.spawnX - CHASE_GAP);
+    run(s, CHASE_GRACE - 0.1, {});
+    expect(chaseX(s)).toBe(s.spawnX - CHASE_GAP);
+    expect(createSim(0).chaseSpeed).toBe(0);
+  });
+
+  it('a rickety pier gives way under a rider who stops, plank after plank, but carries one who keeps pedalling', () => {
+    const lv = findStage((s) => s.crumbles.some((c) => c.kind === 'pier' && c.r === 11));
+    const make = () => {
+      const s = createSim(lv);
+      const run0 = s.crumbles.filter((c) => c.kind === 'pier' && c.r === 11);
+      const first = run0.reduce((a, b) => (b.c < a.c ? b : a));
+      s.P.x = first.x + 2; s.P.y = first.y - PH - 2; s.P.vy = 50; s.P.ground = false;
+      return { s, first };
+    };
+    const still = make();
+    run(still.s, 0.1, {});
+    const timers = still.s.crumbles.filter((c) => c.kind === 'pier' && c.r === still.first.r && c.state === 1).map((c) => c.t);
+    expect(timers.length).toBeGreaterThan(5);
+    expect(Math.max(...timers)).toBeGreaterThan(Math.min(...timers) + 0.5);
+    run(still.s, 1.5, {});
+    expect(still.s.deaths).toBe(1);
+    const ride = make();
+    run(ride.s, 2.6, { right: true });
+    expect(ride.s.deaths).toBe(0);
+    // A clone mid-collapse is independent of the original.
+    const c = make().s;
+    run(c, 0.2, {});
+    const snap = JSON.stringify(c.crumbles);
+    const k = cloneSim(c);
+    run(k, 1, {});
+    expect(JSON.stringify(c.crumbles)).toBe(snap);
+  });
+
+  it('tide pools start low, fill to the brim half a cycle later and drown a rider left on the floor', () => {
+    const lv = findStage((s) => s.pools.length > 0);
+    const s = createSim(lv);
+    const p = s.pools.find((pp) => pp.lo <= 440)!;
+    expect(poolLevel(p, 0)).toBe(p.lo);
+    expect(poolLevel(p, CYCLE * 0.65)).toBe(p.hi);
+    s.P.x = (p.x0 + p.x1) / 2 - PW / 2; s.P.y = p.lo - PH; s.P.vy = 0;
+    run(s, 0.5, {});
+    expect(s.deaths).toBe(0);
+    run(s, CYCLE * 0.4, {});
+    expect(s.deaths).toBe(1);
+  });
+
+  it('a gust lane drifts the rider only while it blows, and a headwind all but stalls a glide', () => {
+    const lv = findStage((s) => s.gusts.some((g) => g.dir < 0));
+    const make = (t: number) => {
+      const s = createSim(lv);
+      const g = s.gusts.find((gg) => gg.dir < 0)!;
+      s.time = t; s.P.x = (g.x0 + g.x1) / 2; s.P.y = 120; s.P.vy = 60; s.P.vx = 300; s.P.ground = false; s.P.jumps = 2;
+      return { s, g };
+    };
+    const calm = make(0), gust = make(CYCLE * 0.6);
+    expect(gustPower(calm.g, 0)).toBe(0);
+    expect(gustPower(gust.g, CYCLE * 0.6)).toBe(1);
+    const x0 = calm.s.P.x;
+    run(calm.s, 0.5, { right: true, jump: true });
+    run(gust.s, 0.5, { right: true, jump: true });
+    expect(calm.s.P.x - x0).toBeGreaterThan(130);
+    expect(gust.s.P.x - x0).toBeLessThan(40);
   });
 });

@@ -1,6 +1,6 @@
 import { CONTENT } from './data';
-import { cardOf, cellFree, createSim, defOf, enemyDef, mulberry32, place, remove, starFlags, step, STEP, upgrade, upgradeCost } from './sim';
-import type { Content, Defender, DefenderDef, Enemy, LevelDef, MetaState, Sim } from './types';
+import { cardOf, cellFree, createSim, defOf, enemyDef, mulberry32, place, placeCost, remove, starFlags, step, STEP, upgrade, upgradeCost } from './sim';
+import type { Content, Defender, DefenderDef, Difficulty, Enemy, LevelDef, MetaState, Sim } from './types';
 
 /**
  * Headless autoplay bot: a plain heuristic player used to measure difficulty (win rate, slices lost, time) from
@@ -33,6 +33,10 @@ export type BotOptions = {
   recipes?: boolean;
   /** Whether it plays for the level's bonus star (see `botAct`). */
   bonus?: boolean;
+  /** Difficulty to play on (default Standard). */
+  difficulty?: Difficulty;
+  /** Granny's help card. */
+  gift?: string;
 };
 export type BotResult = {
   won: boolean; lost: boolean; time: number; slicesLost: number; slicesLeft: number; kills: number; wave: number; score: number;
@@ -63,7 +67,7 @@ export function botCandidates(sim: Sim, maxGenerators = 99, recipes = true): Can
     if (!def) return false;
     const col = freeCol(def, lane, cols);
     if (col === undefined) return false;
-    out.push({ kind: 'place', priority, cost: def.cost, ready: ready(def), act: () => { place(sim, def.id, col, lane); } });
+    out.push({ kind: 'place', priority, cost: placeCost(sim, def.id), ready: ready(def), act: () => { place(sim, def.id, col, lane); } });
     return true;
   };
   const inLane = (lane: number) => sim.defenders.filter(d => d.lane === lane);
@@ -87,7 +91,7 @@ export function botCandidates(sim: Sim, maxGenerators = 99, recipes = true): Can
     spots.sort((a, b) => Math.hypot(a[0] + 0.5 - calm.x, a[1] - calm.lane) - Math.hypot(b[0] + 0.5 - calm.x, b[1] - calm.lane));
     for (const def of warmers) {
       const spot = spots.find(([col, lane]) => fits(def, col, lane));
-      if (spot) out.push({ kind: 'place', priority: 300, cost: def.cost, ready: ready(def), act: () => { place(sim, def.id, spot[0], spot[1]); } });
+      if (spot) out.push({ kind: 'place', priority: 300, cost: placeCost(sim, def.id), ready: ready(def), act: () => { place(sim, def.id, spot[0], spot[1]); } });
     }
     // No room next to it: clear a non-warm guard out of the way.
     if (!spots.some(([col, lane]) => cellFree(sim, col, lane))) {
@@ -184,7 +188,7 @@ export function botCandidates(sim: Sim, maxGenerators = 99, recipes = true): Can
         if (count > bestCount || (count === bestCount && best && col < best[0])) { best = [col, lane]; bestCount = count; }
       }
       const spot = best;
-      if (spot) out.push({ kind: 'place', priority: 70 + bestCount * 6, cost: cooker.cost, ready: ready(cooker), act: () => { place(sim, cooker.id, spot[0], spot[1]); } });
+      if (spot) out.push({ kind: 'place', priority: 70 + bestCount * 6, cost: placeCost(sim, cooker.id), ready: ready(cooker), act: () => { place(sim, cooker.id, spot[0], spot[1]); } });
     }
   }
 
@@ -192,7 +196,7 @@ export function botCandidates(sim: Sim, maxGenerators = 99, recipes = true): Can
     const def = cheapest(['generator']);
     // Hobs double a Burner's Heat; in the dark, Burners a little forward light where guards will stand.
     const hob = def && sim.activeLanes.flatMap(lane => Array.from({ length: cols }, (_, col) => [col, lane] as [number, number])).find(([col, lane]) => sim.cells[lane][col].hob && col <= 2 && fits(def, col, lane));
-    if (def && hob) out.push({ kind: 'place', priority: undefended ? 89 : 97, cost: def.cost, ready: ready(def), act: () => { place(sim, def.id, hob[0], hob[1]); } });
+    if (def && hob) out.push({ kind: 'place', priority: undefended ? 89 : 97, cost: placeCost(sim, def.id), ready: ready(def), act: () => { place(sim, def.id, hob[0], hob[1]); } });
     else {
       const prefer = sim.board.dark ? [1, 2, 0, 3] : sim.board.frost ? [1, 0, 2] : COLUMNS.generator;
       const lanes = [...sim.activeLanes].sort((a, b) => inLane(a).filter(d => defOf(sim, d).role === 'generator').length - inLane(b).filter(d => defOf(sim, d).role === 'generator').length);
@@ -260,7 +264,7 @@ export function runBot(level: LevelDef, options: BotOptions = {}): BotResult {
   const content = options.content ?? CONTENT;
   const sim = createSim(level, {
     random: mulberry32(options.seed ?? 1), content, meta: options.meta,
-    loadout: options.loadout ?? Object.keys(content.defenders)
+    loadout: options.loadout ?? Object.keys(content.defenders), difficulty: options.difficulty, gift: options.gift
   });
   const reaction = options.reaction ?? 0.6, maxTime = options.maxTime ?? 900;
   // The bot's own dice are separate from the sim's stream, so the same level seed can be played by different hands.

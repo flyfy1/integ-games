@@ -6,9 +6,11 @@ import { pauseScreen, resultsScreen } from './results';
 import { settingsScreen } from './settings';
 import { shopScreen } from './shop';
 import { titleScreen } from './title';
+import { afterHoursScreen } from './afterhours';
+import { puzzlesScreen } from './puzzles';
 
 /** Screen registry: one function per menu, each in its own file. */
 export const SCREENS: Record<ScreenName, Screen> = {
-  title: titleScreen, map: mapScreen, loadout: loadoutScreen, cookbook: cookbookScreen, shop: shopScreen, settings: settingsScreen, results: resultsScreen, pause: pauseScreen
+  title: titleScreen, map: mapScreen, loadout: loadoutScreen, cookbook: cookbookScreen, shop: shopScreen, settings: settingsScreen, results: resultsScreen, pause: pauseScreen, afterhours: afterHoursScreen, puzzles: puzzlesScreen
 };
 export type { ResultsData, Screen, ScreenName, ScreenParams, UiContext } from './context';

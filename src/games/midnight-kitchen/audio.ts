@@ -225,6 +225,9 @@ export function createAudio(services: GameServices, options: AudioOptions = {}):
         else if (type === 'remembered') sfx('remembered');
         else if (type === 'modifier') sfx('modifier');
         else if (type === 'polish') sfx('polish');
+        else if (type === 'mitt') sfx('shieldBreak');
+        else if (type === 'belt') sfx('cardReady', { def: String(e.def) });
+        else if (type === 'cook') sfx('waveStart', { index: 1 });
         else sfx('event');
       }
     }

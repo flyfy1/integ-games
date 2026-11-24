@@ -1,7 +1,7 @@
 import { CONTENT } from './data';
 import {
   DEFAULT_MODS,
-  type ActionResult, type AttackDef, type BonusGoal, type BossAttack, type Cell, type CellList, type Content, type Defender, type DefenderDef, type Enemy, type EnemyDef,
+  type ActionResult, type CardState, type Difficulty, type AttackDef, type BonusGoal, type BossAttack, type Cell, type CellList, type Content, type Defender, type DefenderDef, type Enemy, type EnemyDef,
   type HazardDef, type LevelDef, type MetaState, type ModPatch, type Mods, type Projectile, type RecipeLink, type Sim, type SimEvent, type SimOptions,
   type StatusApply, type TerrainDef, type TierDef, type WaveDef, type WarnKind
 } from './types';
@@ -45,6 +45,18 @@ const MERCY_MAX = 2;
 const MERCY_PACE = 0.35;
 const MERCIFUL = new Set<BossAttack['kind']>(['summon', 'toss']);
 const BREATHER = 1;
+
+/**
+ * Difficulty. Standard multiplies by exactly 1 and adds nothing, so the tuned campaign is untouched. Gentle: one more
+ * slice, extra starting Heat, softer pests and bosses, and one Oven Mitt per lane (a pest reaching the cake is swept
+ * away with everything else in its lane, once). Chef: hardier pests and bosses, and bosses show no mercy.
+ */
+export const DIFFICULTY: Record<Difficulty, { slices: number; heat: number; pest: number; boss: number; speed: number; mitts: number; mercy: boolean }> = {
+  gentle: { slices: 1, heat: 100, pest: 0.8, boss: 0.75, speed: 0.9, mitts: 1, mercy: true },
+  standard: { slices: 0, heat: 0, pest: 1, boss: 1, speed: 1, mitts: 0, mercy: true },
+  chef: { slices: 0, heat: 0, pest: 1.3, boss: 1.2, speed: 1, mitts: 0, mercy: false }
+};
+export const isDifficulty = (value: unknown): value is Difficulty => value === 'gentle' || value === 'standard' || value === 'chef';
 
 /** Small seeded generator for tests, the bot and daily seeds. */
 export function mulberry32(seed: number): () => number {
@@ -129,7 +141,7 @@ export function computeLight(sim: Sim): void {
   if (!sim.board.dark) { for (const row of sim.cells) for (const cell of row) cell.lit = true; return; }
   const sources: [number, number, number][] = [];
   for (let lane = 0; lane < lanes; lane++) for (let col = 0; col < cols; col++) { const cell = sim.cells[lane][col]; if (cell.lamp && cell.snuff <= 0) sources.push([col, lane, LAMP_RADIUS]); }
-  for (const d of sim.defenders) { const r = reachOf(defOf(sim, d).glow, d); if (r > 0 && sim.cells[d.lane][d.col].snuff <= 0) sources.push([d.col, d.lane, r]); }
+  if (!sim.rules.lampsOnly) for (const d of sim.defenders) { const r = reachOf(defOf(sim, d).glow, d); if (r > 0 && sim.cells[d.lane][d.col].snuff <= 0) sources.push([d.col, d.lane, r]); }
   for (let lane = 0; lane < lanes; lane++) for (let col = 0; col < cols; col++) {
     const cell = sim.cells[lane][col];
     cell.lit = !cell.dark || (cell.snuff <= 0 && sources.some(([c, l, r]) => Math.hypot(c - col, l - lane) <= r + 0.01));
@@ -153,28 +165,62 @@ function setHazards(sim: Sim, list: HazardDef[]): void {
   sim.hazards = list.map(def => ({ def, timer: def.first ?? def.every, warned: false, index: 0, cells: [] }));
 }
 
+/** Leftovers: deal `n` cards from the ones brought, a Burner first when there is one (no Heat means no night). */
+function dealLeftovers(ids: string[], n: number, random: () => number, content: Content): string[] {
+  const pool = [...ids], out: string[] = [];
+  const burner = pool.find(id => content.defenders[id]?.role === 'generator');
+  if (burner) { out.push(burner); pool.splice(pool.indexOf(burner), 1); }
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(random() * pool.length) % pool.length, 1)[0]);
+  return out;
+}
+
 export function createSim(level: LevelDef, options: SimOptions): Sim {
   const content = options.content ?? CONTENT;
   const bonus = metaBonuses(content, options.meta);
+  // Set puzzles are always Standard so their stored answers hold whatever the picker says.
+  const difficulty: Difficulty = level.rules?.puzzle ? 'standard' : options.difficulty ?? 'standard', tune = DIFFICULTY[difficulty], rules = level.rules ?? {};
   const activeLanes = level.activeLanes ?? Array.from({ length: level.lanes }, (_, lane) => lane);
   const cells: Cell[][] = Array.from({ length: level.lanes }, (_, lane) => Array.from({ length: level.cols }, () => freshCell(!activeLanes.includes(lane))));
   for (const [col, lane] of level.blocked ?? []) if (cells[lane]?.[col]) cells[lane][col].blocked = true;
-  const hand = (level.cards ?? options.loadout ?? []).filter((id, index, all) => content.defenders[id] && all.indexOf(id) === index).slice(0, level.cards ? 99 : level.slots);
-  const slices = level.slices + bonus.slices;
+  let hand = (level.cards ?? options.loadout ?? []).filter((id, index, all) => content.defenders[id] && all.indexOf(id) === index).slice(0, level.cards || rules.leftovers ? 99 : level.slots);
+  if (rules.leftovers) hand = dealLeftovers(hand, rules.leftovers, options.random, content);
+  if (rules.conveyor) hand = [];
+  const slices = rules.fixedSlices ? level.slices : level.slices + bonus.slices + tune.slices;
+  const cooldownMul = rules.pace?.cooldown ?? 1;
+  const cards: CardState[] = hand.map(id => {
+    const def = content.defenders[id], total = def.cooldown * cooldownMul;
+    if (rules.puzzle) return { def: id, total: 0, cooldown: 0, stock: rules.puzzle.pieces[id] ?? 0 };
+    return { def: id, total, cooldown: total * (1 - (def.startReady ?? 1)) };
+  });
+  // Granny's help: one free placement of a card from the hand, and it arrives already at tier 2.
+  if (options.gift && content.defenders[options.gift] && !rules.puzzle) {
+    let card = cards.find(item => item.def === options.gift);
+    if (!card) { card = { def: options.gift, total: content.defenders[options.gift].cooldown * cooldownMul, cooldown: 0 }; cards.push(card); }
+    card.gift = 1;
+  }
   const sim: Sim = {
     level, content, random: options.random, time: 0, tick: 0, status: 'playing',
-    heat: level.startHeat + bonus.startHeat, slices, maxSlices: slices, score: 0,
+    heat: level.startHeat + (rules.puzzle ? 0 : bonus.startHeat + tune.heat), slices, maxSlices: slices, score: 0,
     cells, activeLanes,
-    cards: hand.map(id => { const def = content.defenders[id]; return { def: id, total: def.cooldown, cooldown: def.cooldown * (1 - (def.startReady ?? 1)) }; }),
+    cards,
     defenders: [], enemies: [], projectiles: [], zones: [], links: [],
     wave: -1, waveTimer: 0, totalWaves: level.waveGen ? Infinity : level.waves.length, nextWave: null, waveSpawnTotal: 0,
     pending: [], telegraphed: -1, trickleTimer: level.trickle?.interval ?? 0, refund: Math.min(1, BASE_REFUND + bonus.refund), nextId: 1,
     events: [], metaMods: bonus.mods,
     stats: { kills: 0, placed: 0, removed: 0, upgrades: 0, defendersLost: 0, slicesLost: 0, heatEarned: 0, heatSpent: 0, maxDefenders: 0, tier3: 0, recipes: [], enemiesSeen: [], defendersUsed: [] },
     firedBarks: (level.barks ?? []).map(() => false), specialsUsed: [],
-    warnings: [], hazards: [], modifier: null, board: { dark: false, frost: false }, recipeHeat: bonus.recipeHeat
+    warnings: [], hazards: [], modifier: null, board: { dark: false, frost: false }, recipeHeat: bonus.recipeHeat,
+    difficulty, mitts: tune.mitts ? Array.from({ length: level.lanes }, (_, lane) => (activeLanes.includes(lane) ? tune.mitts : 0)) : [],
+    hpScale: { pest: tune.pest, boss: tune.boss }, rules, prep: !!rules.puzzle, handVersion: 0,
+    belt: { timer: rules.conveyor?.first ?? 1, next: 0 }, spawnCount: 0
   };
   applyTerrain(sim, level.terrain);
+  for (const [def, col, lane, tier] of level.preset ?? []) {
+    if (!content.defenders[def] || !inBoard(sim, col, lane) || defenderAt(sim, col, lane)) continue;
+    const d = addDefender(sim, def, col, lane, 0, Math.max(0, Math.min(content.defenders[def].tiers.length - 1, tier)));
+    d.fixed = true;
+  }
+  if (level.preset?.length) boardChanged(sim);
   setHazards(sim, level.hazards ?? []);
   refreshBoard(sim);
   sim.nextWave = waveAt(sim, 0);
@@ -237,9 +283,19 @@ export function canPlace(sim: Sim, def: string, col: number, lane: number): Acti
   if (!card || !data) return { ok: false, reason: 'unknown-card' };
   const refusal = cellRefusal(sim, def, col, lane);
   if (refusal) return { ok: false, reason: refusal };
+  if (sim.rules.puzzle && !sim.prep) return { ok: false, reason: 'cooking' };
+  if (card.stock !== undefined && card.stock <= 0 && !card.gift) return { ok: false, reason: 'stock' };
+  if (isFree(card)) return { ok: true };
   if (card.cooldown > 0) return { ok: false, reason: 'cooldown' };
   if (sim.heat < data.cost) return { ok: false, reason: 'heat' };
   return { ok: true };
+}
+/** Granny's gift and conveyor / puzzle stock are placed for free and ignore the recharge. */
+const isFree = (card: CardState) => (card.gift ?? 0) > 0 || card.stock !== undefined;
+/** What placing this card costs right now (0 for a gift or a card from the belt / puzzle stock). */
+export function placeCost(sim: Sim, def: string): number {
+  const card = cardOf(sim, def);
+  return card && isFree(card) ? 0 : sim.content.defenders[def]?.cost ?? 0;
 }
 /**
  * True when the cell itself could take a defender (ignores Heat and cooldown): drives the green/red preview. Pass the
@@ -393,30 +449,53 @@ function initialCd(attack: AttackDef): number {
   }
 }
 
-export function place(sim: Sim, def: string, col: number, lane: number): ActionResult {
-  const check = canPlace(sim, def, col, lane);
-  if (!check.ok) return check;
-  const data = sim.content.defenders[def], card = cardOf(sim, def)!, tier = data.tiers[0];
-  sim.heat -= data.cost; sim.stats.heatSpent += data.cost; card.cooldown = card.total;
+function addDefender(sim: Sim, def: string, col: number, lane: number, spent: number, tierIndex = 0): Defender {
+  const data = sim.content.defenders[def], tier = data.tiers[tierIndex];
   const mods = cloneMods(sim.metaMods[def] ?? DEFAULT_MODS());
   const maxHp = Math.round(tier.hp * mods.hp);
   const defender: Defender = {
-    id: sim.nextId++, def, col, lane, tier: 0, hp: maxHp, maxHp, cd: initialCd(tier.attack), stun: 0, spent: data.cost,
+    id: sim.nextId++, def, col, lane, tier: tierIndex, hp: maxHp, maxHp, cd: initialCd(tier.attack), stun: 0, spent,
     uses: tier.attack.kind === 'trap' ? tier.attack.uses + (mods.uses ?? 0) : 0, mods, recipes: [], bornAt: sim.time, attackAt: -9, hurtAt: -9, chilled: false, polish: 0
   };
   sim.defenders.push(defender);
+  return defender;
+}
+
+export function place(sim: Sim, def: string, col: number, lane: number): ActionResult {
+  const check = canPlace(sim, def, col, lane);
+  if (!check.ok) return check;
+  const data = sim.content.defenders[def], card = cardOf(sim, def)!;
+  const gift = (card.gift ?? 0) > 0, cost = isFree(card) ? 0 : data.cost;
+  sim.heat -= cost; sim.stats.heatSpent += cost;
+  if (gift) card.gift = (card.gift ?? 1) - 1;
+  else if (card.stock !== undefined) {
+    card.stock--;
+    // A belt card is used up; puzzle cards stay in the hand at 0 so a lifted piece can go back.
+    if (card.stock <= 0 && sim.rules.conveyor) { sim.cards = sim.cards.filter(other => other !== card); sim.handVersion++; }
+  } else card.cooldown = card.total;
+  const defender = addDefender(sim, def, col, lane, cost, gift && data.tiers.length > 1 ? 1 : 0);
   sim.stats.placed++;
   if (!sim.stats.defendersUsed.includes(def)) sim.stats.defendersUsed.push(def);
   sim.stats.maxDefenders = Math.max(sim.stats.maxDefenders, sim.defenders.length);
   emit(sim, { type: 'place', id: defender.id, def, col, lane });
+  if (gift) emit(sim, { type: 'upgrade', id: defender.id, def, col, lane, tier: defender.tier });
   boardChanged(sim);
   return { ok: true };
+}
+
+/** Chef's Table: stop planning and let the night run. */
+export function cook(sim: Sim): boolean {
+  if (!sim.prep || sim.status !== 'playing') return false;
+  sim.prep = false;
+  emit(sim, { type: 'cook' });
+  return true;
 }
 
 export function upgrade(sim: Sim, col: number, lane: number): ActionResult {
   if (sim.status !== 'playing') return { ok: false, reason: 'over' };
   const d = defenderAt(sim, col, lane);
   if (!d) return { ok: false, reason: 'empty' };
+  if (sim.rules.puzzle) return { ok: false, reason: 'max-tier' };
   const cost = upgradeCost(sim, d);
   if (cost === null) return { ok: false, reason: 'max-tier' };
   if (sim.heat < cost) return { ok: false, reason: 'heat' };
@@ -449,6 +528,17 @@ export function remove(sim: Sim, col: number, lane: number): ActionResult {
   if (sim.status !== 'playing') return { ok: false, reason: 'over' };
   const d = defenderAt(sim, col, lane);
   if (!d) return { ok: false, reason: 'empty' };
+  if (d.fixed) return { ok: false, reason: 'fixed' };
+  if (sim.rules.puzzle) {
+    // Planning a puzzle: lifting a piece puts it back in the hand. Once cooking, the board is set.
+    if (!sim.prep) return { ok: false, reason: 'cooking' };
+    sim.defenders = sim.defenders.filter(other => other !== d);
+    const card = cardOf(sim, d.def);
+    if (card) card.stock = (card.stock ?? 0) + 1;
+    emit(sim, { type: 'remove', id: d.id, def: d.def, col, lane, refund: 0 });
+    boardChanged(sim);
+    return { ok: true };
+  }
   const refund = refundFor(sim, d);
   sim.defenders = sim.defenders.filter(other => other !== d);
   sim.stats.removed++;
@@ -535,7 +625,8 @@ function ignite(sim: Sim, col: number, lane: number): void {
 export function spawnEnemy(sim: Sim, def: string, lane: number, x = sim.level.cols + SPAWN_OFFSET, hpMul = 1, court = hpMul): Enemy | null {
   const data = sim.content.enemies[def];
   if (!data) return null;
-  const hp = Math.round(data.hp * hpMul), shield = Math.round((data.shield ?? 0) * hpMul);
+  const scale = data.boss ? sim.hpScale.boss : sim.hpScale.pest;
+  const hp = Math.round(data.hp * hpMul * scale), shield = Math.round((data.shield ?? 0) * hpMul * scale);
   const enemy: Enemy = {
     id: sim.nextId++, def, lane, x, hp, maxHp: hp, shield, maxShield: shield, state: 'walk', biteCd: data.biteInterval * 0.5,
     slow: 0, slowPower: 1, stun: 0, burn: 0, burnDps: 0, sticky: 0, stickyPower: 1, rally: 0, rallyPower: 1,
@@ -580,7 +671,7 @@ function startWave(sim: Sim): void {
     }
   }
   sim.pending.sort((a, b) => a.at - b.at);
-  sim.waveSpawnTotal = total;
+  sim.waveSpawnTotal = total; sim.spawnCount = 0;
   if (!Number.isFinite(sim.totalWaves) && sim.wave > 0) sim.score += 50 + sim.wave * 10;
   emit(sim, { type: 'waveStart', wave: sim.wave, total: sim.totalWaves, big: !!wave.big });
   sim.nextWave = sim.wave + 1 < sim.totalWaves ? waveAt(sim, sim.wave + 1) : null;
@@ -600,7 +691,12 @@ function stepWaves(sim: Sim, dt: number): void {
   }
   while (sim.pending.length && sim.pending[0].at <= sim.time) {
     const next = sim.pending.shift()!;
-    spawnEnemy(sim, next.enemy, next.lane, sim.level.cols + SPAWN_OFFSET, next.hpMul, next.court);
+    const hole = sim.rules.plughole;
+    if (hole && !sim.content.enemies[next.enemy]?.boss && ++sim.spawnCount % hole.every === 0) {
+      // Plughole night: this one climbs out of the drain in the middle of the counter.
+      const e = spawnEnemy(sim, next.enemy, next.lane, hole.col + 0.5, next.hpMul, next.court);
+      if (e) emit(sim, { type: 'emerge', enemy: e.id, x: e.x, lane: e.lane });
+    } else spawnEnemy(sim, next.enemy, next.lane, sim.level.cols + SPAWN_OFFSET, next.hpMul, next.court);
   }
 }
 
@@ -712,6 +808,8 @@ function stepDefender(sim: Sim, d: Defender, dt: number): void {
   if (tier.regen && d.hp < d.maxHp && sim.time - d.hurtAt >= tier.regen.delay && cell.mold <= 0) d.hp = Math.min(d.maxHp, d.hp + tier.regen.rate * d.mods.regen * dt);
   if (d.stun > 0) { d.stun -= dt; return; }
   if (attack.kind === 'none') return;
+  // Recipes-only nights: a guard that is not part of a Recipe stands idle (Burners, Rice Cookers and traps still work).
+  if (sim.rules.recipesOnly && !d.recipes.length && attack.kind !== 'generate' && attack.kind !== 'aura' && attack.kind !== 'trap') return;
   // A Burner on a wet tile only sputters; on a hob it roars.
   if (attack.kind === 'generate' && cell.wet > 0) return;
   d.cd -= dt * (attack.kind === 'lanefire' ? 1 : rate);
@@ -919,6 +1017,8 @@ export function enemySpeed(sim: Sim, e: Enemy): number {
   if (e.sticky > 0) speed *= e.stickyPower;
   if (e.rally > 0) speed *= e.rallyPower;
   if (sim.modifier?.enemySpeed) speed *= sim.modifier.enemySpeed;
+  if (sim.rules.pace?.enemySpeed) speed *= sim.rules.pace.enemySpeed;
+  if (sim.difficulty !== 'standard') speed *= DIFFICULTY[sim.difficulty].speed;
   if (!def.flying) {
     const cell = cellUnder(sim, e);
     if (cell) {
@@ -1072,7 +1172,8 @@ function landBossAttack(sim: Sim, e: Enemy, attack: BossAttack, cells: CellList)
  * `bossBreather`). A player who never loses a slice never sees it; Endless mini-bosses are not affected.
  */
 function mercyOf(sim: Sim, e: Enemy): number {
-  return sim.level.boss === e.def ? Math.min(MERCY_MAX, sim.stats.slicesLost) : 0;
+  // A swept lane on Gentle counts like a lost slice (the mitt saved the slice, the kitchen still struggled). Chef: none.
+  return sim.level.boss === e.def && DIFFICULTY[sim.difficulty].mercy ? Math.min(MERCY_MAX, sim.stats.slicesLost + (sim.stats.mitts ?? 0)) : 0;
 }
 
 /** The cake lost a slice: the boss stops to gloat. Its untelegraphed attacks wait at least `BREATHER` of their period. */
@@ -1239,6 +1340,7 @@ function stepEnemy(sim: Sim, e: Enemy, dt: number): void {
     if (e.loot === 0) e.loot = -1;
     return;
   }
+  if ((sim.mitts[e.lane] ?? 0) > 0) { ovenMitt(sim, e); return; }
   loseSlice(sim, e.lane, e.def);
   // The falling slice scatters the crowd behind the eater, so one bunched-up string costs one slice, not three at once.
   for (const other of sim.enemies) if (other !== e && !other.gone && other.lane === e.lane && other.x < CAKE_SCARE && !enemyDef(sim, other).boss) other.x = Math.max(other.x, CAKE_SCARE);
@@ -1246,11 +1348,32 @@ function stepEnemy(sim: Sim, e: Enemy, dt: number): void {
   e.gone = true;
 }
 
+/**
+ * Gentle: the lane's Oven Mitt sweeps the pest that reached the cake and every other pest in that lane off the
+ * counter (they count as sent home). A boss is not swept: it is batted back to where it retreats after a bite.
+ */
+function ovenMitt(sim: Sim, e: Enemy): void {
+  const lane = e.lane;
+  sim.mitts[lane]--;
+  sim.stats.mitts = (sim.stats.mitts ?? 0) + 1;
+  let swept = 0;
+  for (const other of sim.enemies) {
+    if (other.lane !== lane || other.gone || other.hp <= 0 || other.state === 'flee') continue;
+    const def = enemyDef(sim, other);
+    if (def.boss) { if (other.x < sim.level.cols - 1) other.x = Math.max(other.x, def.boss.retreatTo); continue; }
+    other.hp = 0; swept++;
+  }
+  emit(sim, { type: 'mitt', lane, swept });
+  bossBreather(sim);
+}
+
 function onEnemyDown(sim: Sim, e: Enemy): void {
   const def = enemyDef(sim, e);
   sim.stats.kills++; sim.score += def.score;
   emit(sim, { type: 'enemyDown', id: e.id, def: e.def, x: e.x, lane: e.lane, boss: !!def.boss });
   const col = Math.floor(e.x);
+  const bounty = sim.rules.bounty;
+  if (bounty) gainHeat(sim, Math.max(bounty.min, Math.round(def.threat * bounty.per / 5) * 5), 'bounty', Math.max(0, Math.min(sim.level.cols - 1, col)), e.lane);
   if (def.moldOnDeath && inBoard(sim, col, e.lane) && !sim.cells[e.lane][col].blocked) {
     sim.cells[e.lane][col].mold = def.moldOnDeath.duration;
     emit(sim, { type: 'mold', col, lane: e.lane });
@@ -1297,8 +1420,9 @@ function stepCells(sim: Sim, dt: number): void {
 }
 
 export function step(sim: Sim, dt: number = STEP): void {
-  if (sim.status !== 'playing') return;
+  if (sim.status !== 'playing' || sim.prep) return;
   sim.time += dt; sim.tick++;
+  if (sim.rules.conveyor) stepBelt(sim, dt);
 
   const trickle = sim.level.trickle;
   if (trickle) { sim.trickleTimer -= dt; if (sim.trickleTimer <= 0) { sim.trickleTimer += trickle.interval; gainHeat(sim, trickle.amount, 'trickle'); } }
@@ -1323,6 +1447,23 @@ export function step(sim: Sim, dt: number = STEP): void {
 
   if (sim.slices <= 0) { sim.status = 'lost'; emit(sim, { type: 'lose' }); return; }
   if (!sim.nextWave && sim.wave >= 0 && sim.pending.length === 0 && sim.enemies.length === 0) { sim.status = 'won'; emit(sim, { type: 'win' }); }
+}
+
+/** Conveyor nights: the next card rides in every `every` seconds unless the belt is full. */
+function stepBelt(sim: Sim, dt: number): void {
+  const belt = sim.rules.conveyor!;
+  sim.belt.timer -= dt;
+  if (sim.belt.timer > 0) return;
+  const waiting = sim.cards.reduce((sum, card) => sum + (card.stock ?? 0), 0);
+  if (waiting >= belt.max) { sim.belt.timer = 0.5; return; }
+  const def = belt.pool[sim.belt.next % belt.pool.length];
+  sim.belt.next++; sim.belt.timer += belt.every;
+  if (!sim.content.defenders[def]) return;
+  const card = cardOf(sim, def);
+  if (card) card.stock = (card.stock ?? 0) + 1;
+  else sim.cards.push({ def, cooldown: 0, total: 0, stock: 1 });
+  sim.handVersion++;
+  emit(sim, { type: 'belt', def });
 }
 
 /** Convenience for tests and the bot: advance by `seconds` of simulated time. */

@@ -1,4 +1,5 @@
 import { ACTS, DIFFICULTIES, FORGE } from './campaign.js';
+import { MARKS, MEDAL_ICON, MEDALS, MODES, MUTATORS, rushTargets, stageTargets } from './challenge.js';
 const formatTime=t=>`${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function createLevelUI(root,screen,levels,actions) {
@@ -14,7 +15,9 @@ export function createLevelUI(root,screen,levels,actions) {
     const zone=display.ZONES[menu?0:display.zoneIndexAt(actions.playerX())];
     ribbon.setAttribute('aria-label',t('Current stage and difficulty','当前关卡与难度'));
     ribbon.querySelector('strong').textContent=`${t('LEVEL','关卡')} ${display.numeral}`;
-    ribbon.querySelector('span').textContent=`${L(DIFFICULTIES[o.difficulty].label)} · ${menu?L(ACTS[display.act].name):zh?zone.sub:zone.name}`;
+    const ch=actions.challenge?.()||{mode:'campaign',mutator:'none',active:null,result:null,records:{times:{},rush:{},marks:{}}},act0=ch.active;
+    const chLabel=act0?`${L(MODES[act0.kind])}${act0.kind==='rush'?` ${act0.idx+1}/${act0.ids.length}`:''}${act0.mutator!=='none'?` · ${L(MUTATORS[act0.mutator])}`:''} · `:'';
+    ribbon.querySelector('span').textContent=`${chLabel}${L(DIFFICULTIES[o.difficulty].label)} · ${menu?L(ACTS[display.act].name):zh?zone.sub:zone.name}`;
     root.dataset.mode=g.mode;
     const b=actions.boss(),p=actions.player();
     pattern.hidden=g.mode!=='play';
@@ -36,27 +39,47 @@ export function createLevelUI(root,screen,levels,actions) {
         else cue=touch?t(`Build heat with hits · ${Math.floor(g.heat)}% · SLASH combo / FIRE shotgun / ROLL evade`,`命中积累热量 · ${Math.floor(g.heat)}% · 挥砍连击 / 枪击 / 翻滚闪避`):t(`Build heat with hits · ${Math.floor(g.heat)}% · J combo / K shotgun / Shift roll`,`命中积累热量 · ${Math.floor(g.heat)}% · J 连击 / K 枪击 / Shift 翻滚`);
       }
     }
+    if(act0&&cue&&!o.paused) cue=`⏱ ${formatTime(g.playT-(act0.kind==='rush'?act0.t0:act0.stageT0))} · ${cue}`;
     if(pattern.textContent!==cue) pattern.textContent=cue;
     pattern.classList.toggle('is-warning',b.state==='windup'&&!g.cine);
     const visible=['title','loading','interlude','victory'].includes(g.mode);overlay.hidden=!visible;screen.classList.toggle('has-overlay',visible);
     if(!visible){key='';return;}
-    const nextKey=[g.mode,level.id,selected.id,[...progress],best,g.results?.length,g.score,g.victoryT>=2.5,o.locale,o.difficulty,o.reward,JSON.stringify(g.forge),o.saved,o.resume?.level].join('|');
+    const nextKey=[g.mode,level.id,selected.id,[...progress],best,g.results?.length,g.score,g.victoryT>=2.5,o.locale,o.difficulty,o.reward,JSON.stringify(g.forge),o.saved,o.resume?.level,ch.mode,ch.mutator,act0?.idx,ch.result?.time,JSON.stringify(ch.records)].join('|');
     if(key===nextKey)return;key=nextKey;
     const focused=overlay.contains(document.activeElement)?document.activeElement?.getAttribute('data-control'):null,scroll=overlay.scrollTop;
     const button=(label,control,primary=false,disabled=false)=>`<button type="button" data-control="${control}" class="${primary?'af-primary':'af-secondary'}" ${disabled?'disabled':''}>${esc(label)}</button>`;
     const saveText=o.saved===false?t('Saving unavailable. This run stays in memory while this page is open.','无法保存。此轮进度仅在页面保持打开时保留。'):t('Progress saves on this device after each boss.','每次击败 Boss 后，进度保存在此设备。');
     const settings=`<div class="af-settings"><label>${t('Difficulty','难度')}<select data-control="difficulty" ${g.mode==='loading'?'disabled':''}>${Object.entries(DIFFICULTIES).map(([id,d])=>`<option value="${id}" ${id===o.difficulty?'selected':''}>${L(d.label)}</option>`).join('')}</select></label>${button(zh?'English':'中文','language')}</div>`;
-    if(menu) {
+    if(act0&&g.loadingNext) {
+      // Boss rush, between guardians: never the campaign's forge interlude.
+      const last=act0.fights.at(-1);
+      overlay.setAttribute('aria-label',t('Boss rush progress','守卫连战进度'));
+      overlay.innerHTML=`<div class="af-panel af-complete"><p class="af-eyebrow">${t('BOSS RUSH','守卫连战')} · ${t(`GUARDIAN ${act0.idx}/${act0.ids.length} DOWN`,`已击败 ${act0.idx}/${act0.ids.length}`)}</p><h2>${esc(zh?level.BOSS.sub:level.BOSS.name)}</h2><p>${last?`${formatTime(last.time)} · ${last.falls} ${t('FALLS','倒下')}`:''}</p><p class="af-route">${t('UP NEXT','下一位')} · ${esc(zh?g.loadingNext.BOSS.sub:g.loadingNext.BOSS.name)} · ${t('LOADING…','加载中…')}</p></div>`;
+    } else if(g.mode==='victory'&&ch.result) {
+      const r=ch.result,tg=r.targets;
+      overlay.setAttribute('aria-label',t('Challenge results','挑战结果'));
+      const head=r.mark?t(`MARK EARNED ${MARKS[r.mark]}`,`获得印记 ${MARKS[r.mark]}`):r.medal?`${MEDAL_ICON[r.medal]} ${L(MEDALS[r.medal])}`:t('CLEARED · NO MEDAL','已通关 · 未获奖牌');
+      const eyebrow=r.kind==='rush'?t(`BOSS RUSH · ACT ${r.act+1}`,`守卫连战 · 第 ${r.act+1} 章`):`${t('TIME ATTACK','单关竞速')} · ${t('LEVEL','关卡')} ${level.numeral}${r.mutator!=='none'?` · ${L(MUTATORS[r.mutator])}`:''}`;
+      const rows=r.kind==='rush'?`<table><thead><tr>${[t('LEVEL','关卡'),t('TIME','时间'),t('FALLS','倒下')].map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${r.fights.map(f=>`<tr><th>${f.numeral}</th><td>${formatTime(f.time)}</td><td>${f.falls}</td></tr>`).join('')}</tbody></table>`:'';
+      overlay.innerHTML=`<div class="af-panel af-complete"><p class="af-eyebrow">${eyebrow} · ${L(DIFFICULTIES[o.difficulty].label)}</p><h2>${head}</h2><p class="af-total">${formatTime(r.time)} · ${r.falls} ${t('FALLS','倒下')}</p>${tg?`<p>🥇 ${formatTime(tg.gold)} · 🥈 ${formatTime(tg.silver)} · 🥉 ${formatTime(tg.bronze)}</p><p>${r.improved?t('NEW BEST','新纪录'):t('BEST','最佳')} · ${formatTime(r.best)}</p>`:`<p>${r.freshMark?t('A new mark for this stage card.','关卡卡片新增一枚印记。'):t('You already hold this mark.','你已拥有这枚印记。')}</p>`}${rows}<div class="af-buttons">${button(t('Try again','再来一次'),'replay',true)}${button(t('Level select','返回选关'),'menu')}</div><p class="af-save" role="status">${o.saved===false?saveText:t('Challenge records are kept apart from your campaign save.','挑战纪录与战役存档分开保存。')}</p></div>`;
+    } else if(menu) {
       overlay.setAttribute('aria-label',t('Ashfall campaign selection','Ashfall 战役选择'));
       const act=ACTS[selected.act],busy=g.mode==='loading',resumeLevel=o.resume?levels[o.resume.level-1]:null;
       // One obvious action above the stage grid: Continue a saved run when there is one, otherwise Start.
-      const startBtn=button(busy?t('LOADING…','加载中…'):t(`START LEVEL ${selected.numeral}`,`开始第 ${selected.numeral} 关`),'start',!resumeLevel,busy);
-      const resumeBtn=resumeLevel?button(t(`CONTINUE RUN · LEVEL ${resumeLevel.numeral}`,`继续挑战 · 第 ${resumeLevel.numeral} 关`),'resume',true,busy):'';
-      const quick=`<div class="af-quick"><div class="af-buttons">${resumeBtn}${startBtn}</div><p class="af-route">${esc(zh?selected.titleZh:selected.title)} · ${t('RUN ROUTE','挑战路线')} · ${selected.numeral} → XX${best?` · ${t('BEST','最佳')} ${best}`:''}</p></div>`;
+      const rushIds=levels.filter(l=>l.act===selected.act).map(l=>l.id),cleared=progress.has(selected.id);
+      const startLabel=ch.mode==='time'?t(`TIME ATTACK · LEVEL ${selected.numeral}`,`竞速 · 第 ${selected.numeral} 关`):ch.mode==='rush'?t(`BOSS RUSH · ACT ${selected.act+1}`,`守卫连战 · 第 ${selected.act+1} 章`):t(`START LEVEL ${selected.numeral}`,`开始第 ${selected.numeral} 关`);
+      const startBtn=button(busy?t('LOADING…','加载中…'):startLabel,'start',!resumeLevel||ch.mode!=='campaign',busy);
+      // Challenge picker. The modifier list only exists in time attack, and only cleared stages can take one.
+      const modes=`<div class="af-modes"><label>${t('Mode','模式')}<select data-control="mode" ${busy?'disabled':''}>${Object.entries(MODES).map(([id,m])=>`<option value="${id}" ${id===ch.mode?'selected':''}>${L(m)}</option>`).join('')}</select></label>${ch.mode==='time'?`<label>${t('Modifier','修正')}<select data-control="mutator" ${busy?'disabled':''}>${Object.entries(MUTATORS).map(([id,m])=>`<option value="${id}" ${id===ch.mutator?'selected':''} ${id!=='none'&&!cleared?'disabled':''}>${L(m)}</option>`).join('')}</select></label>`:''}</div>`;
+      const tgt=ch.mode==='rush'?rushTargets(rushIds):stageTargets(selected.id),fmtT=x=>formatTime(x),bestT=ch.mode==='rush'?ch.records.rush[selected.act]:ch.records.times[selected.id];
+      const modeLine=ch.mode==='campaign'?'':ch.mode==='time'&&ch.mutator!=='none'?`<p class="af-route">${t('Clear it with this modifier to earn a mark on the stage card','带着此修正通关，即可在关卡卡片上获得印记')} ${MARKS[ch.mutator]}</p>`
+        :`<p class="af-route">${ch.mode==='rush'?t(`${rushIds.length} guardians back to back · health carries over`,`${rushIds.length} 位守卫连战 · 生命值延续`):(!cleared?t('Not cleared yet: modifiers unlock after a clear','尚未通关：通关后解锁修正'):t('One stage, against the clock','单关计时'))} · 🥇 ${fmtT(tgt.gold)} · 🥈 ${fmtT(tgt.silver)} · 🥉 ${fmtT(tgt.bronze)}${bestT?` · ${t('BEST','最佳')} ${fmtT(bestT)}`:''}</p>`;
+      const resumeBtn=resumeLevel&&ch.mode==='campaign'?button(t(`CONTINUE RUN · LEVEL ${resumeLevel.numeral}`,`继续挑战 · 第 ${resumeLevel.numeral} 关`),'resume',true,busy):'';
+      const quick=`<div class="af-quick">${modes}<div class="af-buttons">${resumeBtn}${startBtn}</div>${modeLine}<p class="af-route">${esc(zh?selected.titleZh:selected.title)} · ${t('RUN ROUTE','挑战路线')} · ${selected.numeral} → XX${best?` · ${t('BEST','最佳')} ${best}`:''}</p></div>`;
       overlay.innerHTML=`<div class="af-panel"><div class="af-heading"><div><p class="af-eyebrow">${t('20 STAGES · 20 GUARDIANS','20 关 · 20 位守卫')}</p><h1>ASHFALL</h1></div>${settings}</div>
       ${quick}
       <div class="af-acts" role="group" aria-label="${t('Acts','章节')}">${ACTS.map((a,i)=>`<button type="button" data-control="act-${i}" data-act="${i}" aria-pressed="${selected.act===i}">${i+1} · ${esc(L(a.name))}</button>`).join('')}</div>
-      <p class="af-act-goal">${esc(L(act.goal))}</p><div class="af-levels" role="radiogroup" aria-label="${t('Starting level','起始关卡')}">${levels.filter(l=>l.act===selected.act).map(l=>`<button type="button" role="radio" aria-checked="${l.id===selected.id}" tabindex="${l.id===selected.id?0:-1}" data-control="level-${l.id}" data-level="${l.id}"><strong>${t('LEVEL','关卡')} ${l.numeral}</strong><span class="af-name">${esc(zh?l.titleZh:l.title)}</span><small>${progress.has(l.id)?t('CLEARED ✓','已通关 ✓'):t('OPEN','可挑战')}</small></button>`).join('')}</div>
+      <p class="af-act-goal">${esc(L(act.goal))}</p><div class="af-levels" role="radiogroup" aria-label="${t('Starting level','起始关卡')}">${levels.filter(l=>l.act===selected.act).map(l=>`<button type="button" role="radio" aria-checked="${l.id===selected.id}" tabindex="${l.id===selected.id?0:-1}" data-control="level-${l.id}" data-level="${l.id}"><strong>${t('LEVEL','关卡')} ${l.numeral}</strong><span class="af-name">${esc(zh?l.titleZh:l.title)}</span><small>${progress.has(l.id)?t('CLEARED ✓','已通关 ✓'):t('OPEN','可挑战')}${ch.records.times[l.id]?` ${MEDAL_ICON[medalOf(ch.records.times[l.id],stageTargets(l.id))]||'⏱'} ${formatTime(ch.records.times[l.id])}`:''}${(ch.records.marks[l.id]||[]).map(m=>` ${MARKS[m]}`).join('')}</small></button>`).join('')}</div>
       <div class="af-brief"><p>${esc(L(selected.story))}</p><p class="af-boss"><b>${t('GUARDIAN','守卫')} · ${esc(zh?selected.BOSS.sub:selected.BOSS.name)}</b><br>${selected.BOSS.scripts?esc(selected.BOSS.scripts[0].map(a=>attackName(a,zh)).join(' → ')):t('Break armor with your blade. Save shells for the exposed core.','用刀锋击碎护甲，将子弹留给暴露的核心。')}</p></div>
       <p class="af-help">${esc(L(DIFFICULTIES[o.difficulty].detail))}</p>
       <p class="af-help">${touch?t('Touch: ◀ ▶ move · JUMP · SLASH combo · FIRE shotgun · ROLL evade','触屏：◀ ▶ 移动 · 跳跃 · 挥砍连击 · 枪击 · 翻滚闪避'):t('Arrows: choose stage · Enter: start · J: combo · K: shotgun · Shift: roll','方向键选关 · 回车开始 · J 连击 · K 枪击 · Shift 翻滚')}</p><p class="af-save" role="status">${saveText}</p></div>`;
@@ -72,10 +95,11 @@ export function createLevelUI(root,screen,levels,actions) {
     overlay.scrollTop=scroll;
     if(focused)overlay.querySelector(`[data-control="${focused}"]`)?.focus({preventScroll:true});
   }
-  overlay.addEventListener('change',e=>{if(e.target.matches('select'))actions.difficulty(e.target.value);});
+  overlay.addEventListener('change',e=>{if(!e.target.matches('select'))return;const c=e.target.dataset.control;if(c==='mode')actions.mode(e.target.value);else if(c==='mutator')actions.mutator(e.target.value);else actions.difficulty(e.target.value);});
   overlay.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;if(b.dataset.level)actions.select(Number(b.dataset.level));else if(b.dataset.act)actions.select(levels.find(l=>l.act===Number(b.dataset.act)).id);else if(b.dataset.reward)actions.reward(b.dataset.reward);else actions[b.dataset.control]?.();});
   return {update,focusSelection(){overlay.querySelector(`[data-level="${selection}"]`)?.focus();}};
 }
+function medalOf(time,tg){return time<=tg.gold?3:time<=tg.silver?2:time<=tg.bronze?1:0;}
 function attackName(a,zh){return ({slam:['Slam','重击'],barrage:['Volley','齐射'],charge:['Charge','冲锋'],beam:['Beam','光束'],missiles:['Missiles','导弹'],conduit:['Lightning','闪电'],pillars:['Pillars','立柱'],hook:['Hook','锁链钩']})[a]?.[zh?1:0]||a;}
 export const levelStyles=`
 .ashfall{--af-canvas:#090e14;--af-surface:#12171b;--af-selected:#32271b;--af-ink:#f4e8d5;--af-muted:#b4c4cd;--af-gold:#f0cd96;--af-dark:#1b1712;--af-focus:#aee6ff;--af-border:#76604a}
@@ -86,6 +110,7 @@ export const levelStyles=`
 .af-panel{width:min(960px,100%);margin:auto}.af-heading{display:flex;justify-content:space-between;gap:16px;align-items:center}.af-panel h1{font:700 clamp(1.5rem,4vw,2.5rem)/1.2 Georgia,serif;letter-spacing:.12em;margin:0 0 16px}.af-panel h2{font:700 clamp(1.5rem,3vw,2rem)/1.2 Georgia,serif;margin:16px 0}.af-panel h3{font-size:1rem}.af-panel p{margin:8px 0}.af-eyebrow{font:700 .8125rem/1.5 system-ui,sans-serif;color:var(--af-gold)}
 .af-settings{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.af-settings label{display:flex;flex-direction:column;font-size:.8125rem;color:var(--af-muted)}.af-settings select{min-height:48px;font:700 1rem system-ui;padding:8px 12px;background:var(--af-surface);color:var(--af-ink);border:1px solid var(--af-border);border-radius:6px}
 .af-acts{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--af-border);padding-bottom:8px}.af-acts button{flex:1;min-width:100px}.af-acts button,.af-rewards button,.af-levels button{min-height:48px;border:1px solid var(--af-border);border-radius:6px;background:var(--af-surface);color:var(--af-ink);font:700 .8125rem/1.5 system-ui;padding:8px;cursor:pointer}.af-acts [aria-pressed=true],.af-rewards [aria-pressed=true],.af-levels [aria-checked=true]{outline:2px solid var(--af-gold);outline-offset:-2px;background:var(--af-selected)}
+.af-modes{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}.af-modes label{display:flex;flex-direction:column;flex:1 1 180px;font-size:.8125rem;color:var(--af-muted)}.af-modes select{min-height:48px;font:700 1rem system-ui;padding:8px 12px;background:var(--af-surface);color:var(--af-ink);border:1px solid var(--af-border);border-radius:6px;max-width:100%}
 .af-act-goal{color:var(--af-muted);font-size:.8125rem}.af-levels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}.af-levels button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;min-height:96px;padding:12px}.af-levels strong{color:var(--af-gold);font-size:1rem}.af-levels small{color:var(--af-muted)}.af-brief{border-left:3px solid var(--af-gold);padding:0 16px;margin:16px 0}.af-boss{font-size:.8125rem;color:var(--af-focus)}
 .af-primary,.af-secondary{min-height:48px;min-width:48px;padding:12px 24px;border-radius:6px;border:1px solid var(--af-border);font:700 .875rem/1.5 system-ui;cursor:pointer}.af-primary{background:var(--af-gold);color:var(--af-dark)}.af-secondary{background:var(--af-surface);color:var(--af-ink)}.ashfall-overlay button:disabled{color:var(--af-muted);background:var(--af-surface);cursor:default}.ashfall-overlay :is(button,select,summary):focus-visible{outline:3px solid var(--af-focus);outline-offset:4px}.af-help,.af-save{color:var(--af-muted);font-size:.8125rem}.af-route,.af-total{color:var(--af-gold)}.af-buttons{display:flex;gap:12px;flex-wrap:wrap;margin:16px 0}.af-quick{margin:0 0 16px}.af-quick .af-buttons{margin:0 0 8px}.af-quick .af-primary{font-size:1rem;padding:12px 32px}.af-quick .af-route{margin:0}.af-rewards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.af-rewards button{display:flex;flex-direction:column;text-align:left;gap:4px;padding:12px}.af-rewards span{font-weight:400;color:var(--af-muted)}.af-complete table{width:100%;border-collapse:collapse;font-size:.8125rem}.af-complete th,.af-complete td{padding:8px;border-bottom:1px solid var(--af-border);text-align:left}.af-complete summary{cursor:pointer;padding:12px;min-height:48px;box-sizing:border-box}
 .ashfall[data-mode=title] .ashfall-touch,.ashfall[data-mode=loading] .ashfall-touch,.ashfall[data-mode=interlude] .ashfall-touch,.ashfall[data-mode=victory] .ashfall-touch{display:none}.ashfall:has(.has-overlay) .ashfall-rotate{display:none!important}
