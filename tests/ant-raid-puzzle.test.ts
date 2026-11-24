@@ -3,6 +3,8 @@ import { PUZZLES, puzzleById } from '../src/games/ant-raid/puzzle/levels';
 import { applyScript, createRun, settle, simulate, stepRun, type Run } from '../src/games/ant-raid/puzzle/sim';
 import { PCOLS, PROWS, TPS } from '../src/games/ant-raid/puzzle/types';
 import { search } from './ant-raid-puzzle-solver';
+import { createSession, type Session } from '../src/games/ant-raid/puzzle/session';
+import { mulberry32 } from '../src/games/ant-raid/sim';
 
 /**
  * Crumb Raiders puzzle acceptance (spec 2026-11-24, section 6). These are the bot-measurable halves of "clearing a
@@ -114,5 +116,63 @@ describe('fail reasons say what went wrong', () => {
     // Lost the moment the first ant is eaten: five crumbs are no longer possible.
     expect(r.tick / TPS).toBeLessThan(1);
     expect(r.ants.filter(a => a.lost)).toHaveLength(1);
+  });
+});
+
+describe('A11: 1-1 cannot be lost by any input sequence', () => {
+  it('500 random input runs (drags, taps, keys, undo, clear, GO, retry) never fail', () => {
+    const level = puzzleById('1-1')!;
+    let wins = 0;
+    for (let seed = 1; seed <= 500; seed++) {
+      const rnd = mulberry32(seed), int = (n: number) => Math.floor(rnd() * n);
+      const s = createSession(level);
+      let failed = false;
+      const drain = () => { for (const e of s.advance(1 / 30)) if (e.type === 'fail') failed = true; };
+      for (let step = 0; step < 60; step++) {
+        const r = rnd();
+        if (r < 0.35) { s.dragStart(int(16), int(9)); for (let k = int(8); k > 0; k--) s.dragTo(int(16), int(9)); s.dragEnd(); }
+        else if (r < 0.5) { const x = 1 + int(14); s.dragStart(1, 4); for (let k = 2; k <= x; k++) s.dragTo(k, 4); s.dragEnd(); }
+        else if (r < 0.62) s.moveCursor([1, -1, 0, 0][int(4)], [0, 0, 1, -1][int(4)], rnd() < 0.7);
+        else if (r < 0.66) s.confirm();
+        else if (r < 0.72) s.undo();
+        else if (r < 0.74) s.clear();
+        else if (r < 0.86) s.go();
+        else if (r < 0.9) s.stop();
+        else s.hold = rnd() < 0.5;
+        for (let k = int(20); k > 0; k--) drain();
+      }
+      s.go();
+      for (let k = 0; k < 30 * 70 && s.mode !== 'won' && s.mode !== 'plan'; k++) drain();
+      expect(failed, `seed ${seed}`).toBe(false);
+      if (s.mode === 'won') wins++;
+    }
+    expect(wins).toBeGreaterThan(100);
+  });
+});
+
+describe('A7 through the session: frame timing and fast-forward never change the outcome', () => {
+  const play = (id: string, script: 'solution' | number, dt: () => number, hold: (k: number) => boolean) => {
+    const level = puzzleById(id)!;
+    const s: Session = createSession(level);
+    applyScript(level, script === 'solution' ? level.solution : level.traps[script].plan, s.plan);
+    s.go();
+    let k = 0, outcome = '';
+    while (k++ < 100000) {
+      s.hold = hold(k);
+      for (const e of s.advance(dt())) if (e.type === 'won') outcome = 'won'; else if (e.type === 'fail') outcome = `lost:${JSON.stringify(e.reason)}`;
+      if (outcome) break;
+    }
+    return `${outcome}@${s.lastRunTicks}`;
+  };
+  for (const level of PUZZLES) it(level.id, () => {
+    const scripts: ('solution' | number)[] = ['solution', ...level.traps.map((t, i) => (t.wins ? -1 : i)).filter(i => i >= 0)];
+    for (const script of scripts) {
+      if (script !== 'solution' && !applyScript(level, level.traps[script].plan).ok) continue;
+      const base = play(level.id, script, () => 1 / 60, () => false);
+      for (let seed = 1; seed <= 20; seed++) {
+        const rnd = mulberry32(seed);
+        expect(play(level.id, script, () => 0.001 + rnd() * 0.1, () => rnd() < 0.5), `${level.id} ${script} seed ${seed}`).toBe(base);
+      }
+    }
   });
 });
