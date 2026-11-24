@@ -696,5 +696,217 @@ function tugMini(level: Level, env: MiniEnv): Mini {
   return mini;
 }
 
-const BUILDERS = { press: pressMini, maze: mazeMini, roam: roamMini, flick: flickMini, catch: catchMini, hold: holdMini, simon: simonMini, aim: aimMini, hop: hopMini, rhythm: rhythmMini, boss: bossMini, tug: tugMini };
+/* World 5, Combos: two things at once. A "hold" part (a held button or a pushed stick) must already be on when the
+   "tap" part is pressed; Twin Painter has no tap, both sticks just have to point at the same moment. */
+type Part = { kind: 'hold'; button: ButtonName } | { kind: 'tap'; button: ButtonName } | { kind: 'stick'; right: boolean; direction: Direction };
+type Combo = { first: Part; second: Part };
+const ARROWS: Record<Direction, string> = { up: '⬆️', down: '⬇️', left: '⬅️', right: '➡️' };
+const ALL_DIRECTIONS: Direction[] = ['up', 'down', 'left', 'right'];
+const FACES: ButtonName[] = ['south', 'east', 'west', 'north'];
+function comboMaker(id: string, env: MiniEnv): () => Combo {
+  const d = env.difficulty, face = () => (d === 0 ? 'south' : pick(env, FACES));
+  const sideways = (): Direction => (d === 0 ? pick(env, ['left', 'right'] as const) : pick(env, ALL_DIRECTIONS));
+  const rocket = (): Combo => ({ first: { kind: 'hold', button: d === 0 ? 'r2' : pick(env, ['l2', 'r2'] as const) }, second: { kind: 'tap', button: face() } });
+  const surf = (): Combo => ({ first: { kind: 'stick', right: false, direction: sideways() }, second: { kind: 'tap', button: face() } });
+  const paint = (): Combo => {
+    const left = sideways();
+    return { first: { kind: 'stick', right: false, direction: left }, second: { kind: 'stick', right: true, direction: d === 0 ? left : pick(env, ALL_DIRECTIONS) } };
+  };
+  const shoulder = (): Combo => ({ first: { kind: 'hold', button: pick(env, ['l1', 'r1'] as const) }, second: { kind: 'tap', button: face() } });
+  if (id === 'rocket') return rocket;
+  if (id === 'surf') return surf;
+  if (id === 'paint') return paint;
+  return () => pick(env, d === 0 ? [rocket, surf, paint] : [rocket, surf, paint, shoulder])();
+}
+function partOn(part: Part, pad: PadState): boolean {
+  if (part.kind === 'hold') return held(pad, part.button);
+  if (part.kind === 'tap') return just(pad, part.button);
+  const [x, y] = part.right ? [pad.rx, pad.ry] : [pad.x, pad.y], [wantX, wantY] = STEP[part.direction];
+  return x * wantX + y * wantY > 0.6;
+}
+const partLight = (part: Part): Highlight => (part.kind === 'stick' ? (part.right ? 'rstick' : 'stick') : part.button);
+const COMBO_SKY: Record<string, [string, string, string]> = { rocket: ['#13204a', '#3d3f8f', '🚀'], surf: ['#7fd6ff', '#2a8fd0', '🏄'], paint: ['#fff4dc', '#ffd6a8', '🎨'], disco: ['#2b1050', '#7a2c8f', '🪩'] };
+function comboMini(level: Level, env: MiniEnv): Mini {
+  const d = env.difficulty, goal = level.goal[d], wait = level.wait[d], make = comboMaker(level.id, env);
+  let combo = make(), resolved = 0, age = 0, cooldown = 0.4, both = 0, glow = [false, false], cheer = 0, nudge = 0;
+  const trail: Array<{ x: number; y: number; color: string }> = [];
+  const finish = (ok: boolean) => {
+    if (ok) { env.good(CENTER_X, 200, resolved); cheer = 0.9; } else { mini.misses++; env.bad(CENTER_X, 200); }
+    resolved++; age = 0; both = 0; cooldown = 0.45;
+    if (ok && level.id === 'paint') trail.push({ x: 300 + env.random() * 680, y: 120 + env.random() * 220, color: ['#ff5d6c', '#4a9bff', '#3ecf7a', '#ffc93c', '#b38cff'][resolved % 5] });
+    if (resolved >= goal) mini.done = true; else { combo = make(); env.tick(); }
+  };
+  const mini: Mini = {
+    goal, misses: 0, done: false,
+    update(dt, frame) {
+      cheer = Math.max(0, cheer - dt); nudge = Math.max(0, nudge - dt);
+      if (cooldown > 0) { cooldown -= dt; glow = [false, false]; return; }
+      age += dt;
+      const pad = frame.any, { first, second } = combo;
+      const firstOn = partOn(first, pad);
+      glow = [firstOn, second.kind === 'tap' ? false : partOn(second, pad)];
+      if (second.kind === 'tap') {
+        if (just(pad, second.button)) {
+          if (firstOn) return finish(true);
+          // Tapping before holding: Chick just gets a reminder, bigger kids lose the round.
+          nudge = 0.8;
+          if (d > 0) return finish(false);
+        }
+      } else {
+        both = firstOn && glow[1] ? both + dt : 0;
+        if (both >= 0.25) return finish(true);
+      }
+      if (age > wait) finish(false);
+    },
+    draw(g, time) {
+      const [top, bottom, hero] = COMBO_SKY[level.id] ?? COMBO_SKY.disco;
+      sky(g, top, bottom);
+      if (level.id === 'surf') { g.fillStyle = '#1f6fb0'; g.beginPath(); g.moveTo(0, 380); for (let x = 0; x <= WIDTH; x += 40) g.lineTo(x, 370 + 18 * Math.sin(x / 90 + time * 3)); g.lineTo(WIDTH, PLAY_HEIGHT); g.lineTo(0, PLAY_HEIGHT); g.fill(); }
+      if (level.id === 'disco') for (let i = 0; i < 6; i++) { g.fillStyle = ['#ff5d6c55', '#4a9bff55', '#3ecf7a55', '#ffc93c55', '#b38cff55', '#ff9a4a55'][i]; g.beginPath(); g.arc(160 + i * 190, 430, 70 + 10 * Math.sin(time * 4 + i), 0, Math.PI * 2); g.fill(); }
+      if (level.id === 'rocket') for (let i = 0; i < 24; i++) emoji(g, '✦', (i * 197) % WIDTH, (i * 89) % 380 + 20, 14);
+      trail.forEach((blob) => { g.fillStyle = blob.color; g.beginPath(); g.arc(blob.x, blob.y, 42, 0, Math.PI * 2); g.fill(); });
+      const fly = level.id === 'rocket' ? cheer * 260 : 0, lean = level.id === 'surf' && combo.first.kind === 'stick' ? STEP[combo.first.direction][0] * 0.3 : 0;
+      g.save(); g.translate(200, 300 - fly); g.rotate(lean + (cheer ? Math.sin(cheer * 20) * 0.15 : 0)); emoji(g, hero, 0, 0, 150); g.restore();
+      if (level.id === 'rocket' && glow[0]) emoji(g, '🔥', 200, 400 - fly, 60 + 10 * Math.sin(time * 30));
+      // The recipe card: first part + second part, each lighting up green when it is on.
+      if (cooldown <= 0) {
+        g.fillStyle = '#ffffffee'; g.beginPath(); g.roundRect(CENTER_X - 260, 110, 680, 230, 40); g.fill();
+        [combo.first, combo.second].forEach((part, i) => {
+          const x = CENTER_X - 90 + i * 340, on = glow[i];
+          g.fillStyle = on ? '#3ecf7a55' : '#00000010'; g.beginPath(); g.roundRect(x - 140, 130, 280, 190, 30); g.fill();
+          if (part.kind === 'stick') { emoji(g, ARROWS[part.direction], x, 200, 90); emoji(g, '🕹️', x + (part.right ? 70 : -70), 285, 48); }
+          else { drawChip(g, part.button, x, 205, 66, env.glyphs(), on); emoji(g, part.kind === 'hold' ? '✋' : '👆', x + 90, 280, 48); }
+        });
+        emoji(g, '➕', CENTER_X + 80, 225, 54);
+        if (nudge > 0) emoji(g, '✋', CENTER_X - 90, 120 - 10 * Math.sin(time * 20), 60);
+      }
+      if (Number.isFinite(wait) && cooldown <= 0) { g.fillStyle = '#ffffffaa'; g.fillRect(CENTER_X - 260, 360, 680 * Math.max(0, 1 - age / wait), 10); }
+      for (let i = 0; i < goal; i++) { g.fillStyle = i < resolved ? '#ffd23f' : '#ffffff40'; g.beginPath(); g.arc(CENTER_X - (goal - 1) * 24 + i * 48, 40, 14, 0, Math.PI * 2); g.fill(); }
+    },
+    highlights: () => (cooldown > 0 ? [] : [partLight(combo.first), partLight(combo.second)]),
+    progress: () => resolved,
+    bot() {
+      const move: BotMove = {}, parts = [combo.first, combo.second];
+      for (const part of parts) {
+        if (part.kind === 'hold') move.hold = [part.button];
+        else if (part.kind === 'tap') move.press = part.button;
+        else { const [x, y] = STEP[part.direction]; if (part.right) { move.rx = x; move.ry = y; } else { move.x = x; move.y = y; } }
+      }
+      return move;
+    }
+  };
+  return mini;
+}
+
+/* Party, co-op: the bear and the bunny keep one balloon in the air all the way home. Press when it floats down on
+   your side; each bump sends it over to your friend. Dropping it only costs a star. */
+function joinSecond(two: boolean, frame: Frame) { const second = frame.pads[1]; return !two && !!second && (second.pressed || second.dirPressed !== null); }
+const anyFace = (pad: PadState | undefined, directions: boolean) => !!pad && (FACES.some((b) => just(pad, b)) || (directions && pad.dirPressed !== null));
+function carryMini(level: Level, env: MiniEnv): Mini {
+  const d = env.difficulty, goal = level.goal[d], gravity = [0.8, 1.05, 1.35][d], reach = [0.62, 0.5, 0.42][d], lift = [0.85, 1.05, 1.27][d];
+  let two = env.players > 1, bx = -0.5, by = 0.85, vx = 0, vy = 0, bumps = 0, flash = [0, 0], buddyWait = 0;
+  const side = () => (bx < 0 ? 0 : 1);
+  const inReach = (who: number) => side() === who && by < reach && vy <= 0.2;
+  const bump = (who: number) => {
+    vy = lift;
+    const time = 2 * lift / gravity, target = who === 0 ? 0.5 : -0.5;
+    vx = (target - bx) / time; bumps++; flash[who] = 0.3;
+    env.good(CENTER_X + bx * 380, 380 - by * 300, bumps);
+    if (bumps >= goal) mini.done = true;
+  };
+  const mini: Mini = {
+    goal, misses: 0, done: false, versus: false,
+    update(dt, frame) {
+      flash = flash.map((f) => Math.max(0, f - dt));
+      if (joinSecond(two, frame)) { two = true; env.good(CENTER_X + 380, 320, 4); return; }
+      const bear = two ? frame.pads[0] : frame.any, bunny = frame.pads[1];
+      if (inReach(0) && anyFace(bear, false)) bump(0);
+      else if (inReach(1)) {
+        if (two) { if (anyFace(bunny, true)) bump(1); }
+        else { buddyWait += dt; if (buddyWait > [0.15, 0.25, 0.35][d]) { buddyWait = 0; bump(1); } }
+      }
+      if (mini.done) return;
+      vy -= gravity * dt; by += vy * dt; bx = clamp(bx + vx * dt, -0.95, 0.95);
+      if (by <= 0) { mini.misses++; env.bad(CENTER_X + bx * 380, 380); by = 0.8; vy = 0; vx = 0; bx = bx < 0 ? -0.5 : 0.5; }
+    },
+    draw(g, time) {
+      sky(g, '#bfe8ff', '#fff3d6', '#8fd46a', 400);
+      const trip = bumps / goal;
+      emoji(g, '🏡', WIDTH + 140 - trip * 260, 330, 150);
+      for (let i = 0; i < 5; i++) emoji(g, '☁️', ((i * 300 - trip * 900) % (WIDTH + 200) + WIDTH + 200) % (WIDTH + 200) - 100, 60 + (i % 2) * 40, 70);
+      [0, 1].forEach((who) => {
+        const x = CENTER_X + (who ? 380 : -380), lit = inReach(who);
+        if (lit) { g.fillStyle = '#ffffff55'; g.beginPath(); g.ellipse(x, 400, 130, 26, 0, 0, Math.PI * 2); g.fill(); }
+        emoji(g, who ? '🐰' : '🐻', x, 360 - flash[who] * 60 - bob(time, who), 130);
+      });
+      const x = CENTER_X + bx * 380, y = 380 - by * 300;
+      g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, y + 46); g.lineTo(x + 6 * Math.sin(time * 5), y + 110); g.stroke();
+      emoji(g, '🎈', x, y, 110);
+      if (inReach(0)) drawChip(g, 'south', CENTER_X - 380, 220, 36, env.glyphs(), true);
+    },
+    highlights: () => (inReach(0) ? ['south'] : []),
+    caption: () => (env.glyphs() !== 'keys' ? undefined : two ? 'party.two' : 'party.join'),
+    progress: () => bumps,
+    bot: () => (inReach(0) ? { press: 'south' } : {})
+  };
+  return mini;
+}
+const bob = (time: number, who: number) => Math.abs(Math.sin(time * 3 + who * 1.7)) * 6;
+
+/* Party, race: press the button over your head to run a step. It changes every few steps. Alone, the bunny runs
+   at a steady pace set by the difficulty; a second player (pad or arrow keys + Enter) races instead. */
+function raceMini(level: Level, env: MiniEnv): Mini {
+  const set = level.buttons ?? FACES, d = env.difficulty, goal = level.goal[d], pace = level.wait[d];
+  let two = env.players > 1, buddy = 0, wrong = 0;
+  const steps = [0, 0], stun = [0, 0], target: ButtonName[] = [pick(env, set), pick(env, set)], hop = [0, 0];
+  const step = (who: number) => {
+    steps[who]++; hop[who] = 0.18;
+    if (steps[who] % 4 === 0) { const now = target[who]; target[who] = pick(env, set.filter((b) => b !== now)); env.tick(steps[who]); }
+    if (who === 0) env.good(raceX(steps[0]), 210, steps[0]);
+    if (steps[who] >= goal) { mini.done = true; mini.winner = who; if (who === 1 && !two) mini.misses += Math.ceil(goal / 2); }
+  };
+  const raceX = (n: number) => 170 + (n / goal) * 900;
+  const pressed = (pad: PadState | undefined, directions: boolean) => (pad ? set.filter((b) => just(pad, b) || (directions && pad.dirPressed !== null && FACE_OF[pad.dirPressed] === b)) : []);
+  const mini: Mini = {
+    goal, misses: 0, done: false, versus: two,
+    update(dt, frame) {
+      hop[0] = Math.max(0, hop[0] - dt); hop[1] = Math.max(0, hop[1] - dt);
+      if (joinSecond(two, frame)) { two = true; mini.versus = true; env.good(CENTER_X + 380, 340, 4); return; }
+      const sides = two ? [frame.pads[0], frame.pads[1]] : [frame.any];
+      sides.forEach((pad, who) => {
+        stun[who] = Math.max(0, stun[who] - dt);
+        if (stun[who] > 0 || mini.done) return;
+        const keys = pressed(pad, who === 1);
+        if (!keys.length) return;
+        if (keys.includes(target[who])) step(who);
+        else if (d > 0) { stun[who] = 0.4; if (who === 0) { wrong++; mini.misses++; env.bad(raceX(steps[0]), 240); } }
+      });
+      if (!two && !mini.done) { buddy += dt; if (buddy >= pace) { buddy = 0; step(1); } }
+    },
+    draw(g, time) {
+      sky(g, '#c9efb0', '#ffe3a8', '#e9c48a', 300);
+      [0, 1].forEach((who) => {
+        const y = who ? 400 : 250;
+        g.fillStyle = who ? '#d9a86a' : '#e5b57a'; g.fillRect(120, y + 40, 1040, 14);
+        emoji(g, '🏁', 1110, y - 6, 70);
+        const x = raceX(steps[who]);
+        g.globalAlpha = stun[who] > 0 ? 0.5 : 1;
+        emoji(g, who ? '🐰' : '🐻', x, y - hop[who] * 160 - (stun[who] ? 0 : Math.abs(Math.sin(time * 8 + who)) * 4), 96);
+        g.globalAlpha = 1;
+        if (!mini.done && (who === 0 || two)) drawChip(g, target[who], x + 74, y - 54, 30, env.glyphs(), true);
+      });
+      write(g, `${steps[0]} / ${goal}`, 640, 60);
+    },
+    highlights: () => (mini.done ? [] : [target[0]]),
+    caption: () => (env.glyphs() !== 'keys' ? undefined : two ? 'party.two' : 'party.join'),
+    progress: () => steps[0],
+    bot: () => ({ press: target[0] })
+  };
+  return mini;
+}
+function write(g: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  g.font = '800 34px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#5b3a23'; g.fillText(text, x, y);
+}
+
+const BUILDERS = { press: pressMini, maze: mazeMini, roam: roamMini, flick: flickMini, catch: catchMini, hold: holdMini, simon: simonMini, aim: aimMini, hop: hopMini, rhythm: rhythmMini, boss: bossMini, tug: tugMini, combo: comboMini, carry: carryMini, race: raceMini };
 export const createMini = (level: Level, env: MiniEnv): Mini => BUILDERS[level.kind](level, env);

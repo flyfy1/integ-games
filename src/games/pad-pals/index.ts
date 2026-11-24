@@ -1,7 +1,8 @@
 import type { GameModule, GameServices } from '../../core/game-types';
 import { BUTTON_INDEX, createInput, createSound, startLoop, type ButtonName, type PadState } from '../_shared/gamepad-kit';
 import { defaultLang, isLang, t, type Key, type Lang, type SpokenKey } from './i18n';
-import { bestStars, DIFFICULTIES, DIFFICULTY_ICONS, emptyProgress, isMastered, isOpen, isProgress, levelStars, LEVELS, masteredCount, maxScore, PARTY_LEVEL, recordResult, starCount, STARS_PER_STICKER, starsFor, starsToNextSticker, stickerCount, STICKERS, totalScore, type Difficulty, type Level, type Progress } from './levels';
+import { dailyKey, dailyRandom, playedToday, readDaily, recordDaily } from '../_shared/daily';
+import { CARRY_LEVEL, COMBO_LEVELS, combosOpen, RACE_LEVEL, bestStars, DIFFICULTIES, DIFFICULTY_ICONS, emptyProgress, isMastered, isOpen, isProgress, levelStars, LEVELS, masteredCount, maxScore, PARTY_LEVEL, recordResult, starCount, STARS_PER_STICKER, starsFor, starsToNextSticker, stickerCount, STICKERS, totalScore, type Difficulty, type Level, type Progress } from './levels';
 import { createMini, type Frame, type Mini, type MiniEnv } from './minis';
 import { createVoice } from './voice';
 import { createTouchPad, drawChip, drawPad, HEIGHT, hitsMenu, PLAY_HEIGHT, WIDTH, type Demo, type GlyphSet, type Highlight } from './pad-view';
@@ -10,7 +11,9 @@ const ACCENT = '#ffb547';
 const SCALE = [523, 587, 659, 784, 880, 1047, 1175, 1319, 1568, 1760];
 const CALIBRATION: readonly ButtonName[] = ['south', 'east', 'west', 'north', 'l1', 'r1', 'l2', 'r2', 'select', 'start'];
 const MAX_HEIGHT = 960; // 4:3. Anything taller would shrink the pad too much to use.
-const ROW_Y = [130, 222, 314, 406], COLUMN_X = [310, 520, 730, 940];
+/** Five rows (four worlds and the Combos world) and five columns (the last one is the party). */
+const ROW_Y = [118, 196, 274, 352, 430], COLUMN_X = [300, 495, 690, 885, 1110];
+const CARD_W = 184, CARD_H = 70;
 
 /** Seconds without any input before a helping hand shows what to do. Tiger players are left to work it out. */
 const DEMO_AFTER = [2.5, 6, Infinity];
@@ -24,8 +27,8 @@ const RESULT_BUTTONS: ReadonlyArray<{ action: ResultAction; button: ButtonName; 
 ];
 const RESULT_Y = 430;
 
-type Screen = 'title' | 'map' | 'ready' | 'play' | 'result' | 'lab' | 'calibrate' | 'album' | 'master';
-type MapItem = { kind: 'difficulty'; difficulty: Difficulty } | { kind: 'lab' } | { kind: 'album' } | { kind: 'level'; level: Level };
+type Screen = 'title' | 'map' | 'ready' | 'play' | 'result' | 'lab' | 'calibrate' | 'album' | 'master' | 'scene' | 'remix';
+type MapItem = { kind: 'difficulty'; difficulty: Difficulty } | { kind: 'lab' } | { kind: 'album' } | { kind: 'scene' } | { kind: 'remix' } | { kind: 'level'; level: Level };
 type MapCell = { item: MapItem; row: number; column: number; x: number; y: number };
 type Spark = { x: number; y: number; vx: number; vy: number; life: number; icon: string };
 type Confetto = { x: number; y: number; vx: number; vy: number; spin: number; color: string; life: number };
@@ -33,13 +36,22 @@ type Confetto = { x: number; y: number; vx: number; vy: number; spin: number; co
 const MAP_CELLS: MapCell[] = [
   ...DIFFICULTIES.map((difficulty, column) => ({ item: { kind: 'difficulty', difficulty } as MapItem, row: 0, column, x: COLUMN_X[column], y: 44 })),
   { item: { kind: 'lab' }, row: 0, column: 3, x: COLUMN_X[3], y: 44 },
-  ...LEVELS.map((level) => {
-    const column = LEVELS.filter((other) => other.world === level.world).indexOf(level);
+  ...[...LEVELS, ...COMBO_LEVELS].map((level) => {
+    const column = [...LEVELS, ...COMBO_LEVELS].filter((other) => other.world === level.world).indexOf(level);
     return { item: { kind: 'level', level } as MapItem, row: level.world + 1, column, x: COLUMN_X[column], y: ROW_Y[level.world] };
   }),
-  { item: { kind: 'level', level: PARTY_LEVEL }, row: 1, column: 3, x: COLUMN_X[3], y: ROW_Y[0] },
-  { item: { kind: 'album' }, row: 2, column: 3, x: COLUMN_X[3], y: ROW_Y[1] }
+  { item: { kind: 'album' }, row: 1, column: 3, x: COLUMN_X[3], y: ROW_Y[0] },
+  { item: { kind: 'scene' }, row: 2, column: 3, x: COLUMN_X[3], y: ROW_Y[1] },
+  { item: { kind: 'remix' }, row: 3, column: 3, x: COLUMN_X[3], y: ROW_Y[2] },
+  ...[PARTY_LEVEL, CARRY_LEVEL, RACE_LEVEL].map((level, i) => ({ item: { kind: 'level', level } as MapItem, row: i + 1, column: 4, x: COLUMN_X[4], y: ROW_Y[i] }))
 ];
+/** Remix rounds are short: half a level's usual goal, never less than two. */
+const REMIX_ROUNDS = 5;
+const shortLevel = (level: Level): Level => ({ ...level, goal: level.goal.map((n) => Math.max(2, Math.ceil(n / 2))) as unknown as Level['goal'] });
+/** One surprise sticker per day the remix is finished; they join the sticker scenes. */
+const REMIX_GIFTS = ['🎁', '🧸', '🪀', '🎠', '🍭', '🦩', '🛸', '🐲', '🍰', '🎡', '🦜', '🪅'] as const;
+const SCENES = 3, SCENE_LIMIT = 40, TRAY_Y = 452;
+type Placed = [sticker: string, x: number, y: number];
 
 function mount(host: HTMLElement, services: GameServices) {
   const stored = services.storage.get<unknown>('lang', null);
@@ -109,6 +121,15 @@ function mount(host: HTMLElement, services: GameServices) {
   let pendingMaster: Difficulty | null = null, masterTier: Difficulty = 0, masterAge = 0, rain = 0;
   let calibrateStep = 0, calibrateMap: number[] = [], calibrateKind = '';
   let lastPad: PadState = { x: 0, y: 0, hx: 0, hy: 0, rx: 0, ry: 0, buttons: [], justPressed: [], dirPressed: null, btn: false, pressed: false };
+  /** Today's Surprise Remix while it is being played: five short rounds, misses summed for one set of stars. */
+  let remix: { levels: Level[]; index: number; misses: number; goal: number; day: string; gift: string | null; streak: number; stars: number } | null = null;
+  let remixAge = 0;
+  /** Sticker scenes: three pictures, each with the stickers a child has placed on it. */
+  let scenes = cleanScenes(services.storage.get<unknown>('scenes', null));
+  let sceneIndex = Math.abs(Math.floor(Number(services.storage.get<number>('scene-bg', 0)) || 0)) % SCENES;
+  let pickIndex = 0, sceneX = WIDTH / 2, sceneY = 250;
+  const giftCount = () => Math.min(REMIX_GIFTS.length, readDaily(services.storage, 'remix').played);
+  const palette = (): string[] => [...STICKERS.slice(0, stickerCount(progress)), ...REMIX_GIFTS.slice(0, giftCount())];
 
   const voice = createVoice();
   const say = (key: SpokenKey) => { if (!services.sound.muted) voice.say(lang, key); };
@@ -157,8 +178,31 @@ function mount(host: HTMLElement, services: GameServices) {
     go('ready');
     say(`hint.${next.id}` as SpokenKey);
   }
+  function startRemix() {
+    const cleared = [...LEVELS, ...COMBO_LEVELS].filter((item) => levelStars(progress, item.id) > 0);
+    if (!cleared.length) { sound.tone(200, 0.15, 'triangle', 0.1); banner = tr('remix.locked'); bannerLeft = 2; return; }
+    const day = dailyKey(), rand = dailyRandom('pad-pals', day);
+    const shuffled = cleared.map((item) => [rand(), item] as const).sort((a, b) => a[0] - b[0]).map(([, item]) => item);
+    const levels = Array.from({ length: REMIX_ROUNDS }, (_, i) => shortLevel(shuffled[i % shuffled.length]));
+    remix = { levels, index: 0, misses: 0, goal: 0, day, gift: null, streak: 0, stars: 0 };
+    begin(levels[0]);
+  }
+  function finishRemixRound(done: Mini) {
+    if (!remix) return;
+    remix.misses += done.misses; remix.goal += done.goal;
+    if (remix.index + 1 < remix.levels.length) { remix.index++; services.sound.play('success'); begin(remix.levels[remix.index]); return; }
+    const before = readDaily(services.storage, 'remix').played;
+    remix.stars = starsFor(remix.misses, remix.goal);
+    const record = recordDaily(services.storage, remix.stars, 'remix', remix.day);
+    remix.streak = record.streak;
+    remix.gift = record.played > before && record.played <= REMIX_GIFTS.length ? REMIX_GIFTS[record.played - 1] : null;
+    mini = undefined; remixAge = 0; confetti = [];
+    services.sound.play('clear'); party(60); say('remix.done');
+    go('remix');
+  }
   function finishLevel() {
     if (!mini) return;
+    if (remix) { finishRemixRound(mini); return; }
     const before = progress, hadBest = bestStars(progress, level.id, difficulty);
     resultStars = starsFor(mini.misses, mini.goal); resultWinner = mini.winner; resultVersus = Boolean(mini.versus); resultMisses = mini.misses;
     progress = recordResult(progress, level, difficulty, resultStars);
@@ -168,12 +212,14 @@ function mount(host: HTMLElement, services: GameServices) {
     pendingMaster = !isMastered(before, difficulty) && isMastered(progress, difficulty) ? difficulty : null;
     resultAge = 0; starsShown = 0; stickersShown = false;
     services.sound.play('success');
-    say(resultWinner !== undefined && resultVersus ? (resultWinner === 0 ? 'result.p1' : 'result.p2') : resultStars === 3 ? 'result.great' : resultStars === 2 ? 'result.good' : 'result.ok');
+    say(resultWinner !== undefined && resultVersus ? (resultWinner === 0 ? 'result.p1' : 'result.p2') : level.kind === 'carry' ? 'result.team' : resultStars === 3 ? 'result.great' : resultStars === 2 ? 'result.good' : 'result.ok');
     go('result');
   }
+  /** The journey, then World 5 once it is open. */
+  const ROUTE = [...LEVELS, ...COMBO_LEVELS];
   function nextLevel() {
-    const index = LEVELS.indexOf(level);
-    if (index >= 0 && index + 1 < LEVELS.length) begin(LEVELS[index + 1]); else go('map');
+    const index = ROUTE.indexOf(level), after = ROUTE[index + 1];
+    if (index >= 0 && after && isOpen(progress, after)) begin(after); else go('map');
   }
   /** Every level of a difficulty cleared earns the big party before anything else happens. */
   function leaveResult(action: ResultAction) {
@@ -191,8 +237,22 @@ function mount(host: HTMLElement, services: GameServices) {
   }
   /** A child who is still mashing the button from the level must not skip their own stars. */
   const resultLock = () => 0.5 + resultStars * 0.4;
-  const resultButtons = () => RESULT_BUTTONS.filter((item) => item.action !== 'next' || LEVELS.includes(level)).map((item, i, all) => ({ ...item, x: WIDTH / 2 + (i - (all.length - 1) / 2) * 310 }));
-  function skipLevel() { progress = recordResult(progress, level, difficulty, 0); save(); nextLevel(); }
+  const resultButtons = () => RESULT_BUTTONS.filter((item) => item.action !== 'next' || ROUTE.includes(level)).map((item, i, all) => ({ ...item, x: WIDTH / 2 + (i - (all.length - 1) / 2) * 310 }));
+  function skipLevel() {
+    if (remix && mini) { mini.misses = mini.goal; finishRemixRound(mini); return; }
+    progress = recordResult(progress, level, difficulty, 0); save(); nextLevel();
+  }
+  function saveScenes() { services.storage.set('scenes', scenes); services.storage.set('scene-bg', sceneIndex); }
+  function placeSticker(x: number, y: number) {
+    const stickers = palette();
+    if (!stickers.length) { sound.tone(200, 0.15, 'triangle', 0.1); return; }
+    const items = scenes[sceneIndex];
+    items.push([stickers[pickIndex % stickers.length], Math.round(x), Math.round(y)]);
+    if (items.length > SCENE_LIMIT) items.shift();
+    saveScenes();
+    sound.chime(SCALE[items.length % SCALE.length], 0.14); spark(x, y, '✨', 6);
+  }
+  function openScene() { pickIndex = Math.max(0, palette().length - 1); go('scene'); say('scene.hint'); }
 
   function startCalibration() {
     calibrateStep = 0; calibrateKind = ''; calibrateMap = Array.from({ length: 12 }, (_, i) => i);
@@ -237,7 +297,7 @@ function mount(host: HTMLElement, services: GameServices) {
   function renderBar() {
     const parts: string[] = [button('connect', tr('btn.connect')).replace('data-pad=', 'data-pad-connect data-pad=')];
     if (screen === 'play' || screen === 'ready') parts.push(button('map', tr('btn.map')), button('skip', tr('btn.skip')));
-    if (screen === 'lab') parts.push(button('map', tr('btn.map')));
+    if (screen === 'lab' || screen === 'scene') parts.push(button('map', tr('btn.map')));
     if (screen === 'map') parts.push(button('setup', tr('btn.setup')));
     if (screen === 'calibrate') parts.push(button('skip-button', tr('btn.skipButton')), button('map', tr('btn.cancel')));
     parts.push(button('lang', lang === 'zh' ? 'EN' : '中文'));
@@ -257,7 +317,7 @@ function mount(host: HTMLElement, services: GameServices) {
       if (!result.ok && !/no device/i.test(result.error ?? '')) { banner = tr('pad.fail', { error: result.error ?? '' }); bannerLeft = 5; }
       refreshStatus();
     }
-    if (action === 'map') { quiet(); mini = undefined; go('map'); }
+    if (action === 'map') { quiet(); mini = undefined; remix = null; go('map'); }
     if (action === 'skip') skipLevel();
     if (action === 'setup') startCalibration();
     if (action === 'skip-button') advanceCalibration();
@@ -282,7 +342,12 @@ function mount(host: HTMLElement, services: GameServices) {
     if (touch.down(event.pointerId, x, y)) { canvas.setPointerCapture?.(event.pointerId); return; }
     if (y > PLAY_HEIGHT) return;
     if (screen === 'title') go('map');
-    else if (screen === 'map') { const cell = MAP_CELLS.find((item) => Math.abs(item.x - x) < 100 && Math.abs(item.y - y) < 42); if (cell) { cursor = cell; activate(cell); } }
+    else if (screen === 'map') { const cell = MAP_CELLS.find((item) => Math.abs(item.x - x) < CARD_W / 2 && Math.abs(item.y - y) < CARD_H / 2 + 2); if (cell) { cursor = cell; activate(cell); } }
+    else if (screen === 'scene') {
+      if (y > TRAY_Y - 34) { const hit = trayCells().find((cell) => Math.abs(cell.x - x) < 40); if (hit) { pickIndex = hit.index; sound.tone(520, 0.05, 'triangle', 0.05); } }
+      else { sceneX = x; sceneY = Math.max(50, y); placeSticker(sceneX, sceneY); }
+    }
+    else if (screen === 'remix') { if (remixAge > 1.2) { remix = null; go('map'); } }
     else if (screen === 'result') { const hit = resultButtons().find((item) => Math.abs(item.x - x) < 150 && Math.abs(RESULT_Y - y) < 44); if (hit) leaveResult(hit.action); }
     else if (screen === 'album' || (screen === 'master' && masterAge > 1.2)) go('map');
     else if (screen === 'lab') toy(x, y, Math.floor(services.random() * 12));
@@ -296,6 +361,8 @@ function mount(host: HTMLElement, services: GameServices) {
     if (item.kind === 'difficulty') { difficulty = item.difficulty; save(); sound.chime(SCALE[difficulty * 2 + 2]); say(`diff.${difficulty}`); }
     else if (item.kind === 'lab') go('lab');
     else if (item.kind === 'album') { sound.chime(SCALE[4]); go('album'); }
+    else if (item.kind === 'scene') { sound.chime(SCALE[5]); openScene(); }
+    else if (item.kind === 'remix') startRemix();
     else if (isOpen(progress, item.level)) begin(item.level);
     else { sound.tone(200, 0.15, 'triangle', 0.1); banner = tr('locked'); bannerLeft = 2; say('locked'); }
   }
@@ -317,7 +384,7 @@ function mount(host: HTMLElement, services: GameServices) {
     const busy = Boolean(lastPad.btn || lastPad.x || lastPad.y || lastPad.rx || lastPad.ry);
     idle = busy ? 0 : idle + dt; still = busy ? 0 : still + dt;
     if (idle > 8) { idle = 0; say(`hint.${level.id}` as SpokenKey); }
-    if (just('start')) { quiet(); mini = undefined; go('map'); return; }
+    if (just('start')) { quiet(); mini = undefined; remix = null; go('map'); return; }
     mini.update(dt, frame);
     if (mini.done) finishLevel();
   }
@@ -356,6 +423,21 @@ function mount(host: HTMLElement, services: GameServices) {
       if (down) toy(180 + services.random() * 920, 80 + services.random() * 320, i + player * 3);
     }));
   }
+  function updateScene(dt: number) {
+    if (just('start') || just('select')) { go('map'); return; }
+    const stickers = palette(), speed = 640;
+    const mx = Math.abs(lastPad.x) >= Math.abs(lastPad.hx) ? lastPad.x : lastPad.hx, my = Math.abs(lastPad.y) >= Math.abs(lastPad.hy) ? lastPad.y : lastPad.hy;
+    sceneX = Math.max(50, Math.min(WIDTH - 50, sceneX + mx * speed * dt)); sceneY = Math.max(50, Math.min(TRAY_Y - 60, sceneY + my * speed * dt));
+    if (stickers.length && (just('l1') || just('r1'))) { pickIndex = (pickIndex + (just('r1') ? 1 : stickers.length - 1)) % stickers.length; sound.tone(520, 0.05, 'triangle', 0.05); }
+    if (just('l2') || just('r2')) { sceneIndex = (sceneIndex + (just('r2') ? 1 : SCENES - 1)) % SCENES; saveScenes(); sound.chime(SCALE[6]); }
+    if (just('south')) placeSticker(sceneX, sceneY);
+    if (just('north') && scenes[sceneIndex].length) { scenes[sceneIndex].pop(); saveScenes(); sound.tone(330, 0.08, 'triangle', 0.06); }
+  }
+  /** The sticker tray: up to eleven stickers around the chosen one. */
+  function trayCells() {
+    const stickers = palette(), count = Math.min(11, stickers.length), first = Math.max(0, Math.min(stickers.length - count, pickIndex - 5));
+    return Array.from({ length: count }, (_, i) => ({ index: first + i, sticker: stickers[first + i], x: WIDTH / 2 + (i - (count - 1) / 2) * 84 }));
+  }
   function updateCalibration() {
     const press = input.rawPress();
     if (!press) return;
@@ -387,6 +469,8 @@ function mount(host: HTMLElement, services: GameServices) {
       else if (screen === 'master') updateMaster(dt);
       else if (screen === 'album' && (lastPad.pressed)) go('map');
       else if (screen === 'lab') updateLab();
+      else if (screen === 'scene') updateScene(dt);
+      else if (screen === 'remix') { remixAge += dt; if (remixAge > 1.2 && lastPad.pressed) { remix = null; confetti = []; go('map'); } }
     }
     sparks.forEach((item) => { item.x += item.vx * dt; item.y += item.vy * dt; item.life -= dt; });
     sparks = sparks.filter((item) => item.life > 0);
@@ -407,7 +491,7 @@ function mount(host: HTMLElement, services: GameServices) {
   }
   function card(x: number, y: number, active: boolean, disabled = false) {
     g.fillStyle = disabled ? '#ffffff14' : '#ffffff2b';
-    g.beginPath(); g.roundRect(x - 100, y - 40, 200, 80, 20); g.fill();
+    g.beginPath(); g.roundRect(x - CARD_W / 2, y - CARD_H / 2, CARD_W, CARD_H, 18); g.fill();
     if (active) { g.strokeStyle = '#ffffff'; g.lineWidth = 5; g.globalAlpha = 0.6 + 0.4 * Math.sin(time * 7); g.stroke(); g.globalAlpha = 1; }
   }
   function drawTitle() {
@@ -418,33 +502,43 @@ function mount(host: HTMLElement, services: GameServices) {
     g.globalAlpha = 0.65 + 0.35 * Math.sin(time * 4); write(tr('title.press'), 640, 405, 34, '#ffd96b'); g.globalAlpha = 1;
     write(tr('title.keys'), 640, 455, 22, '#b9c1e0');
   }
+  /** Icon on the left of a card, a name on top and a second line under it. */
+  function cardText(x: number, y: number, picture: string, name: string, line: string, lineColor = '#ffd96b', dim = false) {
+    icon(picture, x - 60, y, 40);
+    write(name, x + 22, y - 12, 18, dim ? '#ffffff77' : '#ffffff', 'center', 118);
+    write(line, x + 22, y + 15, 18, lineColor, 'center', 118);
+  }
   function drawMap() {
     backdrop('#274b7a', '#3b7f8f');
     const trophies = masteredCount(progress);
     write(`⭐ ${starCount(progress)}${trophies ? `  🏆 ${trophies}` : ''}`, 112, 44, trophies ? 25 : 30);
-    for (let row = 0; row < 4; row++) write(tr(`world.${row}` as Key), 200, ROW_Y[row], 24, '#ffe9a8', 'right');
-    write(tr('world.4'), COLUMN_X[3] + 116, ROW_Y[0], 24, '#ffe9a8', 'left');
+    for (let row = 0; row < 4; row++) write(tr(`world.${row}` as Key), 198, ROW_Y[row], 22, '#ffe9a8', 'right', 170);
+    write(tr('world.combo'), 198, ROW_Y[4], 22, combosOpen(progress) ? '#ffe9a8' : '#ffe9a877', 'right', 170);
+    write(`🎉 ${tr('world.4')}`, COLUMN_X[4], 44, 26, '#ffe9a8');
+    const remixDone = playedToday(services.storage, 'remix'), remixStreak = readDaily(services.storage, 'remix').streak;
+    const canRemix = [...LEVELS, ...COMBO_LEVELS].some((item) => levelStars(progress, item.id) > 0);
     MAP_CELLS.forEach((cell) => {
       const { item, x, y } = cell, active = cell === cursor;
       if (item.kind === 'difficulty') {
         card(x, y, active);
-        if (difficulty === item.difficulty) { g.fillStyle = '#ffc93c66'; g.beginPath(); g.roundRect(x - 100, y - 40, 200, 80, 20); g.fill(); }
+        if (difficulty === item.difficulty) { g.fillStyle = '#ffc93c66'; g.beginPath(); g.roundRect(x - CARD_W / 2, y - CARD_H / 2, CARD_W, CARD_H, 18); g.fill(); }
         icon(DIFFICULTY_ICONS[item.difficulty], x - 46, y, 40); write(tr(`diff.${item.difficulty}` as Key), x + 22, y, 24);
       } else if (item.kind === 'lab') {
-        card(x, y, active); icon('🎪', x - 66, y, 40); write(tr('map.lab'), x + 24, y, 22, '#ffffff', 'center', 130);
+        card(x, y, active); icon('🎪', x - 62, y, 40); write(tr('map.lab'), x + 22, y, 21, '#ffffff', 'center', 118);
       } else if (item.kind === 'album') {
-        card(x, y, active); icon('📒', x - 68, y, 44);
-        write(tr('map.album'), x + 24, y - 13, 19, '#ffffff', 'center', 130);
-        write(`${stickerCount(progress)} / ${STICKERS.length}`, x + 24, y + 16, 20, '#ffd96b');
+        card(x, y, active); cardText(x, y, '📒', tr('map.album'), `${stickerCount(progress)} / ${STICKERS.length}`);
+      } else if (item.kind === 'scene') {
+        card(x, y, active); cardText(x, y, '🖼️', tr('map.scene'), `${scenes.reduce((sum, list) => sum + list.length, 0)} ✨`);
+      } else if (item.kind === 'remix') {
+        card(x, y, active, !canRemix);
+        cardText(x, y, canRemix ? '🎁' : '🔒', tr('map.remix'), remixDone ? `✔ ${tr('remix.today')}` : remixStreak ? `🔥 ${remixStreak}` : '✨ ? ✨', remixDone ? '#7ff0ad' : '#ffd96b', !canRemix);
       } else {
         const open = isOpen(progress, item.level), stars = levelStars(progress, item.level.id);
         card(x, y, active, !open);
-        icon(open ? item.level.icon : '🔒', x - 68, y, 44);
-        write(tr(`level.${item.level.id}` as Key), x + 24, y - 13, 19, open ? '#ffffff' : '#ffffff77', 'center', 130);
-        write('★'.repeat(stars) + '☆'.repeat(3 - stars), x + 24, y + 16, 20, '#ffd96b');
+        cardText(x, y, open ? item.level.icon : '🔒', tr(`level.${item.level.id}` as Key), '★'.repeat(stars) + '☆'.repeat(3 - stars), '#ffd96b', !open);
       }
     });
-    write(tr('map.help'), 640, 470, 18, '#e4ecf7');
+    write(tr('map.help'), 640, 478, 16, '#e4ecf7');
   }
   function drawPlay() {
     if (!mini) return;
@@ -465,11 +559,11 @@ function mount(host: HTMLElement, services: GameServices) {
     icon(level.icon, 640, 120, 110);
     write(tr(`level.${level.id}` as Key), 640, 240, 56);
     write(tr(`hint.${level.id}` as Key), 640, 310, 30, '#ffe9a8');
-    write(tr('ready'), 640, 390, 26, '#d9def5');
+    write(remix ? `🎁 ${tr('remix.round', { n: remix.index + 1, total: remix.levels.length })}` : tr('ready'), 640, 390, 26, remix ? '#ffd96b' : '#d9def5');
   }
   function drawResult() {
     backdrop('#3b2f7f', '#7b4fb0');
-    const headline = resultWinner !== undefined && resultVersus ? tr(resultWinner === 0 ? 'result.p1' : 'result.p2') : tr(resultStars === 3 ? 'result.great' : resultStars === 2 ? 'result.good' : 'result.ok');
+    const headline = resultWinner !== undefined && resultVersus ? tr(resultWinner === 0 ? 'result.p1' : 'result.p2') : level.kind === 'carry' ? tr('result.team') : tr(resultStars === 3 ? 'result.great' : resultStars === 2 ? 'result.good' : 'result.ok');
     write(headline, 640, 58, 54);
     if (resultBest) write(tr('result.best'), 640, 104, 24, '#ffd96b');
     icon(resultVersus && resultWinner === 1 ? '🐰' : '🐻', 200, 200 - hop(0, 26), 130);
@@ -514,9 +608,9 @@ function mount(host: HTMLElement, services: GameServices) {
     write(`📒 ${tr('album.title')}   ${have} / ${STICKERS.length}`, 640, 42, 38);
     write(missing ? tr('album.next', { n: missing }) : tr('album.full'), 640, 88, 22, '#ffe9a8');
     STICKERS.forEach((sticker, i) => {
-      const x = 220 + (i % 8) * 120, y = 160 + Math.floor(i / 8) * 96;
-      g.fillStyle = i < have ? '#ffffff2b' : '#ffffff14'; g.beginPath(); g.arc(x, y, 42, 0, Math.PI * 2); g.fill();
-      if (i < have) icon(sticker, x, y + 2 - (i === have - 1 ? hop(0, 8) : 0), 58); else write('?', x, y + 2, 34, '#ffffff55');
+      const x = 220 + (i % 8) * 120, y = 140 + Math.floor(i / 8) * 78;
+      g.fillStyle = i < have ? '#ffffff2b' : '#ffffff14'; g.beginPath(); g.arc(x, y, 36, 0, Math.PI * 2); g.fill();
+      if (i < have) icon(sticker, x, y + 2 - (i === have - 1 ? hop(0, 8) : 0), 50); else write('?', x, y + 2, 30, '#ffffff55');
     });
     DIFFICULTIES.forEach((d) => {
       g.globalAlpha = isMastered(progress, d) ? 1 : 0.25;
@@ -524,6 +618,46 @@ function mount(host: HTMLElement, services: GameServices) {
       g.globalAlpha = 1;
     });
     write(tr('album.back'), 900, 448, 20, '#d9def5');
+  }
+  const SCENE_SKIES: Array<[string, string, string]> = [['#bfe8ff', '#e8f8d8', '#8fd46a'], ['#9fe0ff', '#3fa7e0', '#2a7fc0'], ['#0b1030', '#2a1f5c', '#3b2f6e']];
+  function drawSceneBackground(which: number) {
+    const [top, bottom, ground] = SCENE_SKIES[which];
+    backdrop(top, bottom);
+    g.fillStyle = ground;
+    if (which === 0) { g.fillRect(0, 330, WIDTH, PLAY_HEIGHT - 330); icon('☀️', 1150, 80, 90); icon('🌳', 140, 290, 150); icon('🏠', 1080, 290, 130); }
+    else if (which === 1) {
+      g.beginPath(); g.moveTo(0, 300); for (let x = 0; x <= WIDTH; x += 40) g.lineTo(x, 292 + 10 * Math.sin(x / 80 + time)); g.lineTo(WIDTH, PLAY_HEIGHT); g.lineTo(0, PLAY_HEIGHT); g.fill();
+      icon('☁️', 200, 80, 90); icon('⛵', 1050, 270, 110); icon('🏝️', 160, 300, 120);
+    } else {
+      for (let i = 0; i < 40; i++) { g.fillStyle = '#ffffff'; g.globalAlpha = 0.4 + 0.4 * Math.sin(time * 2 + i); g.fillRect((i * 331) % WIDTH, (i * 127) % 400, 3, 3); }
+      g.globalAlpha = 1; icon('🪐', 1120, 110, 120); icon('🌙', 150, 100, 90); g.fillStyle = ground; g.beginPath(); g.ellipse(640, 520, 760, 150, 0, 0, Math.PI * 2); g.fill();
+    }
+  }
+  function drawScene() {
+    drawSceneBackground(sceneIndex);
+    scenes[sceneIndex].forEach(([sticker, x, y]) => icon(sticker, x, y, 72));
+    const stickers = palette();
+    g.fillStyle = '#10162ccc'; g.beginPath(); g.roundRect(60, TRAY_Y - 34, WIDTH - 120, 68, 30); g.fill();
+    if (!stickers.length) { write(tr('scene.empty'), 640, TRAY_Y, 24, '#ffd96b'); return; }
+    // The sticker in hand floats under a pointer, so the child sees where it will land.
+    g.globalAlpha = 0.55 + 0.25 * Math.sin(time * 6); icon(stickers[pickIndex % stickers.length], sceneX, sceneY, 72); g.globalAlpha = 1;
+    g.strokeStyle = '#ffffff'; g.lineWidth = 3; g.setLineDash([8, 8]); g.beginPath(); g.arc(sceneX, sceneY, 48, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+    trayCells().forEach(({ index, sticker, x }) => {
+      if (index === pickIndex % stickers.length) { g.fillStyle = '#ffd96b'; g.beginPath(); g.arc(x, TRAY_Y, 34, 0, Math.PI * 2); g.fill(); }
+      icon(sticker, x, TRAY_Y + 2, index === pickIndex % stickers.length ? 52 : 42);
+    });
+    drawChip(g, 'l1', 110, TRAY_Y, 22, glyphs); drawChip(g, 'r1', WIDTH - 110, TRAY_Y, 22, glyphs);
+    write(tr('scene.help'), 640, 24, 17, '#ffffff', 'center', 1100);
+  }
+  function drawRemix() {
+    backdrop('#ff9a6b', '#ff6fa8');
+    if (!remix) return;
+    write(tr('remix.done'), 640, 58, 54);
+    remix.levels.forEach((item, i) => icon(item.icon, 640 + (i - (remix!.levels.length - 1) / 2) * 120, 150 - hop(i, 12), 72));
+    [0, 1, 2].forEach((i) => { g.globalAlpha = i < remix!.stars ? 1 : 0.25; icon('⭐', 520 + i * 120, 250, 88); g.globalAlpha = 1; });
+    write(`🔥 ${tr('remix.streak', { n: remix.streak })}`, 640, 318, 28, '#fff3c4');
+    if (remix.gift) { icon(remix.gift, 540, 392 - hop(0, 10), 76); write(tr('remix.gift'), 590, 392, 26, '#ffffff', 'left'); }
+    if (remixAge > 1.2) { g.globalAlpha = 0.65 + 0.35 * Math.sin(time * 4); write(tr('master.go'), 640, 456, 22); g.globalAlpha = 1; }
   }
   function drawLab() {
     backdrop('#ffb46b', '#ff7fa8');
@@ -549,6 +683,8 @@ function mount(host: HTMLElement, services: GameServices) {
     if (screen === 'map') return ['dpad', 'south'];
     if (screen === 'result') return resultAge < resultLock() ? [] : resultButtons().map((item) => item.button);
     if (screen === 'lab') return ['start'];
+    if (screen === 'scene') return palette().length ? ['stick', 'l1', 'r1', 'south'] : ['start'];
+    if (screen === 'remix') return remixAge > 1.2 ? ['south'] : [];
     if (screen === 'album' || screen === 'master') return ['south'];
     return [];
   }
@@ -565,7 +701,7 @@ function mount(host: HTMLElement, services: GameServices) {
     fitScreen();
     g.setTransform(1, 0, 0, 1, 0, headroom);
     g.fillStyle = '#1a2036'; g.fillRect(0, 0, WIDTH, HEIGHT);
-    ({ title: drawTitle, map: drawMap, ready: drawReady, play: drawPlay, result: drawResult, lab: drawLab, calibrate: drawCalibration, album: drawAlbum, master: drawMaster })[screen]();
+    ({ title: drawTitle, map: drawMap, ready: drawReady, play: drawPlay, result: drawResult, lab: drawLab, calibrate: drawCalibration, album: drawAlbum, master: drawMaster, scene: drawScene, remix: drawRemix })[screen]();
     confetti.forEach((item) => {
       if (item.y < 8) return; // The top row is what full screen stretches upward.
       g.save(); g.translate(item.x, item.y); g.rotate(item.spin); g.globalAlpha = Math.min(1, item.life * 2);
@@ -594,6 +730,14 @@ function mount(host: HTMLElement, services: GameServices) {
     restart() { paused = false; if (screen === 'play' || screen === 'ready' || screen === 'result') begin(level); else go('map'); },
     destroy() { stop(); quiet(); listeners.abort(); input.destroy(); sound.destroy(); host.replaceChildren(); }
   };
+}
+
+/** Stored scenes with anything malformed dropped; always one list per picture. */
+function cleanScenes(raw: unknown): Placed[][] {
+  const lists = Array.isArray(raw) ? raw : [];
+  return Array.from({ length: SCENES }, (_, i) => (Array.isArray(lists[i]) ? lists[i] : [])
+    .filter((item: unknown): item is Placed => Array.isArray(item) && item.length === 3 && typeof item[0] === 'string' && item[0].length <= 16 && Number.isFinite(item[1]) && Number.isFinite(item[2]))
+    .slice(-SCENE_LIMIT));
 }
 
 export const game: GameModule = {

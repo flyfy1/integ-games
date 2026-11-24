@@ -37,7 +37,21 @@ const EN = {
   'level.boss': 'Silly Robot', 'hint.boss': 'Do what the robot asks!',
   'level.tug': 'Tug of War', 'hint.tug': 'Press the glowing button first to pull!',
   'simon.watch': 'Watch the parrot…', 'simon.turn': 'Your turn!', 'simon.again': 'Almost! Try again.',
-  'calib.press.south': 'Press the bottom button', 'calib.press.east': 'Press the right button', 'calib.press.west': 'Press the left button', 'calib.press.north': 'Press the top button', 'calib.press.l1': 'Press the left shoulder', 'calib.press.r1': 'Press the right shoulder', 'calib.press.l2': 'Press the left trigger', 'calib.press.r2': 'Press the right trigger', 'calib.press.select': 'Press the select button', 'calib.press.start': 'Press the start button'
+  'calib.press.south': 'Press the bottom button', 'calib.press.east': 'Press the right button', 'calib.press.west': 'Press the left button', 'calib.press.north': 'Press the top button', 'calib.press.l1': 'Press the left shoulder', 'calib.press.r1': 'Press the right shoulder', 'calib.press.l2': 'Press the left trigger', 'calib.press.r2': 'Press the right trigger', 'calib.press.select': 'Press the select button', 'calib.press.start': 'Press the start button',
+  'world.combo': 'Combos',
+  'level.rocket': 'Rocket Launch', 'hint.rocket': 'Hold the trigger for fuel, then tap the button to fly!',
+  'level.surf': 'Wave Rider', 'hint.surf': 'Push the stick and tap the button together!',
+  'level.paint': 'Twin Painter', 'hint.paint': 'Point both sticks the way the arrows show!',
+  'level.disco': 'Disco Robot', 'hint.disco': 'Do both moves at the same time!',
+  'level.carry': 'Balloon Carry', 'hint.carry': 'Bump the balloon when it floats down to you!',
+  'level.race': 'Button Race', 'hint.race': 'Press the button over your head to run!',
+  'party.join': 'Player 2: press an arrow key or Enter to join!', 'party.two': 'Bear: I J K L  ·  Bunny: arrow keys and Enter',
+  'map.scene': 'Sticker Scene', 'map.remix': 'Surprise',
+  'scene.title': 'Sticker Scene', 'scene.hint': 'Pick a sticker with the shoulders, move it, and press the bottom button to stick it!',
+  'scene.help': 'L / R: sticker · Bottom: stick · Top: undo · Triggers: new picture · Start: back', 'scene.empty': 'Earn stars to get stickers!',
+  'remix.title': 'Surprise Remix', 'remix.hint': 'Five quick games, a new mix every day!', 'remix.round': 'Round {n} of {total}',
+  'remix.done': 'Remix done!', 'remix.streak': 'Day streak {n}', 'remix.locked': 'Finish a level first', 'remix.today': 'Done today', 'remix.gift': 'Surprise sticker!',
+  'result.team': 'Teamwork!'
 } as const;
 export type Key = keyof typeof EN;
 
@@ -75,14 +89,29 @@ const ZH: Record<Key, string> = {
   'level.boss': '呆萌机器人', 'hint.boss': '机器人说什么，你就做什么！',
   'level.tug': '拔河比赛', 'hint.tug': '谁先按发光的键，谁就拉一下！',
   'simon.watch': '看鹦鹉怎么按…', 'simon.turn': '轮到你了！', 'simon.again': '差一点！再来一次。',
-  'calib.press.south': '请按下面的键', 'calib.press.east': '请按右边的键', 'calib.press.west': '请按左边的键', 'calib.press.north': '请按上面的键', 'calib.press.l1': '请按左肩键', 'calib.press.r1': '请按右肩键', 'calib.press.l2': '请按左扳机', 'calib.press.r2': '请按右扳机', 'calib.press.select': '请按选择键', 'calib.press.start': '请按开始键'
+  'calib.press.south': '请按下面的键', 'calib.press.east': '请按右边的键', 'calib.press.west': '请按左边的键', 'calib.press.north': '请按上面的键', 'calib.press.l1': '请按左肩键', 'calib.press.r1': '请按右肩键', 'calib.press.l2': '请按左扳机', 'calib.press.r2': '请按右扳机', 'calib.press.select': '请按选择键', 'calib.press.start': '请按开始键',
+  'world.combo': '组合技',
+  'level.rocket': '火箭发射', 'hint.rocket': '按住扳机加油，再按按键发射！',
+  'level.surf': '冲浪小将', 'hint.surf': '推摇杆的同时按按键！',
+  'level.paint': '双手画家', 'hint.paint': '两个摇杆都推向箭头的方向！',
+  'level.disco': '迪斯科机器人', 'hint.disco': '两个动作一起做！',
+  'level.carry': '一起运气球', 'hint.carry': '气球飘到你这边时，把它顶起来！',
+  'level.race': '按键赛跑', 'hint.race': '按头顶上的键就能往前跑！',
+  'party.join': '二号玩家：按方向键或回车加入！', 'party.two': '小熊：I J K L  ·  小兔：方向键和回车',
+  'map.scene': '贴纸画', 'map.remix': '惊喜',
+  'scene.title': '贴纸画', 'scene.hint': '用肩键选贴纸，移到想放的地方，按下面的键贴上去！',
+  'scene.help': '肩键：换贴纸 · 下键：贴上 · 上键：撤销 · 扳机：换图画 · 开始键：返回', 'scene.empty': '拿星星就能换贴纸！',
+  'remix.title': '每日惊喜', 'remix.hint': '五个小游戏，每天都不一样！', 'remix.round': '第 {n} 关，共 {total} 关',
+  'remix.done': '惊喜挑战完成！', 'remix.streak': '连续 {n} 天', 'remix.locked': '先完成一关吧', 'remix.today': '今天完成啦', 'remix.gift': '惊喜贴纸！',
+  'result.team': '合作成功！'
 };
 
 /** Every line the game says out loud. scripts/generate-pad-pals-voice.mjs records one file per line and language. */
 export const SPOKEN = [
-  ...(['hello', 'two', 'mole', 'maze', 'roam', 'flick', 'catch', 'hold', 'simon', 'aim', 'hop', 'rhythm', 'boss', 'tug'] as const).map((id) => `hint.${id}` as const),
+  ...(['hello', 'two', 'mole', 'maze', 'roam', 'flick', 'catch', 'hold', 'simon', 'aim', 'hop', 'rhythm', 'boss', 'tug', 'rocket', 'surf', 'paint', 'disco', 'carry', 'race'] as const).map((id) => `hint.${id}` as const),
   ...(['south', 'east', 'west', 'north', 'l1', 'r1', 'l2', 'r2', 'select', 'start'] as const).map((id) => `calib.press.${id}` as const),
-  'simon.watch', 'simon.turn', 'simon.again', 'diff.0', 'diff.1', 'diff.2', 'locked', 'calib.done', 'result.great', 'result.good', 'result.ok', 'result.p1', 'result.p2'
+  'simon.watch', 'simon.turn', 'simon.again', 'diff.0', 'diff.1', 'diff.2', 'locked', 'calib.done', 'result.great', 'result.good', 'result.ok', 'result.p1', 'result.p2',
+  'scene.hint', 'remix.hint', 'remix.done', 'result.team'
 ] as const;
 export type SpokenKey = typeof SPOKEN[number];
 
