@@ -77,9 +77,8 @@ export const SOLUTIONS: Record<string, Script> = {
     { t: 0, paint: row(4, 2, 4) },
     { t: 0, play: 'bridger', at: [5, 4] },
     { t: 0.5, paint: row(4, 2, 14), keep: true },
-    { t: 1, keep: 'worker', ants: 15, reserve: 45, until: 12 },
-    { t: 12, play: 'bridger', at: [10, 4] },
-    { t: 12.5, keep: 'worker', ants: 15 }
+    { t: 1, keep: 'worker', ants: 15 },
+    { t: 6, play: 'bridger', at: [10, 4] }
   ] },
   '3-2': { ops: [
     { t: 0, paint: row(4, 2, 14) },

@@ -60,3 +60,22 @@ describe('a greedy bot with no level knowledge clears chapters 1 and 2', () => {
   });
   it('reports boss win rates', () => { console.info(`[ant-raid] greedy bot: ${report.join(', ')}`); expect(report.length).toBeGreaterThan(0); });
 });
+
+describe('ant-raid newcomer pacing', () => {
+  // A newcomer spends the opening Sugar on Workers the moment the first bridge stands. Before the bridges were free
+  // this left them waiting ~45 s on the trickle for the second Bridger play, with every Worker idle at the nest.
+  it('3-1: hatching Workers before the second bridge does not stall the raid', () => {
+    const level = LEVEL_LIST.find(l => l.id === '3-1')!;
+    const row = (y: number, x0: number, x1: number): [number, number][] => Array.from({ length: x1 - x0 + 1 }, (_, i) => [x0 + i, y]);
+    const result = runScript(level, { ops: [
+      { t: 0, paint: row(4, 2, 4) },
+      { t: 0, play: 'bridger', at: [5, 4] },
+      { t: 1, keep: 'worker', ants: 30 },
+      { t: 2, paint: row(4, 2, 9), keep: true },
+      { t: 9, play: 'bridger', at: [10, 4] },
+      { t: 10, paint: row(4, 2, 14), keep: true }
+    ] }, { seed: 1 });
+    expect(result.won).toBe(true);
+    expect(result.time).toBeLessThanOrEqual(level.par);
+  });
+});

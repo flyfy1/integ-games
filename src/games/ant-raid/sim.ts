@@ -79,6 +79,7 @@ export function createSim(level: LevelDef, options: SimOptions): Sim {
     if (CASTES[caste].kind === 'post') { const card = cardFor(sim, caste); if (card) card.stock = n; continue; }
     for (let i = 0; i < n; i++) spawnAnt(sim, caste, -1, true);
   }
+  for (const [caste, n] of Object.entries(level.stock ?? {}) as [CasteId, number][]) { const card = cardFor(sim, caste); if (card) card.stock += n; }
   if (level.night) refreshSeen(sim);
   return sim;
 }

@@ -262,12 +262,14 @@ const CHAPTER3: LevelDef[] = [
       .....~....~.....`),
     nest: [1, 4], foods: [{ id: 'cookie', kind: 'cookie', x: 14, y: 4, crumbs: 45 }],
     hazards: [],
-    scent: 20, startSugar: 130, cards: ['worker', 'bridger'], sundown: 180, par: 80,
+    // Both bridges are on the house: before the second one stands no Worker can reach food, so spending the opening
+    // Sugar on Workers used to leave a newcomer waiting ~45 s on the trickle for the second Bridger play.
+    scent: 20, startSugar: 100, stock: { bridger: 2 }, cards: ['worker', 'bridger'], sundown: 180, par: 80,
     goal: { kind: 'crumbs', n: 30 }, bonus: { kind: 'scent', n: 14 },
     tutorial: [
       { text: t('Trail up to the water first.', '先把路线铺到水边。'), cells: [[2, 4], [3, 4], [4, 4]], until: { event: 'paint', n: 3 } },
-      { text: t('Pick Bridgers, then tap the water beside your trail. Three of them make one bridge cell.', '选搭桥蚁，再点路线旁边的水面。三只连成一格桥。'), ui: 'bridger', cells: [[5, 4]], until: { event: 'bridge' } },
-      { text: t('Trail across the bridge, then bridge the second stream the same way.', '从桥上铺过去，第二条小溪也照样搭桥。'), until: { event: 'connect' } }
+      { text: t('Pick Bridgers (two free plays today), then tap the water beside your trail. Three of them make one bridge cell.', '选搭桥蚁（今天免费两次），再点路线旁边的水面。三只连成一格桥。'), ui: 'bridger', cells: [[5, 4]], until: { event: 'bridge' } },
+      { text: t('Trail across the bridge, then bridge the second stream the same way. Workers cannot reach the cookie until both streams are crossed.', '从桥上铺过去，第二条小溪也照样搭桥。两条小溪都过了，工蚁才够得着饼干。'), until: { event: 'connect' } }
     ],
     intro: 'c3-intro'
   },
