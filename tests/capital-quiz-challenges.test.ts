@@ -82,3 +82,49 @@ describe('Geo Quiz challenges in the page', () => {
     expect(host.querySelector('.cq-chip')?.textContent ?? 'Europe').toMatch(/Europe/);
   });
 });
+
+describe('Geo Quiz with a controller (keys the arcade bridge sends to the stage)', () => {
+  const send = (host: HTMLElement, key: string) => host.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+  it('the d-pad focuses a menu item and R1 (Enter on the stage) opens it, for every new mode', () => {
+    for (const challenge of ['daily', 'journey', 'blitz', 'survival', 'type']) {
+      const { host, controller } = mount();
+      send(host, 'ArrowDown');
+      expect(host.querySelector('.cq')!.classList.contains('is-pad')).toBe(true);
+      host.querySelector<HTMLElement>(`[data-challenge="${challenge}"]`)!.focus();
+      send(host, 'Enter');
+      if (challenge === 'journey') expect(host.querySelector('[data-region]'), challenge).not.toBeNull();
+      else expect(host.querySelector('.cq-options, [data-type-form]'), challenge).not.toBeNull();
+      controller.destroy(); host.remove();
+    }
+  });
+
+  it('does not press a focused button twice when a real keyboard Enter lands on it', () => {
+    const { host } = mount();
+    const daily = host.querySelector<HTMLButtonElement>('[data-challenge="daily"]')!;
+    const clicks = vi.fn(); daily.addEventListener('click', clicks);
+    daily.focus();
+    daily.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(clicks).not.toHaveBeenCalled(); // The browser's own Enter-to-click is the only press.
+  });
+
+  it('never traps a controller in type-in: R1 on Pass passes, Select (M) goes back to the menu', () => {
+    const { host } = mount();
+    click(host, '[data-challenge="type"]');
+    expect(host.querySelector('[data-type-form]')).not.toBeNull();
+    host.querySelector<HTMLElement>('[data-pass]')!.focus();
+    send(host, 'Enter');
+    expect(host.querySelector('[data-type-input]')!.hasAttribute('disabled')).toBe(true);
+    expect(host.querySelector('[data-next-btn]')).not.toBeNull();
+    send(host, 'm');
+    expect(host.querySelector('.cq-menu')).not.toBeNull();
+  });
+
+  it('a typed M stays in the answer box', () => {
+    const { host } = mount();
+    click(host, '[data-challenge="type"]');
+    const input = host.querySelector<HTMLInputElement>('[data-type-input]')!;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true, cancelable: true }));
+    expect(host.querySelector('[data-type-form]')).not.toBeNull();
+  });
+});

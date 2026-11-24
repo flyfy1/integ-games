@@ -172,6 +172,8 @@ const CSS = `
 .cq-chal small{color:var(--muted);font-size:.68rem;line-height:1.25;overflow-wrap:anywhere}
 .cq-chal b{margin-top:auto;color:var(--accent);font-size:.74rem;font-variant-numeric:tabular-nums}
 .cq-feature:focus-visible,.cq-chal:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+/* Arrow / controller navigation moves focus by script, which browsers do not always ring: show it explicitly. */
+.cq.is-pad button:focus,.cq.is-pad input:focus{outline:3px solid var(--ok);outline-offset:2px}
 .cq-feature:active,.cq-chal:active{transform:scale(.985)}
 .cq-passport{display:grid;gap:10px}
 .cq-route{margin:0;padding:0;list-style:none;display:grid;gap:8px;counter-reset:leg}
@@ -703,6 +705,7 @@ const game: GameModule = {
     /** Replays the current mode, or returns to the menu when none is chosen. */
     function restart() { paused = false; if (run) startChallenge(run.c, run.region); else if (mode) start(mode); else showMenu(); }
 
+    root.addEventListener('pointerdown', () => root.classList.remove('is-pad'));
     root.addEventListener('click', (ev) => {
       const t = (ev.target as HTMLElement).closest<HTMLElement>('button'); if (!t) return;
       if (t.dataset.lang !== undefined && isLang(t.dataset.lang)) { setLang(t.dataset.lang); return; }
@@ -725,9 +728,46 @@ const game: GameModule = {
     });
     // An Enter that confirms a pinyin / IME candidate must not submit the answer.
     root.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.isComposing || ev.keyCode === 229) && (ev.target as HTMLElement).tagName === 'INPUT') ev.preventDefault(); }, true);
+    /** Everything the arrows can land on in the current view: buttons and the type-in box, in reading order. */
+    const navigable = () => [...root.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')].filter((item) => !item.closest('[hidden], details:not([open]) > :not(summary)'));
+    /** Arrow keys (a controller's d-pad through the arcade bridge) walk focus to the nearest item in that direction. */
+    function moveFocus(key: string) {
+      const items = navigable();
+      if (!items.length) return;
+      root.classList.add('is-pad');
+      const from = document.activeElement instanceof HTMLElement && items.includes(document.activeElement) ? document.activeElement : null;
+      if (!from) { (items.find((item) => item.matches('.cq-feature, .cq-option, [data-type-input], [data-next-btn], [data-again], [data-region]')) ?? items[0]).focus({ preventScroll: true }); return; }
+      const a = from.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+      const dx = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0, dy = key === 'ArrowUp' ? -1 : key === 'ArrowDown' ? 1 : 0;
+      let best: HTMLElement | null = null, bestScore = Infinity;
+      for (const item of items) {
+        if (item === from) continue;
+        const b = item.getBoundingClientRect(), bx = b.left + b.width / 2, by = b.top + b.height / 2, along = (bx - ax) * dx + (by - ay) * dy;
+        if (along <= 4) continue;
+        const across = Math.abs((bx - ax) * dy) + Math.abs((by - ay) * dx), score = along + across * 2;
+        if (score < bestScore) { bestScore = score; best = item; }
+      }
+      // Nothing further that way: up/down wrap around the list so a long menu never dead-ends.
+      if (!best && dy) best = dy > 0 ? items[0] : items[items.length - 1];
+      if (!best) return;
+      best.focus({ preventScroll: true });
+      best.scrollIntoView?.({ block: 'nearest', behavior: motion ? 'smooth' : 'auto' });
+    }
     const onKey = (ev: KeyboardEvent) => {
       if (paused || ev.metaKey || ev.ctrlKey || ev.altKey) return;
       if ((ev.target as HTMLElement | null)?.tagName === 'INPUT') return;
+      if (ev.key.startsWith('Arrow')) { ev.preventDefault(); moveFocus(ev.key); return; }
+      // M (a controller's Select) leaves any mode for the menu, so a controller is never stuck, type-in included.
+      if (ev.key === 'm' || ev.key === 'M') { if (view !== 'menu') { ev.preventDefault(); services.sound.play('tap'); showMenu(); if (root.classList.contains('is-pad')) moveFocus('ArrowDown'); } return; }
+      // A controller's confirm arrives on the stage, not on the focused button, so press that button for it.
+      // A real Enter on a focused button already clicks it natively (its target is the button), so it is left alone.
+      const focused = document.activeElement instanceof HTMLElement && root.contains(document.activeElement) ? document.activeElement : null;
+      if (ev.key === 'Enter' && focused && ev.target !== focused && !(answered && view === 'question')) {
+        ev.preventDefault();
+        if (focused.tagName === 'BUTTON') (focused as HTMLButtonElement).click();
+        else if (focused.matches('[data-type-input]')) root.querySelector<HTMLFormElement>('[data-type-form]')?.requestSubmit();
+        return;
+      }
       if (!mode) { if (view === 'menu' && /^[1-4]$/.test(ev.key)) start(PLAYS[Number(ev.key) - 1]); }
       else if (/^[1-4]$/.test(ev.key)) { answer(Number(ev.key) - 1); }
       else if ((ev.key === 'Enter' || ev.key === ' ') && answered && (ev.target as HTMLElement).tagName !== 'BUTTON') { ev.preventDefault(); if (root.querySelector('[data-again]')) restart(); else next(); }
