@@ -15,11 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     env:
       VITE_BASE: ${{ vars.PAGES_BASE_PATH || '/' }}
     steps:
@@ -38,6 +35,17 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
+
+  # Deploy in its own job (GitHub's documented pattern): deploying in the same
+  # job as the upload raced the artifact API and failed with "No artifacts
+  # named github-pages" four times on 2026-11-24.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
