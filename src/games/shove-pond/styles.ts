@@ -1,6 +1,7 @@
 export const STYLES = `
 .sp{position:relative;width:100%;height:var(--sp-h,560px);overflow:hidden;border-radius:18px;background:#0a2733;color:#eafcff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;user-select:none;-webkit-user-select:none;touch-action:none;outline:none}
 .sp.is-immersive{border-radius:0}
+.sp.sp-art .sp-top,.sp.sp-art .sp-bottom{display:none}
 .sp.is-immersive .sp-top{padding-left:64px}
 .sp canvas{position:absolute;inset:0;display:block}
 .sp button{font:inherit;color:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent}

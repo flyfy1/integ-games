@@ -339,7 +339,17 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     });
     ctx.restore();
   }
+  /** Step badges are queued while paths are drawn (under the frogs) and painted after the frogs, so a step that
+   *  lands on a frog's pad stays readable. */
+  const badges: [number, number, number, boolean, string][] = [];
+  let badgeState: State | null = null;
   function label(x: number, y: number, n: number, solid: boolean, color: string) {
+    // A badge on a frog's pad moves to the pad's upper left so the frog (and its crown) stay visible.
+    const gx = Math.floor((x - ox) / cell), gy = Math.floor((y - oy) / (cell * tilt));
+    const busy = badgeState?.frogs.some(f => !f.wet && f.x === gx && f.y === gy);
+    badges.push(busy ? [x - cell * 0.34, y - cell * 0.26, n, solid, color] : [x, y, n, solid, color]);
+  }
+  function paintBadge(x: number, y: number, n: number, solid: boolean, color: string) {
     if (!ctx) return;
     ctx.save(); ctx.setLineDash([]);
     const r = Math.max(8, cell * 0.17);
@@ -390,6 +400,7 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     }
     const fly = state.scenario?.fly;
     if (fly && !(a && t > a.eatAt) && !(a && a.result.ate >= 0 && t > a.eatAt)) flyAt(fly[0], fly[1], clock);
+    badgeState = state;
     if (!a) {
       if (view.ghosts) view.ghosts.forEach((p, seat) => { if (p && seat !== view.me) planPath(state, seat, p, false); });
       if (view.me >= 0 && view.draft.length) planPath(state, view.me, view.draft, true);
@@ -443,6 +454,7 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
         ctx.beginPath(); ctx.arc(sx(d.x), sy(d.y) - d.z, cell * 0.5, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
       }
     }
+    for (const b of badges.splice(0)) paintBadge(...b);
     if (!a && view.me >= 0 && view.hand >= 0) {
       const f = state.frogs[view.me];
       let x = f.x, y = f.y;
@@ -492,7 +504,12 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
       }
     }
   }
-  return { resize, draw, play, busy, skip, cellAt, frogScreen, get clock() { return clock; }, cellPx: () => cell };
+  /** Page-space rectangle around grid cells (for art capture). */
+  function cellRect(x0: number, y0: number, w: number, hgt: number) {
+    const r = canvas.getBoundingClientRect();
+    return { x: r.left + ox + x0 * cell, y: r.top + oy + y0 * cell * tilt - cell * 0.35, width: w * cell, height: hgt * cell * tilt + cell * 0.35 };
+  }
+  return { resize, draw, play, busy, skip, cellAt, frogScreen, cellRect, get clock() { return clock; }, cellPx: () => cell };
 }
 export type Renderer = ReturnType<typeof createRenderer>;
 export type { SimEvent };

@@ -215,21 +215,21 @@ export const shovePond: GameModule = {
         });
         top.append(chips);
       } else {
-        top.append(h('div', { class: 'sp-cap' }, h('b', { text: scene.list === 'lesson' ? '🐸' : '💦' }), i18n.tr(scene.sc.caption)));
+        top.append(h('div', { class: 'sp-cap' }, h('b', { text: scene.list === 'lesson' ? '🐸' : '💦' }), scene.list === 'lesson' ? i18n.tr(scene.sc.caption) : t('puzzle.goal')));
       }
       if (phase === 'plan' || phase === 'reveal') buildTray();
       layout();
     }
     function titleText(): string {
       if (!scene) return t('title.name');
-      if (scene.kind === 'scenario') return scene.list === 'lesson' ? t('lesson.n', { n: scene.index + 1 }) : `${t('puzzle.n', { n: scene.index + 1 })} · ${i18n.tr(scene.sc.caption)}`;
+      if (scene.kind === 'scenario') return scene.list === 'lesson' ? t('lesson.n', { n: scene.index + 1 }) : t('puzzle.n', { n: scene.index + 1 });
       if (scene.mode === 'ladder') return t('ladder.step', { n: (scene.ladder ?? 0) + 1, name: t(`ladder.${(scene.ladder ?? 0) + 1}` as Key) });
       if (scene.mode === 'online') return online.code ? t('room.title', { code: online.code }) : t('menu.online');
       return t('title.name');
     }
     function subText(): string {
       if (!scene) return '';
-      if (scene.kind === 'scenario') return scene.list === 'puzzle' ? t('puzzle.goal') : '';
+      if (scene.kind === 'scenario') return scene.list === 'puzzle' ? i18n.tr(scene.sc.caption) : '';
       const r = scene.state.round;
       return r > 8 ? t('hud.sudden', { n: r }) : t('hud.to', { n: r });
     }
@@ -724,6 +724,30 @@ export const shovePond: GameModule = {
       ready = true;
       resolveLocalRound();
     }
+
+    // ---------------------------------------------------------------- art / playtest handle
+    /** Stages a lively mid-match moment (used by scripts/capture-game-art.mjs): a crowned leader, a wobbling rim,
+     *  my three-hop plan aimed into a line of frogs, and an emote. */
+    (root as unknown as { __sp: unknown }).__sp = {
+      stage() {
+        closePanel(); online.leave();
+        startLocalMatch('quick');
+        if (scene?.kind !== 'match') return;
+        const st = scene.state;
+        st.round = 4;
+        st.pads = st.pads.map((_, i) => { const x = i % 7, y = Math.floor(i / 7); return Math.min(x, y, 6 - x, 6 - y) === 0 ? 0 : Math.min(x, y, 6 - x, 6 - y) === 1 ? 2 : 1; });
+        const place: [number, number, number][] = [[2, 3, 2], [4, 3, 4], [5, 3, 1], [3, 5, 3]];
+        place.forEach(([x, y, score], i) => { st.frogs[i] = { x, y, score, wet: false }; });
+        beginPlanning(PLAN_SECONDS);
+        draft = [RIGHT, RIGHT, UP];
+        showEmote(1, 1);
+        refreshHud();
+        root.classList.add('sp-art');
+        layout();
+      },
+      /** Close-up for the icon: me, the crowned leader and the frog behind it. */
+      clip() { return renderer.cellRect(2.6, 2.1, 3.0, 2.2); }
+    };
 
     // ---------------------------------------------------------------- boot
     const roomParam = (() => { try { return new URLSearchParams(location.search).get('room'); } catch { return null; } })();
