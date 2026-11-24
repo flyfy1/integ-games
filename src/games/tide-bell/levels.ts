@@ -51,7 +51,7 @@ export const CHAPTERS: Chapter[] = [
       { id: '2-3', name: { en: 'Middle Water', zh: '半潮' }, rows: ['XXXXXGX', 'PrDDSDT', 'RURRRRX'], tide: 0, par: 12, solution: 'DRLURDRRRRUU',
         idea: { en: 'At middle tide, wood crosses sand and stops at high sand.', zh: '半潮时木头漂过沙地，停在高沙地前。' }, icon: 'high', ablate: ['high', 'up'], trap: 'R' },
       { id: '2-4', name: { en: 'Bell Ringer', zh: '敲钟人' }, rows: ['XXXXNXX', 'XDDTsSR', 'PRUXDXG', 'TrRXXXX', 'RRXXXXX'], tide: 0, par: 18, solution: 'DDRULURDRUURRUDRRD',
-        idea: { en: 'Wood can rest on a bell. Push it off as you ring.', zh: '木头可以压在铃上，推开它的同时敲响铃。' }, icon: 'bell', ablate: ['high', 'up', 'down'], trap: 'RR' },
+        idea: { en: 'Wood can rest on a bell. Push it off as you ring.', zh: '木头可以压在铃上，推开它的同时敲响铃。' }, icon: 'bell', ablate: ['bellwood', 'high', 'up', 'down'], trap: 'RR' },
       { id: '2-5', name: { en: 'Three Waters', zh: '三重水' }, rows: ['XXXXXRG', 'PTXDtSX', 'XRRRXTX', 'TUrRXXX', 'XTSRXXX'], tide: 0, par: 19, solution: 'RDRRDDLULURDRUURRUR',
         idea: { en: 'Each height of sea is a different set of paths.', zh: '每一级潮位，都是一张不同的路线图。' }, icon: 'tides', ablate: ['high', 'up'], trap: 'RDD' }
     ]
@@ -74,8 +74,8 @@ export const CHAPTERS: Chapter[] = [
     levels: [
       { id: '4-1', name: { en: 'Current', zh: '洋流' }, rows: ['PrvXXXX', 'RXvXXRG', 'RX>>>DX', 'RRRRRRX'], tide: 0, par: 13, solution: 'RLDDDRRRRRUUR',
         idea: { en: 'A current carries floating wood along its arrows.', zh: '洋流会顺着箭头带走漂浮的木头。' }, icon: 'current', ablate: ['currents'], trap: 'RR', ghost: [1, 0] },
-      { id: '4-2', name: { en: 'Ride', zh: '乘木' }, rows: ['PRRYXXXX', 'XXXvXXXX', 'XXX>>>RG'], tide: 0, par: 5, solution: 'RRRRR',
-        idea: { en: 'Step onto wood resting on a current and ride it.', zh: '踩上停在洋流里的木头，乘着它走。' }, icon: 'ride', ablate: ['currents'], trap: 'RRD', ghost: [3, 0] },
+      { id: '4-2', name: { en: 'Ride', zh: '乘木' }, rows: ['PR}>>RXX', 'XRXXXXXX', 'XR}>>>RG'], tide: 0, par: 6, solution: 'RDDRRR',
+        idea: { en: 'Step onto wood resting on a current and ride it.', zh: '踩上停在洋流里的木头，乘着它走。' }, icon: 'ride', ablate: ['currents'], trap: 'RR', ghost: [2, 2] },
       { id: '4-3', name: { en: 'Rising Current', zh: '涨潮水道' }, rows: ['BRXXXXBXX', 'PR}DSDRSG'], tide: 0, par: 9, solution: 'UDRRRUDRR',
         idea: { en: 'High water lets a current run on over the sand.', zh: '涨潮后，洋流能越过沙地继续流。' }, icon: 'current', ablate: ['currents', 'bells'], trap: 'RR' },
       { id: '4-4', name: { en: 'Undertow', zh: '暗流' }, rows: ['XXX<XSG', 'P}SCRvX', 'RrSBXXX', 'DRRXXXX', 'BSXXXXX'], tide: 0, par: 19, solution: 'RDRDLDLUUURDLURRRUR',

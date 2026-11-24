@@ -116,8 +116,11 @@ describe('tide bell campaign', () => {
     expect(lv.solution).toHaveLength(lv.par);
     expect(replay(b, lv.solution).pos).toBe(b.goal);
     expect(lv.ablate.length).toBeGreaterThan(0);
-    const without = solveLevel(lv.rows, lv.tide, lv.ablate);
-    if (without.moves !== null) expect(without.moves.length).toBeGreaterThan(lv.par);
+    // Each listed idea on its own: switching just that one off makes the level unsolvable or longer.
+    for (const ab of lv.ablate) {
+      const without = solveLevel(lv.rows, lv.tide, [ab]);
+      if (without.moves !== null) expect(without.moves.length, `${lv.id} without ${ab}`).toBeGreaterThan(lv.par);
+    }
     // The obvious wrong plan: either a move in it is blocked, or it ends where the flag is out of reach.
     let s = initialState(b), blocked = false;
     for (const m of lv.trap) { const n = step(b, s, m as never); if (!n) { blocked = true; break; } s = n; }

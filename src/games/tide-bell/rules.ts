@@ -46,11 +46,11 @@ export type MoveEvent =
 /**
  * Ways to switch one idea off, for proving a level needs it: bells / up / down ring without moving the sea, currents
  * stand still, castles never wash away, `castleless` levels the castles to plain sand, `high` turns high sand into
- * ordinary sand, and `raft:i` removes the i-th log.
+ * ordinary sand, `bellwood` stops wood from being pushed onto a bell, and `raft:i` removes the i-th log.
  */
-export type Ablation = 'bells' | 'up' | 'down' | 'currents' | 'castles' | 'castleless' | 'high' | `raft:${number}`;
-export type Rules = { bells: boolean; up: boolean; down: boolean; currents: boolean; castles: boolean };
-export const ALL_RULES: Rules = { bells: true, up: true, down: true, currents: true, castles: true };
+export type Ablation = 'bells' | 'up' | 'down' | 'currents' | 'castles' | 'castleless' | 'high' | 'bellwood' | `raft:${number}`;
+export type Rules = { bells: boolean; up: boolean; down: boolean; currents: boolean; castles: boolean; bellwood: boolean };
+export const ALL_RULES: Rules = { bells: true, up: true, down: true, currents: true, castles: true, bellwood: true };
 
 const HEIGHT_DRY = 9;
 const TILE: Record<string, { kind: K; height: number; raft?: boolean; castle?: number; flow?: number; player?: boolean; goal?: boolean }> = {
@@ -120,6 +120,7 @@ export function step(b: Board, s: State, d: Dir, rules: Rules = ALL_RULES, event
     if (!isWet(b, s, t, rules)) {
       let n = neighbour(b, t, d);
       if (!open(b, s, n, rules) || rafts.has(n)) return null;
+      if (!rules.bellwood && (b.kind[n] === K.Bell || b.kind[n] === K.Up || b.kind[n] === K.Down)) return null;
       rafts.delete(t);
       let path = [t, n];
       if (isWet(b, s, n, rules)) { path = [t, ...drift(b, s, rafts, n, d, rules)]; n = path[path.length - 1]; }

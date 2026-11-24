@@ -193,7 +193,6 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
     // Board shadow, then tiles.
     for (let i = 0; i < n; i++) drawTile(g, i, covers[i], now, time);
     drawFoam(g, covers, time);
-    for (let i = 0; i < n; i++) drawProp(g, i, now, time);
     // Splashes.
     splashes = splashes.filter(s => now - s.t0 < 600);
     for (const s of splashes) {
@@ -202,6 +201,9 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
       g.beginPath(); g.arc(ox + (s.x + 0.5) * cs, oy + (s.y + 0.5) * cs, cs * (0.2 + 0.5 * p), 0, Math.PI * 2); g.stroke();
     }
     drawRafts(g, now, time, covers);
+    // Bells and the flag stand over wood resting on their tile, so a log parked on a bell never hides it.
+    for (let i = 0; i < n; i++) drawProp(g, i, now, time);
+    drawFlowMarks(g);
     drawPlayer(g, now, time);
     drawHint(g, now);
     drawGhost(g, now);
@@ -272,6 +274,20 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
       g.stroke();
     }
     g.restore(); g.globalAlpha = 1;
+  }
+
+  /** Wood resting on a current hides its streaks, so every current tile also wears a fixed arrow at its downstream edge. */
+  function drawFlowMarks(g: CanvasRenderingContext2D) {
+    const B = b!;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (let i = 0; i < B.flow.length; i++) {
+      if (B.flow[i] === 255) continue;
+      const [dx, dy] = DXY[DIRS[B.flow[i]]], { x, y } = xy(i);
+      const cx = ox + (x + 0.5 + dx * 0.36) * cs, cy = oy + (y + 0.5 + dy * 0.36) * cs, s = cs * 0.1;
+      const path = () => { g.beginPath(); g.moveTo(cx - dx * s - dy * s, cy - dy * s - dx * s); g.lineTo(cx, cy); g.lineTo(cx - dx * s + dy * s, cy - dy * s + dx * s); };
+      g.strokeStyle = 'rgba(6,30,50,0.55)'; g.lineWidth = Math.max(3, cs * 0.09); path(); g.stroke();
+      g.strokeStyle = 'rgba(200,245,255,0.95)'; g.lineWidth = Math.max(1.6, cs * 0.045); path(); g.stroke();
+    }
   }
 
   function drawCastle(g: CanvasRenderingContext2D, i: number, px: number, py: number, now: number) {

@@ -8,8 +8,7 @@
  *   json: { "seed": ["XBXX", "PRSG"], "tide": 0, "palette": "RRSSDX", "need": ["bells"], "par": [8, 30],
  *           "iters": 4000, "rng": 1, "maxRafts": 3, "lock": [[x, y], ...] }
  */
-import { parseBoard, solveLevel, type Ablation } from '../src/games/tide-bell/rules';
-import { analyze } from '../src/games/tide-bell/solver';
+import type { Ablation } from '../src/games/tide-bell/rules';
 import { grade } from './tide-bell-grade';
 
 type Opts = { seed?: string[]; size?: [number, number]; tide: number; palette: string; need: Ablation[]; par: [number, number]; iters?: number; rng?: number; maxRafts?: number; lock?: [number, number][]; top?: number; obstacles?: number; w?: Partial<Record<'par' | 'open' | 'dead' | 'traps' | 'idle' | 'rings' | 'rev', number>> };
@@ -52,7 +51,7 @@ if (!opts.seed) {
 let cur = opts.seed, curScore = score(cur);
 // An unsolvable seed is a sketch: wander from it until something passes the filters.
 for (let i = 0; !curScore && i < 20000; i++) { const c = mutate(i % 50 === 0 ? opts.seed! : cur); cur = c; curScore = score(c); }
-if (!curScore) { console.log('no start');process.exit(1);console.log('seed fails the filters:', JSON.stringify(solveLevel(cur, opts.tide)), analyze(parseBoard(cur, opts.tide)).par); process.exit(1); }
+if (!curScore) { console.log('no start: the seed and its neighbours never passed the filters'); process.exit(1); }
 const best = new Map<string, { rows: string[]; score: number; ok: boolean; info: string }>();
 if (curScore.ok) best.set(cur.join('/'), { rows: cur, ...curScore });
 const iters = opts.iters ?? 3000;

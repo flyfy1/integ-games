@@ -255,7 +255,8 @@ export const tideBell: GameModule = {
         const wait = Math.max(0, renderer.busyUntil - performance.now());
         setTimeout(() => audio.cue('win'), wait);
         if (cardTimer) clearTimeout(cardTimer);
-        cardTimer = setTimeout(() => showWinCard(lv, moves, rec.streak), wait + (reduced() ? 150 : 520));
+        pendingCard = () => showWinCard(lv, moves, rec.streak);
+        cardTimer = setTimeout(() => flushCard(), wait + CARD_DELAY);
         return;
       }
       const prevBest = save.best[lv.id];
@@ -269,10 +270,15 @@ export const tideBell: GameModule = {
       const wait = Math.max(0, renderer.busyUntil - performance.now());
       setTimeout(() => audio.cue('win'), wait);
       if (cardTimer) clearTimeout(cardTimer);
-      cardTimer = setTimeout(() => showWinCard(lv, moves), wait + (reduced() ? 150 : 520));
+      pendingCard = () => showWinCard(lv, moves);
+      cardTimer = setTimeout(() => flushCard(), wait + CARD_DELAY);
     }
 
     // ---------------------------------------------------------------- cards & banners
+    // The win card follows the last animation by a beat; any key or tap in between brings it at once.
+    const CARD_DELAY = 140;
+    let pendingCard: (() => void) | null = null;
+    function flushCard() { if (cardTimer) { clearTimeout(cardTimer); cardTimer = null; } const f = pendingCard; pendingCard = null; f?.(); }
     function hideBanner() { banner.hidden = true; banner.replaceChildren(); }
     function showBanner(text: string, withUndo: boolean) {
       banner.replaceChildren();
@@ -280,10 +286,11 @@ export const tideBell: GameModule = {
       if (withUndo && play?.history.length) { const b = h('button', { class: 'tb-chip', 'data-act': 'undo' }); b.textContent = i18n.t('stuckUndo'); banner.append(b); }
       banner.hidden = false;
     }
-    function closeCard() { if (cardTimer) { clearTimeout(cardTimer); cardTimer = null; } card.hidden = true; card.replaceChildren(); root.dataset.screen = 'play'; }
+    function closeCard() { if (cardTimer) { clearTimeout(cardTimer); cardTimer = null; } pendingCard = null; card.hidden = true; card.replaceChildren(); root.dataset.screen = 'play'; }
     function openCard(el: HTMLElement, name: string) {
       card.replaceChildren(el); card.hidden = false; root.dataset.screen = name;
-      (card.querySelector<HTMLElement>('.primary') ?? card.querySelector<HTMLElement>('.tb-level.current') ?? card.querySelector<HTMLElement>('button:not(:disabled)') ?? root).focus({ preventScroll: true });
+      const first = card.querySelector<HTMLElement>('.primary') ?? card.querySelector<HTMLElement>('.tb-level.current') ?? card.querySelector<HTMLElement>('button:not(:disabled)') ?? root;
+      first.focus({ preventScroll: true }); first.scrollIntoView?.({ block: 'nearest' });
     }
     function showWinCard(lv: LevelDef, moves: number, streak?: number) {
       const next = lv.id === 'daily' ? null : nextLevelId(lv.id);
@@ -370,10 +377,9 @@ export const tideBell: GameModule = {
         const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
         if (dir) {
           e.preventDefault();
-          const cols = root.dataset.screen === 'menu' ? (root.classList.contains('compact') ? 2 : 3) : 1;
-          const delta = dir === 'L' ? -1 : dir === 'R' ? 1 : dir === 'U' ? -cols : cols;
-          const j = i < 0 ? 0 : Math.max(0, Math.min(buttons.length - 1, i + delta));
-          buttons[j]?.focus({ preventScroll: true });
+          const next = i < 0 ? buttons[0] : nearestIn(buttons, buttons[i], dir) ?? buttons[i];
+          next?.focus({ preventScroll: true });
+          next?.scrollIntoView?.({ block: 'nearest' });
         } else if (e.key === 'Enter' || e.key === ' ') {
           // A real key on a focused button clicks it natively; the gamepad bridge's synthetic keys need a hand.
           if (e.isTrusted && document.activeElement && card.contains(document.activeElement)) return;
@@ -382,6 +388,7 @@ export const tideBell: GameModule = {
         else if (e.key === 'l' || e.key === 'L') { e.preventDefault(); closeCard(); }
         return;
       }
+      if (pendingCard && (dir || e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); flushCard(); return; }
       if (dir) { e.preventDefault(); applyMove(dir); return; }
       const k = e.key.toLowerCase();
       if (k === 'z' || e.key === 'Backspace' || k === 'u') { e.preventDefault(); undo(); }
@@ -397,6 +404,7 @@ export const tideBell: GameModule = {
     canvas.addEventListener('pointerdown', (e) => { const p = local(e); down = { ...p, id: e.pointerId }; audio.unlock(); root.focus({ preventScroll: true }); });
     canvas.addEventListener('pointerup', (e) => {
       if (!down || down.id !== e.pointerId || !play) { down = null; return; }
+      if (pendingCard) { down = null; flushCard(); return; }
       const p = local(e), dx = p.x - down.x, dy = p.y - down.y; down = null;
       const swipe = Math.max(22, renderer.cell * 0.35);
       if (Math.hypot(dx, dy) >= swipe) { applyMove(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : (dy > 0 ? 'D' : 'U')); return; }
@@ -486,6 +494,20 @@ export function walkPath(b: Board, s: State, target: number): Dir[] | null {
     }
   }
   return null;
+}
+/** Spatial focus: the closest enabled button whose centre lies in the pressed direction (gamepad and arrow keys in menus). */
+function nearestIn(buttons: HTMLElement[], from: HTMLElement, d: Dir): HTMLElement | null {
+  const c = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+  const o = c(from), [dx, dy] = DXY[d];
+  let best: HTMLElement | null = null, bestScore = Infinity;
+  for (const el of buttons) {
+    if (el === from) continue;
+    const p = c(el), along = (p.x - o.x) * dx + (p.y - o.y) * dy, across = Math.abs((p.x - o.x) * dy) + Math.abs((p.y - o.y) * dx);
+    if (along <= 1) continue;
+    const score = along + across * 2;
+    if (score < bestScore) { bestScore = score; best = el; }
+  }
+  return best;
 }
 function towards(b: Board, from: number, to: number): Dir {
   const dx = (to % b.w) - (from % b.w), dy = Math.floor(to / b.w) - Math.floor(from / b.w);

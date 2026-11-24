@@ -46,7 +46,9 @@ for (const lv of levels) {
   if (only && !only.includes(lv.id)) continue;
   await tb((t, a) => t.start(a), lv.id);
   await page.waitForTimeout(80);
+  if (shots) await page.locator('[data-tide-bell]').screenshot({ path: `${shots}/${device.replace(/\s+/g, '-')}-${lv.id}-start.png` });
   for (const [i, d] of [...lv.solution].entries()) {
+    if (shots && i === lv.solution.length - 1) { await page.waitForTimeout(350); await page.locator('[data-tide-bell]').screenshot({ path: `${shots}/${device.replace(/\s+/g, '-')}-${lv.id}-last.png` }); }
     const before = await tb((t) => t.moves);
     await move(d);
     const after = await tb((t) => t.moves);
