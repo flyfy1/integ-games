@@ -258,7 +258,7 @@ function pickLane(sim: Sim, h: Hazard): void {
   const lanes = [0, 2, 4, 6, 7];
   let best = lanes[0], bestScore = -1;
   for (const lane of lanes) {
-    let score = sim.random() * 3;
+    let score = sim.random() * 1.5;
     for (let x = 0; x < COLS; x++) for (const r of [lane, lane + 1]) if (r < ROWS) { const c = idx(x, r); if (isTrail(sim, c) && sim.terrain[c] !== 'tunnel') score += 1; }
     if (lane === h.py && h.phase === 0 && sim.time > 1) score -= 4;
     if (score > bestScore) { bestScore = score; best = lane; }

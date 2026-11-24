@@ -94,9 +94,9 @@ export const CHAPTER1: LevelDef[] = [
       ...bbbbbbbbbb...
       ...bbbbbbbbbb...
       ................`),
-    nest: [1, 4], foods: [{ id: 'pie', kind: 'jam', x: 14, y: 4, crumbs: 45 }, { id: 'cookie', kind: 'cookie', x: 8, y: 8, crumbs: 25 }],
+    nest: [1, 4], foods: [{ id: 'pie', kind: 'jam', x: 10, y: 4, crumbs: 45 }, { id: 'cookie', kind: 'cookie', x: 7, y: 8, crumbs: 20 }],
     hazards: [], alarm: true,
-    scent: 24, startSugar: 60, sundown: 210, par: 85,
+    scent: 18, startSugar: 60, sundown: 210, par: 50,
     goal: { kind: 'crumbs', n: 40 }, bonus: { kind: 'noAlarm' },
     tutorial: [
       { text: t('Ants on the blanket raise Alarm (the eye). Ants on grass are hidden.', '垫子上的蚂蚁会让警觉（眼睛）上升，草地上的看不见。'), ui: 'alarm', until: { time: 7 } },
@@ -129,4 +129,237 @@ export const CHAPTER1: LevelDef[] = [
   }
 ];
 
-export const LEVELS: LevelDef[] = [...CHAPTER1];
+const CHAPTER2: LevelDef[] = [
+  {
+    id: '2-1', chapter: 2, index: 1, name: t('Sprinkler Hour', '洒水时间'), blurb: t('The garden sprinkler sweeps the sandbox on a rhythm and washes scent trails away.', '花园洒水器有节奏地扫过沙坑，会把气味路线冲掉。'),
+    type: 'haul', introduces: t('The sprinkler', '洒水器'),
+    grid: L(`
+      ................
+      ................
+      ....ssssssss....
+      ....ssssssss....
+      .N..ssssssss....
+      ....ssssssss....
+      ....ssssssss....
+      ................
+      ................`),
+    nest: [1, 4], foods: [{ id: 'cookie', kind: 'cookie', x: 14, y: 4, crumbs: 45 }],
+    hazards: [{ kind: 'sprinkler', x: 8, y: 4, params: { r: 3.6, on: 3.2, off: 5.5, a0: -Math.PI * 0.9, a1: Math.PI * 0.9 } }],
+    scent: 26, startSugar: 70, cards: ['worker', 'porter'], sundown: 180, par: 80,
+    goal: { kind: 'crumbs', n: 35 }, bonus: { kind: 'scent', n: 16 },
+    tutorial: [
+      { text: t('Watch the blue arc: when it sweeps, trail under it washes away.', '看那道蓝色弧线：它扫过的路线会被冲掉。'), until: { time: 8 } },
+      { text: t('Go round its reach on the grass, or cross the sand quickly and repaint after each sweep.', '可以沿草地绕开它的范围，也可以快速穿过沙地，每次被冲掉再补上。'), until: { event: 'connect' } },
+      { text: t('Washed-out trail gives its Scent back. Paint it again.', '被冲掉的路线会退还气味，再画一次就好。'), until: { event: 'washed' } }
+    ],
+    intro: 'c2-intro'
+  },
+  {
+    id: '2-2', chapter: 2, index: 2, name: t('The White Line', '白线'), blurb: t('Someone drew a chalk ring around a sugar cube. Ants will not cross chalk.', '有人在方糖周围画了一圈粉笔。蚂蚁不会跨过粉笔线。'),
+    type: 'heist', introduces: t('Chalk and the Digger', '粉笔线和掘土蚁'),
+    grid: L(`
+      ................
+      ........ccccccc.
+      ........ccccccc.
+      ........cc...cc.
+      .N......cc...cc.
+      ........cc...cc.
+      ........ccccccc.
+      ........ccccccc.
+      ................`),
+    nest: [1, 4], foods: [{ id: 'cube', kind: 'sugarcube', x: 11, y: 4, crumbs: 30, lift: 9 }, { id: 'bread', kind: 'bread', x: 5, y: 7, crumbs: 30 }],
+    hazards: [],
+    scent: 20, startSugar: 60, cards: ['worker', 'porter', 'digger'], sundown: 180, par: 85,
+    goal: { kind: 'item', food: 'cube' }, bonus: { kind: 'noCaste', caste: 'porter' },
+    tutorial: [
+      { text: t('Chalk blocks the trail. Run a trail right up to the line first.', '粉笔线挡住了路线。先把路线铺到线边。'), cells: [[2, 4], [3, 4], [4, 4], [5, 4], [6, 4], [7, 4]], until: { event: 'paint', n: 6 } },
+      { text: t('Pick the Digger, then tap a chalk cell beside your trail. It digs two cells deep.', '选掘土蚁，再点路线旁边的粉笔格。它会往里挖两格。'), ui: 'digger', cells: [[8, 4]], until: { event: 'dig', n: 2 } },
+      { text: t('Tunnels are safe ground. Trail through it to the sugar cube.', '隧道是安全的路。从里面铺到方糖。'), until: { event: 'connect' } }
+    ]
+  },
+  {
+    id: '2-3', chapter: 2, index: 3, name: t('Under the Glass', '放大镜下'), blurb: t('A child is playing with a magnifying glass. The hot spot crawls along the only short way.', '有个小孩在玩放大镜。光斑沿着唯一的近路慢慢爬。'),
+    type: 'haul', introduces: t('Sunbeams and the Leafcutter', '光斑和切叶蚁'),
+    grid: L(`
+      ################
+      ................
+      ...##########...
+      ...ssssssssss...
+      .N.ssssssssss...
+      ...ssssssssss...
+      ...##########...
+      ................
+      ################`),
+    nest: [1, 4], foods: [{ id: 'cheese', kind: 'cheese', x: 14, y: 4, crumbs: 40 }],
+    hazards: [{ kind: 'sunbeam', x: 4, y: 4, params: { x2: 11, y2: 4, speed: 0.6, r: 0.8 } }],
+    scent: 17, startSugar: 110, cards: ['worker', 'leafcutter', 'porter'], sundown: 190, par: 90,
+    goal: { kind: 'crumbs', n: 30 }, bonus: { kind: 'maxLost', n: 8 },
+    tutorial: [
+      { text: t('The hot spot crawls along the sand. Ants caught under it for a moment are cooked.', '光斑沿着沙地爬。被它照住一会儿的蚂蚁会被烤焦。'), until: { time: 8 } },
+      { text: t('A Leafcutter holds a leaf umbrella: ants beside it stay shaded. Mix a few into your Workers.', '切叶蚁举着叶子伞，身边的蚂蚁都有阴凉。在工蚁里混几只。'), ui: 'leafcutter', until: { event: 'hatch', caste: 'leafcutter' } }
+    ]
+  },
+  {
+    id: '2-4', chapter: 2, index: 4, name: t('Last Twenty', '最后二十只'), blurb: t('No more eggs today. Twenty Workers, two Diggers and a sandpit with something hungry at the bottom.', '今天没有蛋了。二十只工蚁、两只掘土蚁，沙坑底下还藏着个饿家伙。'),
+    type: 'puzzle', introduces: t('Fixed ants and the antlion pit', '固定兵力和蚁狮坑'),
+    grid: L(`
+      ....ssssssss....
+      ....sssossss....
+      ....ssssssss....
+      ....ssssssss....
+      .N..sssossss....
+      ....ssssssss....
+      ....ssssssss....
+      ....sssossss....
+      ....ssssssss....`),
+    nest: [1, 4], foods: [{ id: 'cookie', kind: 'cookie', x: 14, y: 4, crumbs: 24 }],
+    hazards: [], fixedAnts: { worker: 20, digger: 2 },
+    scent: 22, startSugar: 0, cards: ['worker', 'digger'], sundown: 200, par: 45,
+    goal: { kind: 'crumbs', n: 12 }, bonus: { kind: 'maxLost', n: 2 },
+    tutorial: [
+      { text: t('No hatching here: every ant counts. Sand beside a pit slides. Linger on it and the antlion pulls you in.', '这关不能孵化，每只都珍贵。坑边的沙会滑，待久了就会被蚁狮拖下去。'), until: { time: 9 } },
+      { text: t('Dig a tunnel through the sliding sand. Tunnels never slide.', '在滑沙里挖一条隧道。隧道不会滑。'), ui: 'digger', until: { event: 'dig' } }
+    ]
+  },
+  {
+    id: '2-5', chapter: 2, index: 5, name: t('Rumble', '轰轰'), blurb: t('The robot mower wakes up. It mows the lawn lane by lane, and it likes the lanes with your trail in them.', '割草机器人醒了。它一条一条地割，最爱割有你路线的那条。'),
+    type: 'boss', boss: 'mower', introduces: t('Boss: tunnels and re-laying under pressure', 'Boss：隧道和边割边补'),
+    grid: L(`
+      ................
+      ....ssss........
+      ....ssss........
+      ................
+      .Nssssssssss....
+      ................
+      ........ssss....
+      ........ssss....
+      ................`),
+    nest: [1, 4], foods: [{ id: 'bread', kind: 'bread', x: 14, y: 1, crumbs: 50 }, { id: 'cookie', kind: 'cookie', x: 14, y: 7, crumbs: 45 }, { id: 'crumbs', kind: 'cookie', x: 6, y: 7, crumbs: 15 }],
+    hazards: [{ kind: 'mower', x: 0, y: 0, params: { first: 20, speed: 2.4, rest: 10 } }],
+    scent: 30, startSugar: 160, sundown: 260, par: 160,
+    goal: { kind: 'crumbs', n: 60 }, bonus: { kind: 'maxLost', n: 20 },
+    tutorial: [
+      { text: t('Rumble mows one lane at a time. The stripe on the grass shows its next lane.', '轰轰一次割一条。草地上的条纹是它下一条路线。'), until: { time: 10 } },
+      { text: t('Tunnels under sand are safe from the blades. Recall clears a lane in a hurry.', '沙地下的隧道不怕刀片。召回能让蚂蚁赶紧撤出。'), ui: 'recall', until: { time: 22 } }
+    ],
+    intro: 'boss-mower', outro: 'c2-outro', music: 'boss'
+  }
+];
+
+const CHAPTER3: LevelDef[] = [
+  {
+    id: '3-1', chapter: 3, index: 1, name: t('Living Bridge', '蚂蚁桥'), blurb: t('Two little streams between the nest and a cookie. Ants cannot swim, but they can hold on to each other.', '蚁穴和饼干之间隔着两条小溪。蚂蚁不会游泳，但能互相抓住连成桥。'),
+    type: 'haul', introduces: t('Water and Bridgers', '水和搭桥蚁'),
+    grid: L(`
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....
+      .N...~....~.....
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....`),
+    nest: [1, 4], foods: [{ id: 'cookie', kind: 'cookie', x: 14, y: 4, crumbs: 45 }],
+    hazards: [],
+    scent: 20, startSugar: 130, cards: ['worker', 'bridger'], sundown: 180, par: 80,
+    goal: { kind: 'crumbs', n: 30 }, bonus: { kind: 'scent', n: 14 },
+    tutorial: [
+      { text: t('Trail up to the water first.', '先把路线铺到水边。'), cells: [[2, 4], [3, 4], [4, 4]], until: { event: 'paint', n: 3 } },
+      { text: t('Pick Bridgers, then tap the water beside your trail. Three of them make one bridge cell.', '选搭桥蚁，再点路线旁边的水面。三只连成一格桥。'), ui: 'bridger', cells: [[5, 4]], until: { event: 'bridge' } },
+      { text: t('Trail across the bridge, then bridge the second stream the same way.', '从桥上铺过去，第二条小溪也照样搭桥。'), until: { event: 'connect' } }
+    ],
+    intro: 'c3-intro'
+  },
+  {
+    id: '3-2', chapter: 3, index: 2, name: t('Sticky Business', '粘住了'), blurb: t('A strip of fly tape across the path. The first ants to touch it are stuck for good.', '路上横着一条粘蝇纸。最先碰到的几只蚂蚁会被永远粘住。'),
+    type: 'haul', introduces: t('Sticky tape and the Spitter', '粘蝇纸和酸蚁'),
+    grid: L(`
+      ........t.......
+      ........t.......
+      ........t.......
+      ........t.......
+      .N......t.......
+      ........t.......
+      ........t.......
+      ........t.......
+      ........t.......`),
+    nest: [1, 4], foods: [{ id: 'cheese', kind: 'cheese', x: 14, y: 4, crumbs: 45 }],
+    hazards: [],
+    scent: 20, startSugar: 100, cards: ['worker', 'spitter'], sundown: 180, par: 75,
+    goal: { kind: 'crumbs', n: 30 }, bonus: { kind: 'maxLost', n: 0 },
+    tutorial: [
+      { text: t('Each tape cell holds the first four ants that cross it. After that the rest walk over them.', '每格粘纸会粘住最先经过的四只蚂蚁，之后的就能踩着过去。'), until: { time: 8 } },
+      { text: t('Or post a Spitter on the trail beside the tape: its acid dissolves the glue.', '也可以把酸蚁派到粘纸旁的路线上，酸液会把胶溶掉。'), ui: 'spitter', until: { event: 'tape' } }
+    ]
+  },
+  {
+    id: '3-3', chapter: 3, index: 3, name: t('Wings', '翅膀'), blurb: t('An ice cream is melting on the far bank, and a biscuit floats on a lily pad. A sparrow watches from above.', '对岸的冰淇淋正在融化，荷叶上还漂着一块饼干。一只麻雀在头顶盯着。'),
+    type: 'rush', introduces: t('Flyers and the sparrow', '飞蚁和麻雀'),
+    grid: L(`
+      ................
+      ................
+      ......~~~~~~....
+      ......~~~~~~....
+      .N....~~~l~~....
+      ......~~~~~~....
+      ......~~~~~~....
+      ................
+      ................`),
+    nest: [1, 4], foods: [{ id: 'icecream', kind: 'icecream', x: 14, y: 4, crumbs: 40, melt: 2.2 }, { id: 'lily', kind: 'biscuit', x: 9, y: 4, crumbs: 20 }],
+    hazards: [{ kind: 'sparrow', x: 8, y: 4, params: { first: 14, period: 13, warn: 2.4, max: 5 } }],
+    scent: 24, startSugar: 100, cards: ['worker', 'flyer'], sundown: 150, par: 70,
+    goal: { kind: 'crumbs', n: 28 }, bonus: { kind: 'maxLost', n: 4 },
+    tutorial: [
+      { text: t('The ice cream melts away a little every few seconds. Hurry.', '冰淇淋每隔几秒就化掉一点。快！'), until: { time: 6 } },
+      { text: t('Flyers need no trail: they fly straight to any food they can see, even on a lily pad.', '飞蚁不用路线，直接飞向看得见的食物，荷叶上的也行。'), ui: 'flyer', until: { event: 'hatch', caste: 'flyer' } },
+      { text: t('A sparrow shadow marks where it will peck. Ants in grass are hidden; flyers never are.', '麻雀的影子标出它要啄的地方。草里的蚂蚁看不见，飞蚁总是看得见。'), until: { event: 'strike' } }
+    ]
+  },
+  {
+    id: '3-4', chapter: 3, index: 4, name: t('Melon Day', '西瓜日'), blurb: t('A whole wedge of watermelon on the other bank. It takes a crowd to lift and a bridge to cross.', '对岸有一整块西瓜。要一大群蚂蚁才抬得动，还得过桥。'),
+    type: 'heist', introduces: t('A big carry over a bridge', '抬着大件过桥'),
+    grid: L(`
+      ................
+      .......~~.......
+      .......~~.......
+      .......~~.......
+      .N.....~~.......
+      .......~~.......
+      .......~~.......
+      .......~~.......
+      ................`),
+    nest: [1, 4], foods: [{ id: 'melon', kind: 'melon', x: 13, y: 4, crumbs: 40, lift: 24 }, { id: 'bread', kind: 'bread', x: 4, y: 7, crumbs: 40 }],
+    hazards: [],
+    scent: 26, startSugar: 120, sundown: 220, par: 120,
+    goal: { kind: 'item', food: 'melon' }, bonus: { kind: 'crumbs', n: 60 },
+    tutorial: [
+      { text: t('The melon needs 24 power. Porters lift 3 each. A bridge saves the long walk round.', '西瓜要 24 点力气。大力蚁一只顶三点。搭桥能省去绕远路。'), until: { time: 10 } }
+    ]
+  },
+  {
+    id: '3-5', chapter: 3, index: 5, name: t('Bluestreak', '蓝闪'), blurb: t('A kingfisher hunts the streams. It dives at the busiest bridge and breaks it.', '一只翠鸟在小溪上捕猎。它专挑最热闹的桥俯冲，把桥冲散。'),
+    type: 'boss', boss: 'kingfisher', introduces: t('Boss: lift the bridge before the dive', 'Boss：俯冲前收起桥'),
+    grid: L(`
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....
+      .N...~....~.....
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....
+      .....~....~.....`),
+    nest: [1, 4], foods: [{ id: 'biscuit', kind: 'biscuit', x: 14, y: 1, crumbs: 40, lift: 18 }, { id: 'cookie', kind: 'cookie', x: 3, y: 7, crumbs: 40 }, { id: 'grapes', kind: 'grape', x: 8, y: 1, crumbs: 30 }],
+    hazards: [{ kind: 'kingfisher', x: 8, y: 4, params: { first: 14, period: 8, warn: 2.6 } }],
+    scent: 28, startSugar: 140, sundown: 260, par: 100,
+    goal: { kind: 'item', food: 'biscuit' }, bonus: { kind: 'maxLost', n: 8 },
+    tutorial: [
+      { text: t('Bluestreak dives at a bridge after a shadow warning. Tap the bridge to lift it: a lifted bridge is safe.', '蓝闪俯冲前会有影子预警。点桥可以收起，收起的桥很安全。'), until: { time: 12 } },
+      { text: t('Ants wait at a lifted bridge. Lower it again once the bird has gone.', '桥收起时蚂蚁会在桥头等。鸟一走就放下来。'), until: { event: 'strike' } }
+    ],
+    intro: 'boss-kingfisher', outro: 'c3-outro', music: 'boss'
+  }
+];
+
+export const LEVELS: LevelDef[] = [...CHAPTER1, ...CHAPTER2, ...CHAPTER3];

@@ -116,6 +116,64 @@ describe('ant-raid sim: colony', () => {
   });
 });
 
+describe('ant-raid sim: chapter 2 hazards', () => {
+  const g = (rows: string[]) => rows;
+  it('the sprinkler washes trail cells in its arc and refunds the Scent', () => {
+    const sim = createSim(base({ hazards: [{ kind: 'sprinkler', x: 6, y: 2, params: { r: 3, on: 2, off: 2, a0: 0, a1: Math.PI } }] }), { random: mulberry32(1) });
+    line(sim, 4, 2, 8);
+    const scent = sim.scent;
+    let washed = false;
+    for (let i = 0; i < 8 * 30 && !washed; i++) { step(sim); washed = drainEvents(sim).some(e => e.type === 'washed'); }
+    expect(washed).toBe(true);
+    expect(sim.scent).toBeGreaterThan(scent);
+  });
+  it('chalk blocks the trail until a Digger tunnels two cells through it', () => {
+    const sim = createSim(base({ grid: g(['................', '................', '................', '................', '.N....cc........', '................', '................', '................', '................']), cards: ['worker', 'digger'] }), { random: mulberry32(2) });
+    line(sim, 4, 2, 5);
+    expect(paint(sim, idx(6, 4), idx(5, 4)).ok).toBe(false);
+    expect(playCard(sim, 'digger', idx(6, 4)).ok).toBe(true);
+    run(sim, 10);
+    expect(sim.terrain[idx(6, 4)]).toBe('tunnel');
+    expect(sim.terrain[idx(7, 4)]).toBe('tunnel');
+    expect(paint(sim, idx(6, 4), idx(5, 4)).ok).toBe(true);
+  });
+  it('a sunbeam cooks Workers on its line, and a Leafcutter shades the ants beside it', () => {
+    const level = base({ hazards: [{ kind: 'sunbeam', x: 4, y: 4, params: { x2: 4, y2: 4, speed: 0, r: 1 } }], cards: ['worker', 'leafcutter'], foods: [{ id: 'f', kind: 'cookie', x: 8, y: 4, crumbs: 99 }] });
+    const a = createSim(level, { random: mulberry32(3) });
+    line(a, 4, 2, 8); playCard(a, 'worker'); run(a, 8);
+    expect(a.stats.lost).toBeGreaterThan(0);
+    const b = createSim(level, { random: mulberry32(3) });
+    line(b, 4, 2, 8);
+    for (let i = 0; i < 6; i++) { playCard(b, 'leafcutter'); run(b, 0.4); }
+    const before = b.stats.lost;
+    run(b, 1);
+    expect(b.ants.filter(a => a.caste === 'leafcutter' && a.alive).length).toBeGreaterThan(0);
+    expect(b.stats.lost).toBeLessThanOrEqual(before + 1);
+  });
+  it('sand beside an antlion pit pulls in ants that linger, but not in a tunnel', () => {
+    const grid = g(['................', '................', '................', '................', '.N.ssssss.......', '....ooooo.......', '................', '................', '................']);
+    const sim = createSim(base({ grid, foods: [{ id: 'f', kind: 'cookie', x: 10, y: 4, crumbs: 99 }] }), { random: mulberry32(4) });
+    line(sim, 4, 2, 10);
+    playCard(sim, 'worker'); run(sim, 8);
+    expect(sim.stats.lost).toBeGreaterThan(0);
+  });
+  it('the mower eats ants and trail in its lane, and tunnels under it are safe', () => {
+    const grid = g(['................', '................', '................', '................', '.Nssssssss......', '................', '................', '................', '................']);
+    const level = base({ grid, hazards: [{ kind: 'mower', x: 0, y: 0, params: { first: 4, speed: 3, rest: 30 } }], foods: [{ id: 'f', kind: 'cookie', x: 11, y: 4, crumbs: 99 }], startSugar: 300, scent: 30 });
+    const open = createSim(level, { random: mulberry32(5) });
+    line(open, 4, 2, 11);
+    for (let i = 0; i < 4; i++) { playCard(open, 'worker'); run(open, 0.5); }
+    run(open, 12);
+    expect(open.stats.lost).toBeGreaterThan(0);
+    const dug = createSim(level, { random: mulberry32(5) });
+    for (let x = 2; x <= 9; x++) dug.terrain[idx(x, 4)] = 'tunnel';
+    line(dug, 4, 2, 11);
+    for (let i = 0; i < 4; i++) { playCard(dug, 'worker'); run(dug, 0.5); }
+    run(dug, 12);
+    expect(dug.stats.lost).toBeLessThan(open.stats.lost);
+  });
+});
+
 describe('ant-raid layout', () => {
   it('maps cells to the screen and back in landscape and in rotated portrait', () => {
     for (const [w, h] of [[1000, 600], [400, 800]]) {

@@ -168,6 +168,8 @@ export type Ant = {
   slot: number;
   /** Seconds of heat on a sunbeam. */
   heat: number;
+  /** Seconds spent on sliding sand beside an antlion pit. */
+  slip: number;
   alive: boolean;
 };
 

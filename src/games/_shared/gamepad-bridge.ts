@@ -50,7 +50,7 @@ const GAME_LABELS: Record<string, Record<string, Label>> = {
   ashfall: { ...JUMP, j: ['Slash', '斩击'], k: ['Shotgun', '霰弹枪'], l: ['Roll', '翻滚'], r: ['Reload', '换弹'], p: ['Pause', '暂停'] },
   'pelican-bike': { ...JUMP, Shift: ['Sprint', '冲刺加速'] },
   'midnight-kitchen': { ' ': ['Place / confirm', '放置 / 确认'], Escape: ['Back', '返回'], u: ['Upgrade', '升级'], x: ['Spatula', '锅铲'], q: ['Previous card', '上一张牌'], e: ['Next card', '下一张牌'], f: ['Speed', '加速'] },
-  'ant-raid': { ' ': ['Lay trail / confirm (hold to draw)', '铺路 / 确认（按住连画）'], x: ['Cut trail', '剪断路线'], s: ['Scatter', '散开'], r: ['Rally', '集结'], h: ['Recall', '召回'], q: ['Previous caste', '上一个兵种'], e: ['Next caste', '下一个兵种'], Enter: ['Hatch / play caste', '孵化 / 派出'], t: ['Food priority', '食物优先'], f: ['Speed', '加速'] }
+  'ant-raid': { ' ': ['Lay trail / confirm (hold to draw)', '铺路 / 确认（按住连画）'], x: ['Cut trail / back', '剪断路线 / 返回'], s: ['Scatter', '散开'], r: ['Rally', '集结'], h: ['Recall', '召回'], q: ['Previous caste', '上一个兵种'], e: ['Next caste', '下一个兵种'], Enter: ['Hatch / play caste', '孵化 / 派出'], t: ['Food priority', '食物优先'], f: ['Speed', '加速'] }
 };
 export type GameAction = { key: string; label: Label };
 /** Everything a game can be told to do, whether or not a player has left it bound. */

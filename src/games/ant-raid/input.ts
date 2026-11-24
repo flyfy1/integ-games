@@ -60,7 +60,8 @@ export function attachInput(deps: InputDeps): () => void {
     if (key === 'Enter') { event.preventDefault(); if (!event.repeat) session.playSelected(); return; }
     if (/^[1-9]$/.test(key)) { const card = session.sim.cards[Number(key) - 1]; if (card) { event.preventDefault(); session.pressCard(card.caste); } return; }
     if (key === 'q' || key === 'e') { event.preventDefault(); session.cycleCard(key === 'e' ? 1 : -1); return; }
-    if (key === 'x') { event.preventDefault(); session.eraseAtCursor(); return; }
+    // X backs out of a held card first (so a pad's east button is also its back button), then cuts at the cursor.
+    if (key === 'x') { event.preventDefault(); if (!session.view.card || !session.cancel()) session.eraseAtCursor(); return; }
     if (key === 't' || key === 'Tab') { event.preventDefault(); session.priorityAtCursor(); return; }
     if (QUEEN[key]) { event.preventDefault(); if (!event.repeat) session.queen(QUEEN[key]); return; }
     if (key === 'f') { event.preventDefault(); if (!event.repeat) deps.toggleSpeed(); return; }

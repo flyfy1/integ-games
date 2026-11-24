@@ -49,7 +49,7 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
   sunDot.setAttribute('r', '6'); sunDot.setAttribute('stroke', '#2b1d14'); sunDot.setAttribute('stroke-width', '2');
   sunSvg.append(sunDot);
   const sun = h('div', { class: 'ar-sun', title: t('hud.sun'), role: 'img', 'aria-label': t('hud.sun') }, sunSvg);
-  const speed = h('button', { class: 'ar-icon', 'aria-label': t('hud.speed'), 'aria-pressed': String(session.speed === 2), onclick: () => { actions.toggleSpeed(); speed.setAttribute('aria-pressed', String(session.speed === 2)); speed.textContent = session.speed === 2 ? '»' : '›'; } }, session.speed === 2 ? '»' : '›');
+  const speed = h('button', { class: 'ar-icon', 'data-ui': 'speed', 'aria-label': t('hud.speed'), 'aria-pressed': String(session.speed === 2), onclick: () => { actions.toggleSpeed(); speed.setAttribute('aria-pressed', String(session.speed === 2)); speed.textContent = session.speed === 2 ? '»' : '›'; } }, session.speed === 2 ? '»' : '›');
   const pause = h('button', { class: 'ar-icon', 'aria-label': t('hud.pause'), onclick: () => actions.pause() }, 'II');
   const top = h('div', { class: 'ar-top' }, sugar, scent, goal, alarm, hearts, sun, speed, pause);
 
@@ -58,9 +58,9 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
   const hand = h('div', { class: 'ar-hand', role: 'toolbar', 'aria-label': 'cards' });
   sim.cards.forEach((card, i) => {
     const def = CASTES[card.caste];
-    const cd = h('i', { class: 'cd' }), stock = h('span', { class: 'stock', hidden: true }, ''), cost = h('span', { class: 'cost' }, String(def.cost));
+    const cd = h('i', { class: 'cd' }), stock = h('span', { class: 'stock', hidden: true }, ''), cost = h('span', null, String(def.cost));
     const el = h('button', { class: 'ar-card', 'data-card': card.caste, 'aria-label': `${i18n.tr(def.name)} ${def.cost}`, title: i18n.tr(def.blurb) },
-      h('span', { class: 'key' }, String(i + 1)), stock, casteIcon(card.caste, 40), h('b', null, i18n.tr(def.name) + (def.brood > 1 ? ` ×${def.brood}` : '')), cost, cd) as HTMLButtonElement;
+      h('span', { class: 'key' }, String(i + 1)), stock, casteIcon(card.caste, 40), h('b', null, i18n.tr(def.name)), h('span', { class: 'cost' }, cost, def.brood > 1 ? h('small', null, ` ×${def.brood}`) : ''), cd) as HTMLButtonElement;
     let hold: ReturnType<typeof setTimeout> | null = null;
     el.addEventListener('click', () => { session.pressCard(card.caste); ctx.audio.sfx('select'); });
     el.addEventListener('pointerdown', () => {
@@ -107,6 +107,8 @@ export function createHud(ctx: Ctx, session: Session, actions: { pause(): void; 
   }
 
   const toast = (message: string, kind: 'bad' | 'good' | '' = '') => {
+    const same = [...toasts.children].find(child => child.textContent === message);
+    if (same) same.remove();
     if (toasts.childElementCount > 2) toasts.firstElementChild?.remove();
     const el = h('div', { class: `ar-toast ${kind}` }, message);
     toasts.append(el);

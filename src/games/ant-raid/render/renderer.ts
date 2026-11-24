@@ -131,20 +131,34 @@ export function createRenderer(reduced: boolean): Renderer {
         g.beginPath(); g.moveTo(mx, my); g.arc(mx, my, cs * 0.44, 0.35, Math.PI * 2 - 0.1); g.closePath(); g.fill(); g.stroke();
       }
       if (t === 'chalk') {
-        g.strokeStyle = 'rgba(255,255,255,.92)'; g.lineWidth = cs * 0.2; g.lineCap = 'round';
-        g.setLineDash([cs * 0.18, cs * 0.12]);
+        // A dusty band: a pale wash with a few strokes, and a crisp line only along the band's outer edges.
         const chalk = (ax: number, ay: number) => ax >= 0 && ay >= 0 && ax < COLS && ay < ROWS && terrain(ax, ay) === 'chalk';
+        g.fillStyle = 'rgba(250,250,244,.62)'; g.fillRect(px, py, cs, cs);
+        g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = Math.max(1, cs * 0.05); g.lineCap = 'round';
+        for (let k = 0; k < 3; k++) { const sx = px + r() * cs, sy = py + r() * cs; g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx + (r() - 0.5) * cs * 0.6, sy + (r() - 0.5) * cs * 0.3); g.stroke(); }
+        g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = Math.max(1.5, cs * 0.07);
         g.beginPath();
-        let any = false;
-        for (const [dx, dy] of [[1, 0], [0, 1]]) if (chalk(x + dx, y + dy)) { g.moveTo(mx, my); g.lineTo(mx + dx * cs, my + dy * cs); any = true; }
-        if (!any) { g.moveTo(mx - cs * 0.3, my); g.lineTo(mx + cs * 0.3, my); }
-        g.stroke(); g.setLineDash([]);
+        if (!chalk(x, y - 1)) { g.moveTo(px, py); g.lineTo(px + cs, py); }
+        if (!chalk(x, y + 1)) { g.moveTo(px, py + cs); g.lineTo(px + cs, py + cs); }
+        if (!chalk(x - 1, y)) { g.moveTo(px, py); g.lineTo(px, py + cs); }
+        if (!chalk(x + 1, y)) { g.moveTo(px + cs, py); g.lineTo(px + cs, py + cs); }
+        g.stroke();
       }
       if (t === 'tape') {
         g.fillStyle = 'rgba(255,214,60,.82)'; g.fillRect(px + cs * 0.06, py + cs * 0.06, cs * 0.88, cs * 0.88);
         g.strokeStyle = 'rgba(180,130,20,.6)'; g.lineWidth = Math.max(1, cs * 0.04);
         for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(px + cs * 0.1, py + cs * (0.2 + k * 0.2)); g.lineTo(px + cs * 0.9, py + cs * (0.2 + k * 0.2)); g.stroke(); }
         g.fillStyle = 'rgba(255,255,255,.4)'; g.fillRect(px + cs * 0.12, py + cs * 0.12, cs * 0.3, cs * 0.08);
+      }
+      if (t === 'sand') {
+        // Sliding sand beside an antlion pit: ripples curving toward the hole.
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if ((dx || dy) && x + dx >= 0 && y + dy >= 0 && x + dx < COLS && y + dy < ROWS && terrain(x + dx, y + dy) === 'pit') {
+            g.strokeStyle = 'rgba(120,80,30,.4)'; g.lineWidth = Math.max(1, cs * 0.04);
+            const ax = mx + dx * cs, ay = my + dy * cs, base = Math.atan2(-dy, -dx);
+            for (const rad of [0.75, 0.95]) { g.beginPath(); g.arc(ax, ay, cs * rad, base - 0.35, base + 0.35); g.stroke(); }
+          }
+        }
       }
       if (t === 'pit') {
         const grad = g.createRadialGradient(mx, my, cs * 0.02, mx, my, cs * 0.55);
@@ -238,8 +252,11 @@ export function createRenderer(reduced: boolean): Renderer {
       }
       case 'sprinkler': {
         if (h.cells.length && (h.phase === 1 || warns.has(`sprinkler:${h.id}`))) {
-          ctx.fillStyle = h.phase === 1 ? 'rgba(120,190,255,.18)' : `rgba(120,190,255,${0.12 + Math.abs(Math.sin(t * 8)) * 0.12})`;
-          for (const c of h.cells) ctx.fillRect(cx(c) * cs, cy(c) * cs, cs, cs);
+          // The reach as a soft wedge: readable at a glance, unlike a staircase of cells.
+          const rr = (num('r', 3.5) + 0.5) * cs;
+          ctx.fillStyle = h.phase === 1 ? 'rgba(90,170,255,.16)' : `rgba(90,170,255,${0.1 + Math.abs(Math.sin(t * 8)) * 0.12})`;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, rr, num('a0', -Math.PI / 2), num('a1', Math.PI / 2)); ctx.closePath(); ctx.fill();
+          ctx.setLineDash([cs * 0.12, cs * 0.12]); ctx.strokeStyle = 'rgba(200,235,255,.7)'; ctx.lineWidth = Math.max(1, cs * 0.04); ctx.stroke(); ctx.setLineDash([]);
         }
         drawSprinkler(ctx, x, y, cs * 0.6, h.phase === 1 ? h.angle : num('a0', 0), h.phase === 1, t);
         if (h.phase === 1) {

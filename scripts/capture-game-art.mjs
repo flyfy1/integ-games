@@ -24,7 +24,7 @@ if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game sl
 
 const framing = {
   'merge-2048': { fit: 'contain', position: 'center center' },
-  'midnight-kitchen': { iconPosition: '2% center' }, 'ant-raid': { position: 'center center', iconPosition: '62% 40%' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
+  'midnight-kitchen': { iconPosition: '2% center' }, 'ant-raid': { position: 'center center', iconPosition: '64% center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
@@ -93,7 +93,7 @@ const safeInteraction = {
       for (let i = 0; i < 150; i += 1) S.step(sim);
       S.drainEvents(sim);
     }, root);
-    await page.addStyleTag({ content: '.ar-coach,.ar-toasts,.ar-deny{display:none!important}' });
+    await page.addStyleTag({ content: '.ar-hud{display:none!important}' });
     await page.waitForTimeout(900);
   },
   'pelican-bike': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(2600); await page.keyboard.down('ArrowRight'); await page.waitForTimeout(2300); await page.keyboard.press('Space'); await page.waitForTimeout(260); await page.keyboard.up('ArrowRight'); },
@@ -207,8 +207,8 @@ try {
     await writeComposite(composer, source, coverPath, 640, 360, frame);
     // Fruit Orbit's falling subject occupies a narrow part of a tall board; its
     // cover keeps both fruits legible, so it is the most recognisable icon crop.
-    const iconSource = (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? await readFile(coverPath) : source;
-    await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen') ? 'image/jpeg' : 'image/png' });
+    const iconSource = (slug === 'fruit-merge' || slug === 'midnight-kitchen' || slug === 'ant-raid') ? await readFile(coverPath) : source;
+    await writeComposite(composer, iconSource, path.join(outputDir, `${slug}-icon.jpg`), 96, 96, { icon: true, position: slug === 'fruit-merge' ? 'center center' : frame.iconPosition ?? frame.position, mime: (slug === 'fruit-merge' || slug === 'midnight-kitchen' || slug === 'ant-raid') ? 'image/jpeg' : 'image/png' });
     console.log(`Captured ${slug}`);
   }
   await verify();

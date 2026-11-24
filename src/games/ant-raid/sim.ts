@@ -261,7 +261,7 @@ export function toggleBridge(sim: Sim, cell: number): ActionResult {
 // ------------------------------------------------------------------ ants
 function spawnAnt(sim: Sim, caste: CasteId, post: number, fixed = false): Ant {
   const x = cx(sim.nest), y = cy(sim.nest);
-  const ant: Ant = { id: sim.nextAntId++, caste, x, y, at: sim.nest, to: sim.nest, state: 'idle', job: -1, goal: -1, load: 0, hp: caste === 'soldier' ? 20 : 4, work: 0, lostT: 0, dir: 0, post: -1, slot: 0, heat: 0, alive: true };
+  const ant: Ant = { id: sim.nextAntId++, caste, x, y, at: sim.nest, to: sim.nest, state: 'idle', job: -1, goal: -1, load: 0, hp: caste === 'soldier' ? 20 : 4, work: 0, lostT: 0, dir: 0, post: -1, slot: 0, heat: 0, slip: 0, alive: true };
   sim.ants.push(ant);
   if (!fixed) sim.stats.hatched++;
   if (CASTES[caste].kind === 'post' && post >= 0) {
@@ -641,8 +641,9 @@ function checkEnd(sim: Sim): void {
     else if (sim.time >= sim.sundown) { if (sim.crumbs >= goal.n) won = true; else lost = true; }
   }
   if (!won && sim.time >= sim.sundown) lost = true;
-  // A colony that can no longer act has lost early (no ants out, nothing hatching, no sugar for a brood).
-  if (!won && !lost && sim.time > 3) {
+  // A colony that can no longer act has lost early (no ants out, nothing hatching, no sugar for a brood, and no
+  // trickle to wait for). With a trickle the player can always wait for the next brood, so it never ends early.
+  if (!won && !lost && sim.time > 3 && (sim.level.fixedAnts || (sim.level.trickle ?? 1) <= 0)) {
     const alive = sim.ants.some(a => a.alive && CASTES[a.caste].kind === 'stream');
     const canHatch = !sim.level.fixedAnts && sim.cards.some(card => CASTES[card.caste].kind === 'stream' && (sim.sugar >= CASTES[card.caste].cost || card.stock > 0));
     const pending = sim.queue.length > 0 || sim.stores.some(s => s.crumbs > 0);
@@ -651,6 +652,31 @@ function checkEnd(sim: Sim): void {
   if (won || lost) {
     sim.status = sim.endless ? 'lost' : won ? 'won' : 'lost';
     emit(sim, { type: 'end', won: !!won && !sim.endless });
+  }
+}
+
+/** Sand beside an antlion pit slides: an ant that lingers on it for more than a second is pulled in. Tunnels are safe. */
+export const SLIP_TIME = 1.1;
+export function slideCells(sim: Sim): Uint8Array {
+  const out = new Uint8Array(CELLS);
+  for (let c = 0; c < CELLS; c++) {
+    if (sim.terrain[c] !== 'pit') continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = cx(c) + dx, y = cy(c) + dy;
+      if (inside(x, y) && sim.terrain[idx(x, y)] === 'sand') out[idx(x, y)] = 1;
+    }
+  }
+  return out;
+}
+function stepPits(sim: Sim, dt: number): void {
+  if (!sim.terrain.includes('pit')) return;
+  const slide = slideCells(sim);
+  for (const ant of sim.ants) {
+    if (!ant.alive || ant.state === 'idle' || ant.state === 'fly') continue;
+    if (slide[cellAt(ant.x, ant.y)]) {
+      ant.slip += dt;
+      if (ant.slip > SLIP_TIME) { killAnt(sim, ant, 'pit'); emit(sim, { type: 'strike', kind: 'pit', cells: [], x: ant.x, y: ant.y, hits: 1 }); }
+    } else ant.slip = Math.max(0, ant.slip - dt);
   }
 }
 
@@ -685,6 +711,7 @@ export function step(sim: Sim): void {
     if (h.active) HANDLERS[h.kind].step(sim, h, dt);
   }
   for (const ant of sim.ants) if (ant.alive) stepAnt(sim, ant, dt);
+  stepPits(sim, dt);
   stepItems(sim, dt);
   stepRivals(sim, dt);
   stepStores(sim, dt);

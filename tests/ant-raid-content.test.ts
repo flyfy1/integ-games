@@ -12,10 +12,15 @@ import { COLS, ROWS } from '../src/games/ant-raid/types';
  */
 const SEEDS = [1, 2, 3];
 const MARGIN = 0.12;
+/** Raised as each chapter lands; never lowered. */
+const SHIPPED_CHAPTERS = 3;
 
 describe('ant-raid levels are well formed', () => {
-  it('has every chapter level defined, bilingual and on a 16 x 9 yard', () => {
-    for (const chapter of CHAPTERS) for (const id of chapter.levels) if (LEVELS.some(l => l.id === id)) expect(LEVEL_LIST.some(l => l.id === id)).toBe(true);
+  it('ships whole chapters, bilingual and on a 16 x 9 yard', () => {
+    const shipped = CHAPTERS.filter(chapter => chapter.levels.some(id => LEVELS.some(l => l.id === id)));
+    expect(shipped.length).toBeGreaterThanOrEqual(SHIPPED_CHAPTERS);
+    for (const chapter of shipped) for (const id of chapter.levels) expect(LEVEL_LIST.some(l => l.id === id), `${id} missing`).toBe(true);
+    expect(LEVEL_LIST).toHaveLength(shipped.length * 5);
     for (const level of LEVEL_LIST) {
       expect(level.grid).toHaveLength(ROWS);
       for (const row of level.grid) expect(row).toHaveLength(COLS);

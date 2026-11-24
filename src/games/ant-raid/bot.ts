@@ -126,12 +126,12 @@ function neighbourPit(sim: Sim, k: number): boolean {
 }
 
 /** Cheapest new trail from the existing tree to `target` (cells to paint, in order), or null. */
-export function planPath(sim: Sim, target: number, danger = dangerMap(sim)): number[] | null {
+export function planPath(sim: Sim, target: number, danger = dangerMap(sim), dig = false): number[] | null {
   const cost = new Float32Array(CELLS).fill(Infinity), prev = new Int16Array(CELLS).fill(-1), steps = new Int16Array(CELLS);
   const open: number[] = [];
   for (let k = 0; k < CELLS; k++) if (isTrail(sim, k)) { cost[k] = 0; open.push(k); }
   const blocked = blockedCells(sim);
-  const ok = (k: number) => (PAINTABLE.has(sim.terrain[k]) || (sim.terrain[k] === 'water' && sim.bridge[k] >= 3)) && !blocked.has(k) && (!sim.level.night || sim.seen[k] > 0);
+  const ok = (k: number) => (PAINTABLE.has(sim.terrain[k]) || (sim.terrain[k] === 'water' && sim.bridge[k] >= 3) || (dig && sim.terrain[k] === 'chalk')) && !blocked.has(k) && (!sim.level.night || sim.seen[k] > 0);
   while (open.length) {
     let bi = 0;
     for (let i = 1; i < open.length; i++) if (cost[open[i]] < cost[open[bi]]) bi = i;
@@ -142,7 +142,7 @@ export function planPath(sim: Sim, target: number, danger = dangerMap(sim)): num
       if (!inside(x, y)) continue;
       const n = idx(x, y);
       if (isTrail(sim, n) || !ok(n)) continue;
-      const nc = cost[k] + 1 + danger[n];
+      const nc = cost[k] + 1 + (dig && diggable(sim, n) ? 3 : danger[n]);
       if (nc < cost[n]) { cost[n] = nc; prev[n] = k; steps[n] = steps[k] + 1; open.push(n); }
     }
   }
@@ -187,9 +187,11 @@ function botTurn(sim: Sim, _rand: () => number): void {
   for (const food of wanted) {
     if (!food.lift && budgetPiles <= 0) continue;
     if (food.lift && food !== goalItem && goal.kind === 'item') continue;
-    const path = planPath(sim, foodCell(food), danger);
+    if (digToward(sim, foodCell(food))) continue;
+    let path = planPath(sim, foodCell(food), danger);
     if (!path) { tryDig(sim, food.x, food.y); continue; }
-    if (path.length > sim.scent) { pruneEmpty(sim); continue; }
+    if (path.length > sim.scent) path = planPath(sim, foodCell(food), new Float32Array(CELLS));
+    if (!path || path.length > sim.scent) { pruneEmpty(sim); continue; }
     let prev = -1;
     for (const k of path) { if (!paint(sim, k, prev).ok) break; prev = k; }
     if (!food.lift) budgetPiles--;
@@ -205,6 +207,18 @@ function botTurn(sim: Sim, _rand: () => number): void {
     for (let k = 0; k < CELLS; k++) if (isTrail(sim, k) && k !== sim.nest) { const d = dist(cx(k), cy(k), h.x, h.y); if (d < bd) { bd = d; best = k; } }
     if (best >= 0) playCard(sim, 'soldier', best);
   }
+  // 3b. Under a mower: tunnel the sand stretches of the trail before building up the colony.
+  let tunnelling = false;
+  if (hasCardOf(sim, 'digger') && sim.hazards.some(h => h.active && h.kind === 'mower')) {
+    const open = [];
+    for (let k = 0; k < CELLS; k++) if (isTrail(sim, k) && sim.terrain[k] === 'sand' && sim.dug[k] === 0) open.push(k);
+    if (open.length) {
+      tunnelling = sim.time < 40;
+      const busy = sim.ants.filter(a => a.alive && a.caste === 'digger' && a.post >= 0).map(a => a.post);
+      const target = open.filter(k => !busy.includes(k) && !busy.some(b => Math.abs(b - k) === 1)).sort((a, b) => depthOf(sim, a) - depthOf(sim, b))[0];
+      if (target !== undefined && canPlay(sim, 'digger', target).ok) playCard(sim, 'digger', target);
+    }
+  }
   // 4. Hatching: porters for a big item, a few leafcutters under sunbeams or sprinklers, workers for the rest.
   const big = sim.foods.find(f => f.lift && !f.home && isTrail(sim, f.at) && f.priority > 0);
   const hasCard = (caste: CasteId) => sim.cards.some(card => card.caste === caste);
@@ -215,7 +229,33 @@ function botTurn(sim: Sim, _rand: () => number): void {
   const workers = liveAnts(sim, 'worker');
   if (hasCard('leafcutter') && sim.hazards.some(h => h.active && (h.kind === 'sunbeam' || h.kind === 'sprinkler')) && liveAnts(sim, 'leafcutter') < Math.min(5, 1 + workers / 6)) playCard(sim, 'leafcutter');
   const demand = connectedPiles.reduce((s, f) => s + Math.min(f.left, 6 + depthOf(sim, foodCell(f)) * 1.1), 0) + (big ? big.lift! : 0);
+  if (tunnelling && (workers >= 3 || sim.sugar < CASTES.digger.cost + CASTES.worker.cost)) return;
   if (workers + sim.queue.length < Math.min(sim.cap - 10, demand + 3)) playCard(sim, 'worker');
+}
+
+const hasCardOf = (sim: Sim, caste: CasteId) => sim.cards.some(card => card.caste === caste);
+
+/** Cells a Digger should turn into tunnel: chalk, and sand that slides into an antlion pit. */
+function diggable(sim: Sim, k: number): boolean {
+  return sim.terrain[k] === 'chalk' || (sim.terrain[k] === 'sand' && neighbourPit(sim, k));
+}
+
+/**
+ * With a Digger in hand: plan through chalk and sliding sand, paint up to the first such cell and send a Digger
+ * there. Returns true when it acted (or is waiting on a Digger already at work).
+ */
+function digToward(sim: Sim, target: number): boolean {
+  if (!sim.cards.some(card => card.caste === 'digger')) return false;
+  const path = planPath(sim, target, dangerMap(sim), true);
+  if (!path) return false;
+  const first = path.findIndex(k => diggable(sim, k));
+  if (first < 0) return false;
+  let prev = -1;
+  for (let i = 0; i < first; i++) { if (!paint(sim, path[i], prev).ok) return true; prev = path[i]; }
+  if (sim.ants.some(a => a.alive && a.caste === 'digger' && a.post >= 0)) return true;
+  if (sim.queue.some(q => q.caste === 'digger')) return true;
+  if (canPlay(sim, 'digger', path[first]).ok) playCard(sim, 'digger', path[first]);
+  return true;
 }
 
 /** Digger toward a food the trail cannot reach (chalk ring, sand). */

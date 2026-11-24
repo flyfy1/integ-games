@@ -110,10 +110,11 @@ export const STYLES = `
 .ar-bottom{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:center;gap:6px;padding:6px 8px 8px;pointer-events:none}
 .ar-bottom>*{pointer-events:auto}
 .ar-hand{display:flex;gap:5px;padding:5px;border-radius:16px;background:rgba(25,40,20,.75);border:2px solid rgba(255,246,227,.2);overflow-x:auto;scrollbar-width:none;max-width:100%}
-.ar-card{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;width:62px;min-width:62px;height:72px;padding:2px 2px 4px;border-radius:12px;border:3px solid var(--ink);background:linear-gradient(var(--paper),var(--paper2));color:var(--ink);box-shadow:0 3px 0 var(--ink);overflow:hidden}
-.ar-card canvas{width:40px;height:36px;margin-bottom:auto}
-.ar-card b{font-size:12px;font-weight:900;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ar-card .cost{font-size:13px;font-weight:900;color:var(--red2)}
+.ar-card{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;width:68px;min-width:68px;height:78px;padding:2px 2px 3px;border-radius:12px;border:3px solid var(--ink);background:linear-gradient(var(--paper),var(--paper2));color:var(--ink);box-shadow:0 3px 0 var(--ink);overflow:hidden}
+.ar-card canvas{width:38px;height:34px;margin:6px 0 auto;flex:none}
+.ar-card b{font-size:11.5px;font-weight:900;line-height:1.1;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ar-card .cost{font-size:13px;font-weight:900;line-height:1.1;color:var(--red2)}
+.ar-card .cost small{font-size:10px;color:var(--ink);opacity:.7}
 .ar-card .key{position:absolute;left:4px;top:2px;font-size:11px;font-weight:900;opacity:.55}
 .ar-card .stock{position:absolute;right:3px;top:3px;min-width:18px;padding:0 4px;border-radius:9px;background:var(--good);border:2px solid var(--ink);font-size:11px;font-weight:900}
 .ar-card .cd{position:absolute;inset:0;background:rgba(43,29,20,.45);transform-origin:bottom;pointer-events:none}
@@ -170,7 +171,7 @@ export const STYLES = `
 
 /* compact / phones */
 .ar.compact .ar-card{width:58px;min-width:58px;height:68px}
-.ar.compact .ar-card canvas{width:32px;height:28px}
+.ar.compact .ar-card canvas{width:30px;height:26px;margin-top:4px}
 .ar.compact .ar-card b{font-size:11px}
 .ar.compact .ar-queen{width:54px;height:50px;font-size:10px}
 .ar.compact .ar-queen .glyph{font-size:17px}

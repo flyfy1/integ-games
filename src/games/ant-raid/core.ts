@@ -165,7 +165,8 @@ export function assignJob(sim: Sim, ant: Ant): boolean {
     else if (!foodReachable(sim, food)) continue;
     if (wantsBig && !food.lift) continue;
     const weight = food.priority === 2 ? 3 : 1;
-    const share = food.lift ? food.claims / Math.max(1, food.lift) * 4 : food.claims;
+    // A starred item that is nearly lifted comes first: its carriers are standing idle until the lift is full.
+    const share = food.lift ? (food.priority === 2 && food.claims > 0 && foodNeed(food) <= 4 ? -0.9 * weight : food.claims / Math.max(1, food.lift) * 4) : food.claims;
     const score = (share + 1) / weight + (flyer ? dist(cx(ant.at), cy(ant.at), food.x, food.y) * 0.01 : depthOf(sim, foodCell(food)) * 0.001);
     if (score < bestScore) { bestScore = score; best = food; }
   }
@@ -174,6 +175,8 @@ export function assignJob(sim: Sim, ant: Ant): boolean {
   best.claims += best.lift ? caste.power : caste.bite;
   ant.goal = flyer ? idx(best.x, best.y) : foodCell(best);
   ant.state = flyer ? 'fly' : 'out';
+  // The nest rest timer shares `work` with a flyer's bite timer: start the flight clean.
+  if (flyer) ant.work = 0;
   return true;
 }
 

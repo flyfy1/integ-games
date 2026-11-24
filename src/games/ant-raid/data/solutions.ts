@@ -27,11 +27,9 @@ export const SOLUTIONS: Record<string, Script> = {
     { t: 2, keep: 'worker', ants: 18 }
   ] },
   '1-4': { loadout: ['worker', 'porter', 'soldier'], ops: [
-    { t: 0, paint: path(col(1, 5, 8), row(8, 2, 8)) },
-    { t: 0, keep: 'worker', ants: 12 },
-    { t: 0, react: 'scatter-shoe' },
-    { t: 10, paint: row(4, 2, 14) },
-    { t: 10, keep: 'worker', ants: 24 }
+    { t: 0, paint: row(4, 2, 10) },
+    { t: 0, keep: 'worker', ants: 24 },
+    { t: 0, react: 'scatter-shoe' }
   ] },
   '1-5': { loadout: ['worker', 'porter', 'soldier'], ops: [
     { t: 0, paint: path(col(1, 5, 8), row(8, 2, 3)) },
@@ -42,5 +40,80 @@ export const SOLUTIONS: Record<string, Script> = {
     { t: 14, keep: 'porter', ants: 2 },
     { t: 14, keep: 'worker', ants: 26 },
     { t: 14, react: 'rally-nap' }
+  ] },
+  '2-1': { ops: [
+    { t: 0, paint: path(col(1, 3, 0), row(0, 2, 14), col(14, 1, 4)) },
+    { t: 0, keep: 'worker', ants: 18 },
+    { t: 10, keep: 'porter', ants: 2 }
+  ] },
+  '2-2': { ops: [
+    { t: 0, paint: path(row(4, 2, 7), col(5, 5, 7)) },
+    { t: 0, play: 'digger', at: [8, 4] },
+    { t: 0.5, keep: 'worker', ants: 9 },
+    { t: 4, paint: path(row(4, 2, 11)), keep: true },
+    { t: 4, priority: 'cube', level: 2 },
+    { t: 4, keep: 'porter', ants: 2 }
+  ] },
+  '2-3': { ops: [
+    { t: 0, paint: row(4, 2, 14) },
+    { t: 0, keep: 'leafcutter', ants: 4 },
+    { t: 1, keep: 'worker', ants: 15 }
+  ] },
+  '2-4': { ops: [
+    { t: 0, paint: path(col(1, 3, 2), row(2, 2, 5)) },
+    { t: 0, play: 'digger', at: [6, 2] },
+    { t: 3, paint: path(col(1, 3, 2), row(2, 2, 7)), keep: true },
+    { t: 9, play: 'digger', at: [8, 2] },
+    { t: 9, paint: path(col(1, 3, 2), row(2, 2, 14), col(14, 3, 4)), keep: true }
+  ] },
+  '2-5': { loadout: ['worker', 'porter', 'digger', 'leafcutter', 'soldier'], ops: [
+    { t: 0, paint: path(row(4, 2, 13), col(13, 3, 1), row(1, 14, 14)), keep: true },
+    ...[2, 4, 6, 8, 10].map((x, i) => ({ t: i * 4.1, play: 'digger' as const, at: [x, 4] as Cell })),
+    { t: 0, keep: 'worker', ants: 3, until: 25 },
+    { t: 25, keep: 'worker', ants: 25 },
+    { t: 40, paint: path(row(4, 2, 12), col(12, 5, 7), row(7, 13, 14)), keep: true }
+  ] },
+  '3-1': { ops: [
+    { t: 0, paint: row(4, 2, 4) },
+    { t: 0, play: 'bridger', at: [5, 4] },
+    { t: 0.5, paint: row(4, 2, 14), keep: true },
+    { t: 1, keep: 'worker', ants: 15, reserve: 45, until: 12 },
+    { t: 12, play: 'bridger', at: [10, 4] },
+    { t: 12.5, keep: 'worker', ants: 15 }
+  ] },
+  '3-2': { ops: [
+    { t: 0, paint: row(4, 2, 14) },
+    { t: 0, play: 'spitter', at: [7, 4] },
+    { t: 5, keep: 'worker', ants: 15 }
+  ] },
+  '3-3': { ops: [
+    { t: 0, paint: path(col(1, 5, 7), row(7, 2, 14), col(14, 6, 4)) },
+    { t: 0, keep: 'flyer', ants: 4 },
+    { t: 0, keep: 'worker', ants: 15 }
+  ] },
+  '3-4': { loadout: ['worker', 'porter', 'bridger'], ops: [
+    { t: 0, paint: path(col(1, 5, 7), row(7, 2, 4)) },
+    { t: 0, keep: 'worker', ants: 6, until: 12 },
+    { t: 4, paint: row(4, 2, 6) },
+    { t: 4, play: 'bridger', at: [7, 4] },
+    { t: 5, paint: row(4, 2, 7), keep: true },
+    { t: 14, play: 'bridger', at: [8, 4] },
+    { t: 11, paint: row(4, 2, 13), keep: true },
+    { t: 14, priority: 'melon', level: 2 },
+    { t: 14, keep: 'porter', ants: 6 },
+    { t: 14, keep: 'worker', ants: 16 }
+  ] },
+  '3-5': { loadout: ['worker', 'porter', 'bridger'], ops: [
+    { t: 0, paint: path(col(1, 5, 7), row(7, 2, 3)) },
+    { t: 0, keep: 'worker', ants: 9 },
+    { t: 0, react: 'lift-dive' },
+    { t: 5, paint: row(4, 2, 4) },
+    { t: 5, play: 'bridger', at: [5, 4] },
+    { t: 9, paint: row(4, 2, 9), keep: true },
+    { t: 12, play: 'bridger', at: [10, 4] },
+    { t: 12, paint: path(row(4, 2, 13), col(13, 3, 1), row(1, 14, 14)), keep: true },
+    { t: 14, priority: 'biscuit', level: 2 },
+    { t: 14, keep: 'porter', ants: 3 },
+    { t: 14, keep: 'worker', ants: 16 }
   ] }
 };
