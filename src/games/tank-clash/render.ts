@@ -7,13 +7,15 @@ import {
   ARENA_Y,
   CHASSIS_SPECS,
   COLS,
+  COOP_STAGE_COUNT,
+  DUEL_ARENA_COUNT,
   HEIGHT,
   POWERUP_INFO,
   ROWS,
   TILE,
   WIDTH
 } from './maps';
-import type { ChassisId, GameMode, Tank, TeamSetup } from './types';
+import type { ChassisId, Difficulty, GameMode, Tank, TeamSetup } from './types';
 
 /**
  * Two HUD arrangements share one arena renderer:
@@ -745,8 +747,8 @@ function drawPlayerSidebar(
 
 function stageTitle(state: ArenaState, lang: Lang): string {
   return state.mode === 'coop'
-    ? t(lang, `stage.coop.${state.stageIndex % 6}` as Key)
-    : t(lang, `stage.duel.${state.stageIndex % 5}` as Key);
+    ? t(lang, `stage.coop.${state.stageIndex % COOP_STAGE_COUNT}` as Key)
+    : t(lang, `stage.duel.${state.stageIndex % DUEL_ARENA_COUNT}` as Key);
 }
 
 function baseStatus(state: ArenaState, lang: Lang, time: number): { text: string; color: string } {
@@ -756,7 +758,7 @@ function baseStatus(state: ArenaState, lang: Lang, time: number): { text: string
     return { text: t(lang, 'hud.baseFortified', { s: Math.ceil(state.baseFortifyTimer) }), color: '#38bdf8' };
   }
   const hp = baseHp(state);
-  return { text: t(lang, 'hud.baseOk', { hp }), color: hp <= 2 ? '#f87171' : '#70f0c2' };
+  return { text: t(lang, 'hud.baseOk', { hp, max: state.baseMaxHp }), color: hp <= 2 ? '#f87171' : '#70f0c2' };
 }
 
 function drawWideHud(g: CanvasRenderingContext2D, state: ArenaState, lang: Lang, time: number, opts: SceneOptions): void {
@@ -842,9 +844,11 @@ function drawArenaOverlays(g: CanvasRenderingContext2D, state: ArenaState, time:
     const hp = baseHp(state);
     const bx = 9 * TILE + 8;
     const by = 12 * TILE + TILE - 11;
-    for (let i = 0; i < 6; i++) {
+    const pips = state.baseMaxHp;
+    const pitch = 78 / pips;
+    for (let i = 0; i < pips; i++) {
       g.fillStyle = i < hp ? (hp <= 2 ? '#f87171' : '#fbbf24') : '#334155';
-      g.fillRect(bx + i * 13, by, 10, 5);
+      g.fillRect(bx + i * pitch, by, pitch - 3, 5);
     }
     const danger = state.baseFlash > 0 || hp <= 2;
     if (danger) {
@@ -959,6 +963,7 @@ export function drawArenaScene(
 export interface LobbyConfig {
   mode: GameMode;
   teamSetup: TeamSetup;
+  difficulty: Difficulty;
   stageIndex: number;
   p1Chassis: ChassisId;
   p2Chassis: ChassisId;

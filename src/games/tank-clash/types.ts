@@ -2,6 +2,9 @@ export type GameMode = 'coop' | 'duel';
 export type TeamSetup = '2p' | '1p-ai' | '1p-solo';
 export type ChassisId = 'vanguard' | 'phantom' | 'titan' | 'prism';
 export type Direction = 'up' | 'down' | 'left' | 'right';
+export type Difficulty = 'easy' | 'normal' | 'hard';
+/** Run-long field upgrades picked between co-op stages. */
+export type PerkId = 'reload' | 'armour' | 'mines' | 'bulwark' | 'dash' | 'shells' | 'life';
 
 export type TileKind =
   | 'empty'

@@ -7,6 +7,7 @@ import {
   cellCenter,
   CHASSIS_SPECS,
   COLS,
+  COOP_STAGE_COUNT,
   POWERUP_KINDS,
   ROWS,
   setBaseFortress,
@@ -15,6 +16,7 @@ import {
 import type {
   Bullet,
   ChassisId,
+  Difficulty,
   Direction,
   EnemyArchetype,
   FloatingText,
@@ -23,6 +25,7 @@ import type {
   Particle,
   PlayerControlInput,
   PowerUpItem,
+  PerkId,
   PowerUpKind,
   Shockwave,
   SpawnWarning,
@@ -31,7 +34,77 @@ import type {
   TileCell
 } from './types';
 
+export { COOP_STAGE_COUNT, DUEL_ARENA_COUNT } from './maps';
+
 export const DUEL_WIN_TARGET = 5;
+
+/**
+ * How hard the enemy army pushes. `normal` with an ally reproduces the original tuning exactly;
+ * a lone defender gets a smaller, slower army (the scorecard measured solo as near unwinnable).
+ */
+export interface CoopTuning {
+  /** Multiplies the number of regular tanks in a wave (bosses always come). */
+  waveScale: number;
+  /** Added to the number of enemies allowed on the field at once. */
+  concurrency: number;
+  /** Seconds added to the gap between arrivals. */
+  spawnGap: number;
+  /** Multiplies enemy reload time (bigger = slower fire). */
+  enemyReload: number;
+  /** Multiplies enemy speed. */
+  enemySpeed: number;
+  baseHp: number;
+  lives: number;
+}
+
+export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+
+export function coopTuning(difficulty: Difficulty, defenders: number): CoopTuning {
+  const solo = defenders < 2;
+  switch (difficulty) {
+    case 'easy':
+      return solo
+        ? { waveScale: 0.6, concurrency: -2, spawnGap: 0.6, enemyReload: 1.45, enemySpeed: 0.88, baseHp: 8, lives: 6 }
+        : { waveScale: 0.75, concurrency: -1, spawnGap: 0.4, enemyReload: 1.3, enemySpeed: 0.9, baseHp: 8, lives: 5 };
+    case 'hard':
+      return solo
+        ? { waveScale: 0.9, concurrency: 0, spawnGap: 0.1, enemyReload: 1.0, enemySpeed: 1.04, baseHp: 6, lives: 4 }
+        : { waveScale: 1.15, concurrency: 1, spawnGap: -0.15, enemyReload: 0.9, enemySpeed: 1.06, baseHp: 6, lives: 3 };
+    default:
+      return solo
+        ? { waveScale: 0.75, concurrency: -1, spawnGap: 0.35, enemyReload: 1.2, enemySpeed: 0.95, baseHp: 6, lives: 5 }
+        : { waveScale: 1, concurrency: 0, spawnGap: 0, enemyReload: 1, enemySpeed: 1, baseHp: 6, lives: 4 };
+  }
+}
+
+/** Thins (scale < 1) or thickens (scale > 1) a wave evenly; every boss still arrives exactly once. */
+export function scaleWave(wave: readonly EnemyArchetype[], scale: number): EnemyArchetype[] {
+  if (scale === 1) return [...wave];
+  const out: EnemyArchetype[] = [];
+  let acc = 0.5;
+  for (const kind of wave) {
+    if (isBossArchetype(kind)) {
+      out.push(kind);
+      continue;
+    }
+    acc += scale;
+    while (acc >= 1) {
+      out.push(kind);
+      acc -= 1;
+    }
+  }
+  return out;
+}
+
+export function isBossArchetype(kind: EnemyArchetype): boolean {
+  return kind.startsWith('boss-');
+}
+
+export const PERK_IDS: readonly PerkId[] = ['reload', 'armour', 'mines', 'bulwark', 'dash', 'shells', 'life'];
+/** How many times each perk can be taken in one run. */
+export const PERK_MAX: Record<PerkId, number> = { reload: 3, armour: 3, mines: 2, bulwark: 2, dash: 2, shells: 2, life: 2 };
+export type PerkSet = Partial<Record<PerkId, number>>;
+const perkLevel = (perks: PerkSet | undefined, id: PerkId) => Math.min(PERK_MAX[id], perks?.[id] ?? 0);
 
 export type SoundCue =
   | 'shoot'
@@ -94,6 +167,17 @@ export interface ArenaState {
   cues: SoundCue[];
   /** New Game+ counter: every finished campaign makes the next lap tougher. */
   loop: number;
+  difficulty: Difficulty;
+  tuning: CoopTuning;
+  baseMaxHp: number;
+  /** False once any enemy shell or blast has touched the Eagle this stage (repairs do not undo it). */
+  baseUntouched: boolean;
+  perks: PerkSet;
+  /** Versus: P1 starts on the right, P2 on the left. */
+  swapSides: boolean;
+  /** Boss stages: the wave from the first boss onward, saved when that boss is called in. */
+  checkpointWave: EnemyArchetype[] | null;
+  checkpointScore: number;
   /** Seconds of "base under fire" HUD flash left. */
   baseFlash: number;
   defeatReason: DefeatReason;
@@ -156,7 +240,7 @@ function withBoss(wave: EnemyArchetype[], after: number, boss: EnemyArchetype): 
 }
 
 export function buildWaveList(stageIndex: number): EnemyArchetype[] {
-  const s = stageIndex % 6;
+  const s = stageIndex % COOP_STAGE_COUNT;
   switch (s) {
     case 0:
       // A gentle opening: two slow strikers first, heavies only at the very end.
@@ -168,11 +252,11 @@ export function buildWaveList(stageIndex: number): EnemyArchetype[] {
     case 3:
       return mix(['sniper', 'striker', 'scout', 'cargo', 'sniper', 'juggernaut', 'striker', 'scout', 'juggernaut'], 24);
     case 4:
-      return mix(['striker', 'juggernaut', 'scout', 'cargo', 'sniper', 'juggernaut', 'striker', 'sniper'], 26);
+      return mix(['striker', 'juggernaut', 'scout', 'cargo', 'sniper', 'striker', 'scout', 'juggernaut', 'sniper'], 22);
     default:
       return withBoss(
-        withBoss(mix(['sniper', 'juggernaut', 'scout', 'cargo', 'striker', 'sniper', 'juggernaut', 'striker'], 22), 8, 'boss-behemoth'),
-        18,
+        withBoss(mix(['sniper', 'striker', 'scout', 'cargo', 'juggernaut', 'sniper', 'striker', 'scout'], 16), 6, 'boss-behemoth'),
+        13,
         'boss-omega'
       );
   }
@@ -183,15 +267,18 @@ export function createPlayerTank(
   chassis: ChassisId,
   mode: GameMode,
   isAi: boolean,
-  carryScore = 0
+  carryScore = 0,
+  perks?: PerkSet,
+  swapSides = false
 ): Tank {
   const spec = CHASSIS_SPECS[chassis];
-  // Duels get thicker armour so a round is a fight, not a two-second trade.
-  const maxHp = mode === 'duel' ? spec.maxHp * 3 : spec.maxHp;
-  const col = mode === 'coop' ? (playerIndex === 0 ? 6 : 13) : playerIndex === 0 ? 1 : 18;
+  // Duels get thicker armour so a round is a fight, not a two-second trade. Perks are co-op only.
+  const maxHp = mode === 'duel' ? spec.maxHp * 3 : spec.maxHp + perkLevel(perks, 'armour');
+  const leftSide = mode === 'duel' && (playerIndex === 0) !== swapSides;
+  const col = mode === 'coop' ? (playerIndex === 0 ? 6 : 13) : leftSide ? 1 : 18;
   const row = mode === 'coop' ? 12 : 6;
   const pos = cellCenter(col, row);
-  const dir: Direction = mode === 'coop' ? 'up' : playerIndex === 0 ? 'right' : 'left';
+  const dir: Direction = mode === 'coop' ? 'up' : leftSide ? 'right' : 'left';
   return {
     id: `p${playerIndex + 1}`,
     team: mode === 'coop' ? 1 : playerIndex === 0 ? 1 : 2,
@@ -215,7 +302,7 @@ export function createPlayerTank(
     spawnProtected: 3.0,
     weapon: null,
     weaponTimer: 0,
-    mines: 3,
+    mines: mode === 'coop' ? 3 + 2 * perkLevel(perks, 'mines') : 3,
     dashCooldown: 0,
     dashTimer: 0,
     score: carryScore,
@@ -249,7 +336,7 @@ export function createEnemyTank(
   loop = 0
 ): Tank {
   const pos = cellCenter(col, row);
-  const isBoss = archetype === 'boss-behemoth' || archetype === 'boss-omega';
+  const isBoss = isBossArchetype(archetype);
   const isCargo = archetype === 'cargo';
   const chassisMap: Record<EnemyArchetype, ChassisId> = {
     scout: 'phantom',
@@ -324,6 +411,11 @@ export interface CreateArenaOptions {
   p2Chassis?: ChassisId;
   carryScore?: number;
   loop?: number;
+  difficulty?: Difficulty;
+  perks?: PerkSet;
+  swapSides?: boolean;
+  /** Replaces the stage's wave (used to resume a boss stage from its checkpoint). */
+  wave?: EnemyArchetype[];
 }
 
 export function createArenaState(opts: CreateArenaOptions): ArenaState {
@@ -334,16 +426,29 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
   const p1Chassis = opts.p1Chassis ?? 'vanguard';
   const p2Chassis = opts.p2Chassis ?? (mode === 'duel' ? 'prism' : 'titan');
   const grid = buildGrid(mode, stageIndex);
+  const difficulty: Difficulty = opts.difficulty && DIFFICULTIES.includes(opts.difficulty) ? opts.difficulty : 'normal';
+  const defenders = teamSetup === '1p-solo' ? 1 : 2;
+  const tuning = coopTuning(difficulty, defenders);
+  const perks: PerkSet = mode === 'coop' ? { ...(opts.perks ?? {}) } : {};
+  const swapSides = mode === 'duel' && Boolean(opts.swapSides);
 
   const tanks: Tank[] = [
-    createPlayerTank(0, p1Chassis, mode, false, opts.carryScore ?? 0)
+    createPlayerTank(0, p1Chassis, mode, false, opts.carryScore ?? 0, perks, swapSides)
   ];
   if (mode === 'duel' || teamSetup !== '1p-solo') {
     const p2IsAi = teamSetup === '1p-ai';
-    tanks.push(createPlayerTank(1, p2Chassis, mode, p2IsAi, 0));
+    tanks.push(createPlayerTank(1, p2Chassis, mode, p2IsAi, 0, perks, swapSides));
   }
+  const baseMaxHp = mode === 'coop' ? tuning.baseHp : 6;
+  if (mode === 'coop') {
+    for (const tank of tanks) tank.lives = tuning.lives + perkLevel(perks, 'life');
+    for (const [c, r] of BASE_CELLS) grid[r][c] = { kind: 'base', hp: baseMaxHp, maxHp: baseMaxHp };
+  }
+  const bulwark = perkLevel(perks, 'bulwark');
+  if (mode === 'coop' && bulwark > 0) setBaseFortress(grid, 'steel');
 
-  const enemiesRemainingToSpawn = mode === 'coop' ? buildWaveList(stageIndex) : [];
+  const enemiesRemainingToSpawn =
+    mode === 'coop' ? (opts.wave ? [...opts.wave] : scaleWave(buildWaveList(stageIndex), tuning.waveScale)) : [];
 
   return {
     mode,
@@ -367,7 +472,7 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
     spawnTimer: 1.4,
     powerUpSpawnTimer: mode === 'duel' ? 5.5 : 8.5,
     baseAlive: true,
-    baseFortifyTimer: 0,
+    baseFortifyTimer: bulwark > 0 ? 12 * bulwark : 0,
     roundTimer: 0,
     suddenDeath: false,
     outcome: 'none',
@@ -380,6 +485,14 @@ export function createArenaState(opts: CreateArenaOptions): ArenaState {
     score: opts.carryScore ?? 0,
     cues: [],
     loop: opts.loop ?? 0,
+    difficulty,
+    tuning,
+    baseMaxHp,
+    baseUntouched: true,
+    perks,
+    swapSides,
+    checkpointWave: null,
+    checkpointScore: 0,
     baseFlash: 0,
     defeatReason: null,
     stageKills: 0,
@@ -585,6 +698,7 @@ function damageBase(state: ArenaState, dmg: number): void {
   // A volley (triple shot, chained barrels) counts as one hit: the Eagle shrugs off follow-ups for a moment.
   if (state.baseFlash > BASE_FLASH - BASE_GRACE) return;
   state.baseFlash = BASE_FLASH;
+  state.baseUntouched = false;
   state.cues.push('alarm');
   const mid = cellCenter(9.5, 12);
   addFloatingKey(state, mid.x, mid.y - 26, 'fx.baseHit', '#ff6b81', dmg);
@@ -652,7 +766,15 @@ export function damageTank(
   addParticles(state, victim.x, victim.y, CHASSIS_SPECS[victim.chassis].colorPrimary, victim.isBoss ? 24 : 14, 200, 0.55, 5);
   addParticles(state, victim.x, victim.y, '#ffd15c', 10, 150, 0.45, 4);
 
-  if (victim.isCargo || victim.isBoss || (victim.team === 3 && random() < 0.22)) {
+  if (victim.isBoss) {
+    // Boss bounty: a repair crate and a spare tank for everyone still in the fight.
+    spawnPowerUpAt(state, victim.x, victim.y, random, 'repair');
+    for (const t of state.tanks) {
+      if (t.team === 3 || t.playerIndex === undefined) continue;
+      t.lives += 1;
+      addFloatingKey(state, t.x, t.y - 30, 'fx.life', '#70f0c2');
+    }
+  } else if (victim.isCargo || (victim.team === 3 && random() < 0.22)) {
     spawnPowerUpAt(state, victim.x, victim.y, random);
   }
   if (victim.team === 3) state.stageKills += 1;
@@ -700,12 +822,13 @@ export function fireTankWeapon(state: ArenaState, tank: Tank): void {
   if (weapon === 'spread') reload *= 0.88;
   const stats = tank.team === 3 && tank.archetype ? ENEMY_STATS[tank.archetype] : null;
   if (stats) {
-    reload = stats.reload * Math.pow(0.9, Math.min(4, state.loop));
+    reload = stats.reload * Math.pow(0.9, Math.min(4, state.loop)) * state.tuning.enemyReload;
     if (tank.isBoss && tank.hp <= tank.maxHp / 2) reload *= 0.75;
   } else if (tank.isAi) {
     // The wingman supports, it does not steal the show; the duel rival is a touch slower than a human.
     reload *= state.mode === 'duel' ? 1.45 : 2.3;
   }
+  if (!stats) reload *= Math.pow(0.88, perkLevel(state.perks, 'reload'));
   tank.reloadTimer = reload;
   tank.recoil = 7;
 
@@ -714,7 +837,8 @@ export function fireTankWeapon(state: ArenaState, tank: Tank): void {
   const pierceTanks = weapon === 'laser';
   const homing = weapon === 'homing';
   const baseSpeed = stats ? stats.bullet : spec.bulletSpeed;
-  const speed = baseSpeed * (weapon === 'laser' ? 1.45 : weapon === 'ricochet' ? 1.3 : 1);
+  const speed =
+    baseSpeed * (weapon === 'laser' ? 1.45 : weapon === 'ricochet' ? 1.3 : 1) * (stats ? 1 : 1 + 0.18 * perkLevel(state.perks, 'shells'));
   const damage = tank.team === 3 ? 1 : weapon === 'laser' ? Math.max(2, spec.damage) : spec.damage;
   const color =
     tank.team === 3
@@ -869,7 +993,7 @@ const DASH_SPEED = 560;
 export function triggerTankDash(state: ArenaState, tank: Tank): boolean {
   if (!tank.alive || tank.freezeTimer > 0 || tank.dashCooldown > 0) return false;
   tank.dashTimer = DASH_TIME;
-  tank.dashCooldown = DASH_COOLDOWN;
+  tank.dashCooldown = DASH_COOLDOWN * (tank.team === 3 ? 1 : Math.pow(0.72, perkLevel(state.perks, 'dash')));
   tank.spawnProtected = Math.max(tank.spawnProtected, DASH_TIME + 0.06);
   addParticles(state, tank.x, tank.y, CHASSIS_SPECS[tank.chassis].colorPrimary, 8, 110, 0.3, 3.5);
   state.cues.push('dash');
@@ -886,7 +1010,7 @@ function moveTankWithSlide(state: ArenaState, tank: Tank, moveX: number, moveY: 
   if (inBush && tank.chassis === 'phantom') maxSpeed *= 1.22;
   if (tank.weapon === 'ricochet') maxSpeed *= 1.25; // Rapid Overdrive speed boost
   if (tank.team === 3 && tank.archetype) {
-    maxSpeed = ENEMY_STATS[tank.archetype].speed * (1 + 0.07 * Math.min(4, state.loop));
+    maxSpeed = ENEMY_STATS[tank.archetype].speed * (1 + 0.07 * Math.min(4, state.loop)) * state.tuning.enemySpeed;
   } else if (tank.isAi) maxSpeed *= state.mode === 'duel' ? 0.86 : 0.82;
   const dashing = tank.dashTimer > 0;
   if (dashing) maxSpeed = DASH_SPEED;
@@ -1003,7 +1127,7 @@ function collectPowerUp(state: ArenaState, tank: Tank, item: PowerUpItem): void 
         setBaseFortress(state.grid, 'steel');
         state.baseFortifyTimer = 18.0;
         for (const [c, r] of BASE_CELLS) {
-          if (state.grid[r][c].kind === 'base') state.grid[r][c].hp = 6;
+          if (state.grid[r][c].kind === 'base') state.grid[r][c].hp = state.baseMaxHp;
         }
       }
       break;
@@ -1234,6 +1358,11 @@ const GUARD_POSTS: ReadonlyArray<readonly [number, number]> = [
   [14, 11],
   [13, 12]
 ];
+
+/** The wingman brain driving any tank; playtest bots use it to stand in for a human (no AI handicaps). */
+export function playtestControls(state: ArenaState, tank: Tank, dt: number, random: () => number): PlayerControlInput {
+  return computeAiControls(state, tank, dt, random);
+}
 
 function computeAiControls(state: ArenaState, tank: Tank, dt: number, random: () => number): PlayerControlInput {
   tank.aiTimer -= dt;
@@ -1748,8 +1877,16 @@ export function stepArena(
     if (state.enemiesRemainingToSpawn.length > 0) {
       const activeEnemies = state.tanks.filter((t) => t.alive && t.team === 3).length + state.spawnWarnings.length;
       const defenders = state.tanks.filter((t) => t.team === 1).length;
-      const maxConcurrent = Math.min(7, (state.stageIndex < 1 ? 4 : state.stageIndex < 3 ? 5 : 6) + (defenders > 1 ? 1 : 0) + Math.min(1, state.loop));
-      if (activeEnemies < maxConcurrent) {
+      const maxConcurrent = Math.max(
+        3,
+        Math.min(7, (state.stageIndex < 1 ? 4 : state.stageIndex < 3 ? 5 : 6) + (defenders > 1 ? 1 : 0) + Math.min(1, state.loop)) +
+          state.tuning.concurrency
+      );
+      // Bosses take turns: the next one waits until the current one is scrap.
+      const bossBlocked =
+        isBossArchetype(state.enemiesRemainingToSpawn[0]) &&
+        (state.tanks.some((t) => t.alive && t.isBoss) || state.spawnWarnings.some((w) => isBossArchetype(w.archetype)));
+      if (activeEnemies < maxConcurrent && !bossBlocked) {
         state.spawnTimer -= dt;
         if (state.spawnTimer <= 0) {
           const spawnCols = [0, 19, 9];
@@ -1767,8 +1904,13 @@ export function stepArena(
             state.spawnCount += 1;
             const nextType = state.enemiesRemainingToSpawn.shift()!;
             state.spawnWarnings.push({ col, timer: 0.9, archetype: nextType });
-            state.spawnTimer = Math.max(1.0, 1.9 - state.stageIndex * 0.15 - (defenders > 1 ? 0.2 : 0));
-            if (nextType === 'boss-behemoth' || nextType === 'boss-omega') {
+            state.spawnTimer =
+              Math.max(1.0, 1.9 - Math.min(6, state.stageIndex) * 0.15 - (defenders > 1 ? 0.2 : 0)) + state.tuning.spawnGap;
+            if (isBossArchetype(nextType)) {
+              if (!state.checkpointWave) {
+                state.checkpointWave = [nextType, ...state.enemiesRemainingToSpawn];
+                state.checkpointScore = state.score;
+              }
               state.bannerKey = 'banner.bossIncoming';
               state.bannerTimer = 2.8;
               state.cues.push('warn');
@@ -1807,7 +1949,7 @@ export function stepArena(
       if (tank.respawnTimer > 0) {
         tank.respawnTimer -= dt;
         if (tank.respawnTimer <= 0 && tank.playerIndex !== undefined) {
-          const fresh = createPlayerTank(tank.playerIndex, tank.chassis, state.mode, tank.isAi, tank.score);
+          const fresh = createPlayerTank(tank.playerIndex, tank.chassis, state.mode, tank.isAi, tank.score, state.perks, state.swapSides);
           tank.x = fresh.x;
           tank.y = fresh.y;
           tank.dir = fresh.dir;
@@ -1819,7 +1961,8 @@ export function stepArena(
           tank.alive = true;
           tank.spawnProtected = 2.5;
           tank.shieldTimer = 2.5;
-          tank.mines = Math.max(tank.mines, 1);
+          tank.maxHp = fresh.maxHp;
+          tank.mines = Math.max(tank.mines, 1 + perkLevel(state.perks, 'mines'));
           addShockwave(state, tank.x, tank.y, 44, '#36d6ff');
         }
       }
@@ -1909,9 +2052,9 @@ export function stepArena(
     if (state.outcome === 'none' && enemiesLeft(state) === 0) {
       state.cues.push('win');
       // Clear bonus rewards an intact Eagle.
-      state.clearBonus = 500 + baseHp(state) * 100;
+      state.clearBonus = 500 + Math.round((6 * baseHp(state)) / state.baseMaxHp) * 100;
       state.score += state.clearBonus;
-      if (state.stageIndex >= 5) {
+      if (state.stageIndex >= COOP_STAGE_COUNT - 1) {
         state.outcome = 'coop-victory';
         state.bannerKey = 'banner.victory';
       } else {

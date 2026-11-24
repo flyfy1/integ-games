@@ -1,5 +1,6 @@
 import { t, type Key, type Lang } from './i18n';
-import { CHASSIS_ORDER, CHASSIS_SPECS } from './maps';
+import { DIFFICULTIES } from './engine';
+import { CHASSIS_ORDER, CHASSIS_SPECS, COOP_STAGE_COUNT, DUEL_ARENA_COUNT } from './maps';
 import { drawTankModel, type LobbyConfig } from './render';
 import type { ChassisId, GameMode, TeamSetup } from './types';
 
@@ -243,7 +244,7 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
     },
     showLobby(view: LobbyView): void {
       const { cfg, lang } = view;
-      const stageCount = cfg.mode === 'coop' ? 6 : 5;
+      const stageCount = cfg.mode === 'coop' ? COOP_STAGE_COUNT : DUEL_ARENA_COUNT;
       const stageName = t(lang, `stage.${cfg.mode}.${cfg.stageIndex % stageCount}` as Key);
       const teams = teamOrder(cfg.mode)
         .map((ts, i) => btn(`team-${ts}`, 1, i, esc(t(lang, teamKey(cfg.mode, ts))), '', cfg.teamSetup === ts))
@@ -260,6 +261,13 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
           )
         )
         .join('');
+      const diffs = DIFFICULTIES.map((d, i) =>
+        btn(`diff-${d}`, 2.5, i, esc(t(lang, `diff.${d}` as Key)), '', cfg.difficulty === d)
+      ).join('');
+      const diffSection =
+        cfg.mode === 'coop'
+          ? `<section><h3 class="tc-h">${esc(t(lang, 'lobby.diff'))}</h3><div class="tc-row tc-seg">${diffs}</div><p class="tc-note" style="margin-top:6px">${esc(t(lang, `diff.${cfg.difficulty}.desc` as Key))}${cfg.teamSetup === '1p-solo' ? ` ${esc(t(lang, 'diff.solo'))}` : ''}</p></section>`
+          : '';
       const controls = view.touch
         ? `<p class="tc-note">${esc(t(lang, 'ctl.touch'))}</p>`
         : cfg.teamSetup === '2p'
@@ -279,6 +287,7 @@ export function createUi(root: HTMLElement, onAction: (id: string) => void) {
         view.touch && cfg.teamSetup === '2p' ? `<p class="tc-warn" style="margin-top:6px">${esc(t(lang, 'lobby.touch2p'))}</p>` : ''
       }</section>
       <section><h3 class="tc-h">${esc(t(lang, 'lobby.mode'))}</h3><div class="tc-row tc-seg">${modes}</div></section>
+      ${diffSection}
       <section><h3 class="tc-h">${esc(t(lang, cfg.mode === 'coop' ? 'lobby.stage' : 'lobby.arena'))}</h3><div class="tc-row tc-stage">${btn('stage-prev', 3, 0, '◀', '')}<div class="tc-stage-name">${esc(stageName)}</div>${btn('stage-next', 3, 1, '▶', '')}</div></section>
     </div>
     <div class="tc-col">

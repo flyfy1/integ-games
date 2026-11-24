@@ -291,6 +291,9 @@ export const DUEL_MAPS: readonly string[][] = [
   ]
 ];
 
+export const COOP_STAGE_COUNT = COOP_MAPS.length;
+export const DUEL_ARENA_COUNT = DUEL_MAPS.length;
+
 export const BASE_COL = 9; // Eagle base occupies (9, 12) and (10, 12) or center at col 9/10, row 12
 export const BASE_CELLS: ReadonlyArray< readonly [number, number] > = [
   [9, 12],

@@ -10,7 +10,10 @@ import {
 import { createMobileControls } from '../_shared/mobile-controls';
 import {
   baseHp,
+  COOP_STAGE_COUNT,
   createArenaState,
+  DIFFICULTIES,
+  DUEL_ARENA_COUNT,
   stepArena,
   type ArenaState,
   type SoundCue
@@ -18,12 +21,12 @@ import {
 import { defaultLang, isLang, t, type Key, type Lang } from './i18n';
 import { CHASSIS_ORDER } from './maps';
 import { COMPACT_LAYOUT, drawArenaScene, WIDE_LAYOUT, type HudLayout, type LobbyConfig } from './render';
-import type { ChassisId, GameMode, PlayerControlInput, TeamSetup } from './types';
+import type { ChassisId, Difficulty, GameMode, PlayerControlInput, TeamSetup } from './types';
 import { createUi, teamOrder, type ResultsView } from './ui';
 
 const ACCENT = '#36d6ff';
-const COOP_STAGES = 6;
-const DUEL_ARENAS = 5;
+const COOP_STAGES = COOP_STAGE_COUNT;
+const DUEL_ARENAS = DUEL_ARENA_COUNT;
 
 /**
  * Dedicated 2-player keyboard layout so both can play on one keyboard without key conflicts:
@@ -88,9 +91,11 @@ function mount(host: HTMLElement, services: GameServices) {
     // A lone visitor is the common case, so the default gives them an AI partner rather than an idle second tank.
     teamSetup: storedTeam && teamOrder(initialMode).includes(storedTeam) ? storedTeam : '1p-ai',
     stageIndex: 0,
+    difficulty: services.storage.get<Difficulty>('difficulty', 'normal'),
     p1Chassis: services.storage.get<ChassisId>('p1Chassis', 'vanguard'),
     p2Chassis: services.storage.get<ChassisId>('p2Chassis', 'titan')
   };
+  if (!DIFFICULTIES.includes(lobbyConfig.difficulty)) lobbyConfig.difficulty = 'normal';
   if (!CHASSIS_ORDER.includes(lobbyConfig.p1Chassis)) lobbyConfig.p1Chassis = 'vanguard';
   if (!CHASSIS_ORDER.includes(lobbyConfig.p2Chassis)) lobbyConfig.p2Chassis = 'titan';
 
@@ -294,6 +299,7 @@ function mount(host: HTMLElement, services: GameServices) {
   function savePreferences() {
     services.storage.set('mode', lobbyConfig.mode);
     services.storage.set('teamSetup', lobbyConfig.teamSetup);
+    services.storage.set('difficulty', lobbyConfig.difficulty);
     services.storage.set('p1Chassis', lobbyConfig.p1Chassis);
     services.storage.set('p2Chassis', lobbyConfig.p2Chassis);
   }
@@ -420,7 +426,7 @@ function mount(host: HTMLElement, services: GameServices) {
         badge: newBest ? tr('res.newBest') : undefined,
         rows: [
           [tr('res.kills'), `${s.stageKills} / ${s.totalEnemies}`],
-          [tr('res.base'), `${baseHp(s)} / 6`],
+          [tr('res.base'), `${baseHp(s)} / ${s.baseMaxHp}`],
           [tr('res.time'), clock(s.roundTimer)],
           [tr('res.bonus'), `+${s.clearBonus}`],
           ...scoreRows
@@ -534,6 +540,7 @@ function mount(host: HTMLElement, services: GameServices) {
     else if (id === 'stage-prev') cycleStage(-1);
     else if (id === 'stage-next') cycleStage(1);
     else if (id.startsWith('team-')) updateLobbyConfig({ teamSetup: id.slice(5) as TeamSetup });
+    else if (id.startsWith('diff-')) updateLobbyConfig({ difficulty: id.slice(5) as Difficulty });
     else if (id.startsWith('mode-')) setMode(id.slice(5) as GameMode);
     else if (id.startsWith('p1-chassis-')) updateLobbyConfig({ p1Chassis: id.slice(11) as ChassisId });
     else if (id.startsWith('p2-chassis-')) updateLobbyConfig({ p2Chassis: id.slice(11) as ChassisId });
