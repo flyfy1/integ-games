@@ -48,7 +48,7 @@ export const LEVELS: LevelDef[] = [
   L({
     id: '1-5', chapter: 1, index: 5, introduces: null, rush: true,
     name: { en: 'Eve of the Fair', zh: '庙会前夜' },
-    hint: { en: 'Two orders, one paper chute. Fill one, then change the line while it runs (Space or the pause button stops the clock).', zh: '两张订单，一个纸槽。先做完一张，再趁运行时改线（空格或暂停可以先停表）。' },
+    hint: { en: 'Two orders, one paper chute. Fill one, then change the line while it runs (Enter or the Pause button stops the clock while you work).', zh: '两张订单，一个纸槽。先做完一张，再趁运行时改线（回车或“暂停”按钮可以先停表再改）。' },
     grid: ['.........', '.........', '.........', '.........', '.........', '.........'],
     sources: [{ x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 4, dir: 0, goods: ['hoop'], every: 2 }],
     stalls: [{ x: 8, y: 3, wants: [{ good: 'lantern round red', n: 10 }, { good: 'lantern square plain', n: 10 }] }],
@@ -67,14 +67,14 @@ export const LEVELS: LevelDef[] = [
   L({
     id: '2-2', chapter: 2, index: 2, introduces: 'mixer',
     name: { en: 'Orange', zh: '橙色' },
-    hint: { en: 'There is no orange dye, only red and yellow. A vat set to "fed" takes dye from a belt into its side.', zh: '没有橙色染料，只有红和黄。设为“喂染料”的染缸从侧面收染料。' },
+    hint: { en: 'There is no orange dye, only red and yellow, and just one vat. A Mixer makes a new colour; a vat set to "fed" takes dye from a belt into its side.', zh: '没有橙色染料，只有红和黄，染缸也只有一个。调色盘能调出新颜色；设为“喂染料”的染缸从侧面收染料。' },
     grid: ['.........', '.........', '.........', '.........', '.........', '.........', '.........'],
     sources: [
       { x: 0, y: 2, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 5, dir: 0, goods: ['hoop'], every: 2 },
       { x: 3, y: 0, dir: 1, goods: ['dye red'], every: 2 }, { x: 5, y: 0, dir: 1, goods: ['dye yellow'], every: 2 }
     ],
     stalls: [{ x: 8, y: 3, wants: [{ good: 'lantern orange', n: 8 }] }],
-    tray: { belt: 24, folder: 1, vat: 2, mixer: 1, joiner: 1 }, parTidy: 17, parSwift: 27
+    tray: { belt: 24, folder: 1, vat: 1, mixer: 1, joiner: 1 }, parTidy: 18, parSwift: 27
   }),
   L({
     id: '2-3', chapter: 2, index: 3, introduces: 'sorter',

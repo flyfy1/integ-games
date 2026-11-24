@@ -29,7 +29,7 @@ export const SOLUTIONS: Record<string, Record<string, string[]>> = {
   },
   '2-2': {
     mixer: ['belt 3,1 >', 'mixer 4,1 v', 'belt 5,1 <', 'folder 1,2 >', 'belt 2,2 >>', 'vat 4,2 >', 'belt 5,2 >v', 'joiner 6,3 >', 'belt 7,3 >', 'belt 1,5 >>>>>^^'],
-    twoVats: ['belt 3,1 v', 'folder 1,2 >', 'belt 2,2 >', 'vat 3,2 >', 'belt 4,2 >', 'vat 5,2 >', 'belt 5,1 v', 'belt 6,2 v', 'joiner 6,3 >', 'belt 7,3 >', 'belt 1,5 >>>>>^^']
+    oneSide: ['belt 3,1 >>', 'belt 5,1 v', 'mixer 5,2 v', 'folder 1,2 v', 'belt 1,3 >>>>', 'vat 5,3 >', 'joiner 6,3 >', 'belt 7,3 >', 'belt 1,5 >>>>>^^']
   },
   '2-3': {
     oneSorter: ['belt 1,2 >>', 'sorter 3,2 > lotus', 'bin 4,2 >', 'belt 3,1 >>>>'],

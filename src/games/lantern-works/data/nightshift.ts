@@ -9,7 +9,7 @@ export const FIRST_ORDER = 4;
 export const MAX_ORDERS = 3;
 export const ORDER_GAP = (served: number) => Math.max(30, 70 - served * 3);
 
-const TIERS: string[][] = [
+export const TIERS: string[][] = [
   ['shell round', 'shell square', 'lantern round', 'lantern square'],
   ['lantern red', 'lantern yellow', 'lantern blue', 'lantern lotus', 'shell red', 'shell blue'],
   ['lantern lit', 'lantern orange', 'lantern green', 'lantern purple', 'lantern red lit', 'lantern lotus yellow'],

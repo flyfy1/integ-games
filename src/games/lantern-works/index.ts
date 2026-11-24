@@ -296,19 +296,12 @@ export const lanternWorks: GameModule = {
       if (!level || !isUnlocked(save, id)) return;
       enterLevel(newPlay(level, 'campaign', 1, save.levels[id]?.build));
     }
-    function nightLevel(): LevelDef {
-      const unlocked = new Set<PartKind>(['belt']);
-      for (const l of LEVELS) if (save.levels[l.id]?.stars[0] && l.introduces) unlocked.add(l.introduces);
-      for (const l of LEVELS) if (save.levels[l.id]?.stars[0]) for (const k of Object.keys(l.tray) as PartKind[]) unlocked.add(k);
-      const tray: LevelDef['tray'] = {};
-      for (const [k, n] of Object.entries(NIGHT_LEVEL.tray) as [PartKind, number][]) if (unlocked.has(k)) tray[k] = n;
-      return { ...NIGHT_LEVEL, tray };
-    }
     function openNight(mode: 'night' | 'daily') {
       if (!nightUnlocked(save)) return;
       const key = dailyKey();
       const seed = mode === 'daily' ? dailySeed('lantern-works', key) : (Math.floor(services.random() * 2 ** 31) || 7);
-      const p = newPlay(nightLevel(), mode, seed, save.night.build);
+      // Every part is in the Night Shift tray, so every order on the shared Daily queue can be made by everyone.
+      const p = newPlay(NIGHT_LEVEL, mode, seed, save.night.build);
       p.daily = mode === 'daily' ? key : undefined;
       enterLevel(p);
     }
@@ -533,21 +526,21 @@ export const lanternWorks: GameModule = {
       if (!floorAt(pos)) return;
       if (edit({ op: 'place', kind: tool, x: pos.x, y: pos.y, dir: smartDir(pos) }) && tool !== 'belt') { openPop(pos); }
     }
-    /** One step of a belt drawn from `a` to the neighbouring cell `b`. */
-    function drawStep(a: Pos, b: Pos, first: boolean) {
+    /** One step of a belt drawn from `a` to the neighbouring cell `b`. The gesture's first change takes the undo snapshot. */
+    function drawStep(a: Pos, b: Pos, gesture: { snapped: boolean }) {
       if (!play) return;
       const sim = play.sim;
       const d = ([0, 1, 2, 3] as Dir[]).find(k => a.x + DX[k] === b.x && a.y + DY[k] === b.y);
       if (d === undefined) return;
       const pa = partAt(sim, a.x, a.y);
-      if (floorAt(a) && (!pa || pa.kind === 'belt') && (!pa || pa.dir !== d)) edit({ op: 'place', kind: 'belt', x: a.x, y: a.y, dir: d }, first, true);
+      if (floorAt(a) && (!pa || pa.kind === 'belt') && (!pa || pa.dir !== d) && edit({ op: 'place', kind: 'belt', x: a.x, y: a.y, dir: d }, !gesture.snapped, true)) gesture.snapped = true;
       const pb = partAt(sim, b.x, b.y);
-      if (floorAt(b) && !pb) edit({ op: 'place', kind: 'belt', x: b.x, y: b.y, dir: d }, false, true);
+      if (floorAt(b) && !pb && edit({ op: 'place', kind: 'belt', x: b.x, y: b.y, dir: d }, !gesture.snapped, true)) gesture.snapped = true;
       audio.ui('tap');
     }
 
     // ------------------------------------------------------------ pointer input
-    let drag: { start: Pos; last: Pos; moved: boolean; id: number; snap: boolean } | null = null;
+    let drag: { start: Pos; last: Pos; moved: boolean; id: number; snapped: boolean } | null = null;
     const toCell = (e: PointerEvent): Pos | null => {
       const r = canvas.getBoundingClientRect();
       return renderer.cellAt((e.clientX - r.left) * (renderer.layout.width / r.width), (e.clientY - r.top) * (renderer.layout.height / r.height));
@@ -560,8 +553,8 @@ export const lanternWorks: GameModule = {
       if (!pos) { closePop(); if (play) play.selected = null; return; }
       e.preventDefault();
       canvas.setPointerCapture?.(e.pointerId);
-      drag = { start: pos, last: pos, moved: false, id: e.pointerId, snap: false };
-      if (play!.tool === 'erase') { const here = partAt(play!.sim, pos.x, pos.y); if (here && !here.fixed) edit({ op: 'remove', x: pos.x, y: pos.y }); drag.moved = true; drag.snap = true; }
+      drag = { start: pos, last: pos, moved: false, id: e.pointerId, snapped: false };
+      if (play!.tool === 'erase') { const here = partAt(play!.sim, pos.x, pos.y); if (here && !here.fixed) edit({ op: 'remove', x: pos.x, y: pos.y }); drag.moved = true; drag.snapped = true; }
     });
     canvas.addEventListener('pointermove', e => {
       if (blocked()) { if (play) play.hover = null; return; }
@@ -573,7 +566,7 @@ export const lanternWorks: GameModule = {
       while (cur.x !== pos.x || cur.y !== pos.y) {
         const next = cur.x !== pos.x ? { x: cur.x + Math.sign(pos.x - cur.x), y: cur.y } : { x: cur.x, y: cur.y + Math.sign(pos.y - cur.y) };
         if (play!.tool === 'erase') { const here = partAt(play!.sim, next.x, next.y); if (here && !here.fixed) edit({ op: 'remove', x: next.x, y: next.y }, true, true); }
-        else { drawStep(cur, next, !drag.snap); drag.snap = true; }
+        else drawStep(cur, next, drag);
         cur = next;
       }
       if (play!.tool !== 'erase' && !drag.moved) closePop();
@@ -591,7 +584,7 @@ export const lanternWorks: GameModule = {
     canvas.addEventListener('pointerleave', () => { if (play) play.hover = null; });
 
     // ------------------------------------------------------------ keyboard (and the gamepad bridge)
-    let spaceHeld = false;
+    let spaceHeld = false, spaceGesture = { snapped: false };
     const onKey = (e: KeyboardEvent) => {
       if (externalPause || e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key;
@@ -625,12 +618,12 @@ export const lanternWorks: GameModule = {
         const d = dirKey[k];
         const next = { x: clamp(cur.x + DX[d], 0, sim.w - 1), y: clamp(cur.y + DY[d], 0, sim.h - 1) };
         if (!play.cursor) { play.cursor = cur; return; }
-        if (spaceHeld && play.tool === 'belt' && (next.x !== cur.x || next.y !== cur.y)) drawStep(cur, next, true);
+        if (spaceHeld && play.tool === 'belt' && (next.x !== cur.x || next.y !== cur.y)) drawStep(cur, next, spaceGesture);
         play.cursor = next;
         if (pop) { closePop(); play.selected = null; }
         return;
       }
-      if (k === ' ') { e.preventDefault(); if (!e.repeat) { spaceHeld = true; play.cursor ??= cur; placeTool(play.cursor); } return; }
+      if (k === ' ') { e.preventDefault(); if (!e.repeat) { spaceHeld = true; spaceGesture = { snapped: false }; play.cursor ??= cur; placeTool(play.cursor); } return; }
       const lower = k.length === 1 ? k.toLowerCase() : k;
       const kinds = PART_ORDER.filter(p => play!.level.tray[p] !== undefined);
       if (/^[1-9]$/.test(k)) { const kind = kinds[Number(k) - 1]; if (kind) { e.preventDefault(); selectTool(kind); } return; }

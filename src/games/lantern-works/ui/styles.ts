@@ -1,6 +1,6 @@
 /** Lantern Works styles: warm wood and brass, paper-lantern red, readable on a phone. Scoped under `.lw`. */
 export const STYLES = `
-.lw{position:relative;width:100%;height:var(--lw-h,560px);overflow:hidden;border-radius:16px;background:#1a100a;color:#f6e9d0;font-family:ui-rounded,"SF Pro Rounded","PingFang SC","Noto Sans SC",system-ui,sans-serif;user-select:none;-webkit-user-select:none;outline:none;touch-action:none}
+.lw{position:relative;isolation:isolate;width:100%;height:var(--lw-h,560px);overflow:hidden;border-radius:16px;background:#1a100a;color:#f6e9d0;font-family:ui-rounded,"SF Pro Rounded","PingFang SC","Noto Sans SC",system-ui,sans-serif;user-select:none;-webkit-user-select:none;outline:none;touch-action:none}
 .lw *{box-sizing:border-box}
 .lw-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
 .lw button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}

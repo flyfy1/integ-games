@@ -5,6 +5,7 @@ import lanternWorks, { campaignNumber } from '../src/games/lantern-works';
 import { CHAPTERS, LEVELS, NIGHT_LEVEL, levelById } from '../src/games/lantern-works/data/levels';
 import { matches, makeGood, mix } from '../src/games/lantern-works/goods';
 import { EN, ZH } from '../src/games/lantern-works/i18n';
+import { TIERS } from '../src/games/lantern-works/data/nightshift';
 import { PARTS, PART_ORDER, dialOptions } from '../src/games/lantern-works/parts';
 import { SAVE_KEY, defaultSave, isUnlocked, loadSave, migrate, recordWin, writeSave } from '../src/games/lantern-works/save';
 import { parseScript, runScript } from '../src/games/lantern-works/script';
@@ -231,6 +232,26 @@ describe('lantern works simulation rules', () => {
 });
 
 describe('lantern works night shift', () => {
+  it('can make every order the queue can ask for with the Night Shift tray and chutes', () => {
+    const tray = NIGHT_LEVEL.tray, has = (k: keyof typeof tray) => (tray[k] ?? 0) > 0;
+    const chutes = new Set(NIGHT_LEVEL.sources.flatMap((s) => s.goods));
+    const primaries = new Set(NIGHT_LEVEL.vatColors ?? []);
+    for (const good of TIERS.flat()) {
+      const words = good.split(' ');
+      expect(chutes.has('paper') && chutes.has('hoop') && has('folder') && has('joiner'), good).toBe(true);
+      for (const w of words) {
+        if (['red', 'yellow', 'blue'].includes(w)) expect(has('vat') && primaries.has(w as never), good).toBe(true);
+        if (['orange', 'green', 'purple'].includes(w)) {
+          expect(has('vat') && (has('mixer') || (tray.vat ?? 0) >= 2), good).toBe(true);
+          expect([...primaries].some((a) => [...primaries].some((b) => mix(a as never, b as never) === w)), good).toBe(true);
+        }
+        if (w === 'lit') expect(has('wick') && chutes.has('candle'), good).toBe(true);
+        if (w === 'fu') expect(has('stamp'), good).toBe(true);
+        if (['round', 'square', 'lotus'].includes(w)) expect(has('folder'), good).toBe(true);
+      }
+    }
+  });
+
   it('the same seed gives the same order queue (the Daily Order is shared)', () => {
     const a = createSim(NIGHT_LEVEL, 42), b = createSim(NIGHT_LEVEL, 42), c = createSim(NIGHT_LEVEL, 43);
     for (const s of [a, b, c]) { run(s); for (let i = 0; i < 200; i++) step(s); }

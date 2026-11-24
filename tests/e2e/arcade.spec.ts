@@ -22,16 +22,16 @@ test('all catalog routes render without a page error', async ({ page }) => {
 
 test('category filters persist in the URL and search stays within the active category', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /Match & Build 2/ }).click();
+  await page.getByRole('button', { name: /Match & Build 3/ }).click();
   await expect(page).toHaveURL(/\?category=match-build$/);
   await expect(page.getByRole('heading', { name: 'Match & Build' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Match & Build 2/ })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-grid] .game-card')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: /Match & Build 3/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-grid] .game-card')).toHaveCount(3);
   await page.getByRole('searchbox', { name: 'Search Match & Build' }).fill('no-match-here');
   await expect(page.getByText('No games matched')).toBeVisible();
   await expect(page.locator('[data-results]')).toHaveText('0 games in Match & Build');
   await page.reload();
-  await expect(page.getByRole('button', { name: /Match & Build 2/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /Match & Build 3/ })).toHaveAttribute('aria-pressed', 'true');
   await page.goto('/play/merge-2048');
   await page.getByRole('link', { name: 'Puzzle & Strategy', exact: true }).click();
   await expect(page).toHaveURL(/\?category=puzzle-strategy$/);
