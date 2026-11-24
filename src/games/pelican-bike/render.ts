@@ -1,6 +1,8 @@
 import { THEMES, STARS, CLOUDS, W, H, WATER_Y, T, PW, PH, MAXST } from './theme';
 import { COASTS, LEVELS, stageLabel } from './levels';
 import { gustPower, gustWarning, poolLevel } from './sim';
+import { COSMETICS, item, SLOTS } from './cosmetics';
+import type { Cosmetic, Look } from './cosmetics';
 import type { Sim, StageBest } from './sim';
 import type { Theme } from './theme';
 import type { Item, Enemy, Mover, Crumble, Spring, Checkpoint, Goal } from './types';
@@ -256,7 +258,30 @@ export function drawTile(ctx: CanvasRenderingContext2D, grid: string[][], r: num
   }
 }
 
-export function drawPelican(ctx: CanvasRenderingContext2D, P: any, gtime: number) {
+function drawHat(ctx: CanvasRenderingContext2D, hat: string) {
+  if (hat === 'straw') {
+    ctx.fillStyle = '#c9952e'; ellipse(ctx, 5, -56, 14, 3.4, 0); ctx.fill();
+    ctx.fillStyle = '#f2cc6b'; ctx.beginPath(); ctx.arc(5, -56, 6.5, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#e63946'; ctx.fillRect(-1.5, -58, 13, 2);
+  } else if (hat === 'beanie') {
+    ctx.fillStyle = '#2ec4b6'; ctx.beginPath(); ctx.arc(5, -55, 7, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(-2, -57, 14, 2.2); ctx.fillRect(0, -60.5, 10, 1.8);
+    circle(ctx, 5, -63, 2.6); ctx.fill();
+  } else if (hat === 'crown') {
+    ctx.fillStyle = '#ffd166'; ctx.strokeStyle = '#f48c06'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-2, -54); ctx.lineTo(-2, -62); ctx.lineTo(1.5, -58); ctx.lineTo(5, -64); ctx.lineTo(8.5, -58); ctx.lineTo(12, -62); ctx.lineTo(12, -54); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#e63946'; circle(ctx, 5, -57, 1.4); ctx.fill();
+  } else {
+    ctx.fillStyle = '#1d3557';
+    ctx.beginPath(); ctx.arc(5, -55, 6, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#e63946'; circle(ctx, 5, -61, 1.8); ctx.fill();
+  }
+}
+
+/** Cosmetic look: hat id and bike paint colour. */
+export type PelicanLook = { hat: string; paint: string };
+
+export function drawPelican(ctx: CanvasRenderingContext2D, P: any, gtime: number, look: PelicanLook = { hat: 'cap', paint: '#e63946' }) {
   ctx.save();
   if (P.inv > 0 && !P.dead && Math.floor(P.inv * 16) % 2 === 1) ctx.globalAlpha = 0.35; // mercy blink: faded, never invisible
   ctx.translate(P.x + PW / 2, P.y + PH);
@@ -282,7 +307,7 @@ export function drawPelican(ctx: CanvasRenderingContext2D, P: any, gtime: number
   drawWheel(-14, -11);
   drawWheel(15, -11);
 
-  ctx.strokeStyle = '#e63946'; ctx.lineWidth = 3.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = look.paint; ctx.lineWidth = 3.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(-14, -11); ctx.lineTo(-2, -11); ctx.lineTo(-7, -25); ctx.closePath();
   ctx.moveTo(-7, -25); ctx.lineTo(10, -25); ctx.lineTo(-2, -11);
@@ -323,9 +348,7 @@ export function drawPelican(ctx: CanvasRenderingContext2D, P: any, gtime: number
   ctx.fillStyle = '#fff'; circle(ctx, 8, -52, 2.7); ctx.fill();
   ctx.fillStyle = '#1d3557'; circle(ctx, 8.8, -52, 1.5); ctx.fill();
   ctx.fillStyle = '#fff'; circle(ctx, 9.2, -52.5, 0.5); ctx.fill();
-  ctx.fillStyle = '#1d3557';
-  ctx.beginPath(); ctx.arc(5, -55, 6, Math.PI, 0); ctx.fill();
-  ctx.fillStyle = '#e63946'; circle(ctx, 5, -61, 1.8); ctx.fill();
+  drawHat(ctx, look.hat);
 
   const sw = Math.sin(gtime * 14) * 3 + Math.min(14, Math.abs(P.vx) * 0.04);
   ctx.strokeStyle = '#e63946'; ctx.lineWidth = 4;
@@ -549,7 +572,9 @@ export function drawWater(ctx: CanvasRenderingContext2D, th: Theme, camX: number
 export type UiResult = { medals: number; newBest: boolean; timeBonus: number; ghostDelta?: number | null };
 export type Ui = {
   uw: number; uh: number; padL: number; touch: boolean; isZh: boolean; gtime: number;
-  state: 'title' | 'playing' | 'paused' | 'levelclear' | 'victory';
+  state: 'title' | 'playing' | 'paused' | 'levelclear' | 'victory' | 'wardrobe';
+  /** Stars banked (normal + storm), the chosen look, the wardrobe row in focus, and the next thing to earn. */
+  stars: number; look: Look; wRow: number; paintCol: string; nextLook: Cosmetic | null;
   P: { hp: number; maxHp: number; stamina: number; turbo: boolean; streak: number };
   lv: number; label: string; par: number; progress: number; time: number; deaths: number; bannerT: number;
   fishGot: number; fishTot: number; starGot: number; starTot: number; score: number; hiScore: number;
@@ -730,6 +755,16 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     let y = py + (compact ? 22 : 32);
     drawText(ctx, isZh ? '鹈鹕骑行记' : 'Pelican Pedal', cx, y, compact ? 24 : 34, '#ffe66d', 'center', '#141b2d');
     if (u.hiScore > 0 && !compact) drawText(ctx, isZh ? `最高分 ${u.hiScore}` : `High score ${u.hiScore}`, px + pw - 16, py + 20, 14, '#7ae582', 'right');
+    // Wardrobe: stars banked, tap to dress up.
+    {
+      const label = compact ? `★${u.stars}` : `★ ${u.stars} · ${isZh ? '衣橱' : 'Wardrobe'}`;
+      ctx.font = `800 13px ${FONT}`;
+      const bw = ctx.measureText(label).width + 22, bh = 26, bx = px + 10, by = py + 8;
+      ctx.fillStyle = 'rgba(255,230,109,0.16)'; rrect(ctx, bx, by, bw, bh, 13); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,230,109,0.6)'; ctx.lineWidth = 1.5; rrect(ctx, bx, by, bw, bh, 13); ctx.stroke();
+      drawText(ctx, label, bx + bw / 2, by + bh / 2 + 1, 13, '#ffe66d', 'center');
+      hits.push({ x: bx - 4, y: by - 4, w: bw + 8, h: bh + 8, act: 'wardrobe' });
+    }
     // Coast tabs
     y += compact ? 20 : 28;
     const nC = COASTS.length, tgap = 6, tw = (pw - 24 - tgap * (nC - 1)) / nC, th = compact ? 30 : 34;
@@ -797,6 +832,38 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, u: Ui): Hit[] {
     const room = Math.floor((btnY - 24 - y) / 17) + 1;
     lines.slice(0, Math.max(0, room)).forEach((t, i) => drawText(ctx, t, cx, y + i * 17, 13, 'rgba(255,255,255,0.8)', 'center', undefined, 600));
     button(ctx, hits, 'start', u.touch ? (isZh ? '点击出发 ▶' : 'Tap to ride ▶') : (isZh ? '按 Enter / 空格出发 ▶' : 'Enter / Space to ride ▶'), cx, btnY, Math.min(280, pw - 40), compact ? 36 : 40, true, pulse);
+  } else if (u.state === 'wardrobe') {
+    let y = py + (compact ? 24 : 32);
+    drawText(ctx, isZh ? '衣橱' : 'Wardrobe', cx, y, compact ? 22 : 28, '#ffe66d', 'center', '#141b2d');
+    drawText(ctx, `★ ${u.stars}`, px + pw - 16, py + 20, 15, '#ffe66d', 'right');
+    // Preview pelican
+    const pvH = compact ? 70 : 96, sc = pvH / 70;
+    ctx.save(); ctx.translate(cx - 17 * sc, y + 14 + pvH); ctx.scale(sc, sc);
+    drawPelican(ctx, { x: 0, y: -54, dir: 1, sx: 1, sy: 1, tilt: 0, wheel: u.gtime * 6, pedal: u.gtime * 4, pouch: 0, flap: 0, gliding: false, inv: 0, dead: false, vx: 0 }, u.gtime, { hat: u.look.hat, paint: u.paintCol });
+    ctx.restore();
+    const tr = item(u.look.trail);
+    if (tr && tr.col.length) for (let i = 0; i < 6; i++) { ctx.fillStyle = tr.col[i % tr.col.length]; ctx.globalAlpha = 1 - i / 7; circle(ctx, cx - 30 * sc - i * 12, y + 4 + pvH - 6 + Math.sin(u.gtime * 4 + i) * 3, 4.5); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    y += pvH + (compact ? 24 : 30);
+    const names: Record<string, [string, string]> = { hat: ['帽子', 'Hat'], paint: ['车漆', 'Paint'], trail: ['尾迹', 'Trail'] };
+    const rh = compact ? 34 : 38, rw = Math.min(pw - 24, 380);
+    SLOTS.forEach((slot, r) => {
+      const ry = y + r * (rh + 6), rx = cx - rw / 2, on = r === u.wRow;
+      ctx.fillStyle = on ? 'rgba(255,159,28,0.22)' : 'rgba(255,255,255,0.06)'; rrect(ctx, rx, ry, rw, rh, 10); ctx.fill();
+      if (on) { ctx.strokeStyle = '#ff9f1c'; ctx.lineWidth = 2; rrect(ctx, rx, ry, rw, rh, 10); ctx.stroke(); }
+      hits.push({ x: rx + 44, y: ry, w: rw - 88, h: rh, act: `row:${r}` });
+      drawText(ctx, isZh ? names[slot][0] : names[slot][1], rx + 52, ry + rh / 2 + 1, 14, 'rgba(255,255,255,0.75)', 'left');
+      const it = item(u.look[slot]);
+      const owned = COSMETICS.filter((c) => c.slot === slot);
+      const got = owned.filter((c) => c.stars <= u.stars).length;
+      drawText(ctx, `${it ? (isZh ? it.name : it.nameEn) : ''}  ${got}/${owned.length}`, cx + 34, ry + rh / 2 + 1, 15, '#ffffff', 'center');
+      button(ctx, hits, `look:${r}:-1`, '◀', rx + 22, ry + rh / 2, 40, rh - 4, false);
+      button(ctx, hits, `look:${r}:1`, '▶', rx + rw - 22, ry + rh / 2, 40, rh - 4, false);
+    });
+    y += SLOTS.length * (rh + 6) + (compact ? 10 : 14);
+    const nx = u.nextLook;
+    drawText(ctx, nx ? (isZh ? `下一件：${nx.name}（★ ${nx.stars}）` : `Next: ${nx.nameEn} at ★ ${nx.stars}`) : (isZh ? '全部解锁！' : 'Everything unlocked!'), cx, y, 14, '#9fe6ff', 'center', undefined, 600);
+    button(ctx, hits, 'done', isZh ? '完成 ▶' : 'Done ▶', cx, py + ph - (compact ? 24 : 32), Math.min(200, pw - 40), compact ? 34 : 40, true);
   } else if (u.state === 'paused') {
     drawText(ctx, isZh ? '游戏暂停' : 'PAUSED', cx, py + ph * 0.3, 34, '#ffe66d', 'center', '#141b2d');
     drawText(ctx, u.touch ? (isZh ? '点击继续骑行' : 'Tap to keep riding') : (isZh ? '按 P 继续骑行' : 'Press P to keep riding'), cx, py + ph * 0.52, 17, '#fff', 'center');

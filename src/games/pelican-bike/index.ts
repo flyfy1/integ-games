@@ -1,5 +1,7 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createPelicanAudio } from './audio';
+import { cycle, item, nextUnlock, sanitizeLook, SLOTS, starTotal } from './cosmetics';
+import type { Look } from './cosmetics';
 import { decode, encode, ghostKey, newRecorder, poseAt, record, stageHash } from './ghost';
 import type { GhostTrack } from './ghost';
 import { COASTS, coastOf, LEVELS, ORDER, ROWS, stageLabel } from './levels';
@@ -37,7 +39,7 @@ function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
 function rand(a: number, b: number) { return a + Math.random() * (b - a); }
 
 type EmitOpt = { ang?: number; sp?: number; v0?: number; v1?: number; vx?: number; vy?: number; g?: number; s0?: number; s1?: number; d0?: number; d1?: number; col?: string | string[] };
-type State = 'title' | 'playing' | 'levelclear' | 'victory';
+type State = 'title' | 'playing' | 'levelclear' | 'victory' | 'wardrobe';
 
 export const pelicanBike: GameModule = {
   meta: {
@@ -166,6 +168,16 @@ export const pelicanBike: GameModule = {
     /** A coast's storm remixes open together once all three of its stages are cleared. */
     const stormOpen = (id: number) => (COASTS[coastOf(id)]?.stages ?? []).every((k) => !!bests[k]);
     let storm = false;
+    // Cosmetics: earned with stars, chosen in the wardrobe, saved under 'look'.
+    const stars = () => starTotal(bests, stormBests);
+    let look: Look = sanitizeLook(services.storage.get<unknown>('look', null), stars());
+    let wRow = 0;
+    const paint = () => item(look.paint)?.col[0] ?? '#e63946';
+    function openWardrobe() { if (state !== 'title' || paused) return; audio.click(); state = 'wardrobe'; stateT = 0; wRow = 0; }
+    function wardrobeCycle(dir: number) {
+      look = cycle(look, SLOTS[wRow], dir, stars()); audio.click();
+      services.storage.set('look', look);
+    }
     const modeOpen = (id: number) => (storm ? stormOpen(id) : isOpen(id));
     const modeBests = () => (storm ? stormBests : bests);
 
@@ -350,6 +362,7 @@ export const pelicanBike: GameModule = {
     // ---- Actions shared by keyboard, pad and touch ----
     function primaryAction() {
       if (paused) return;
+      if (state === 'wardrobe') { audio.click(); state = 'title'; stateT = 0; return; }
       if (userPaused) { userPaused = false; audio.click(); return; }
       if (state === 'title') { audio.click(); startStage(sel, 0); }
       else if (state === 'levelclear') {
@@ -406,6 +419,15 @@ export const pelicanBike: GameModule = {
       }
       if (isLeft || isRight || isDown || isJump) e.preventDefault();
       if (!down || e.repeat) return;
+      if (state === 'wardrobe' && !paused) {
+        if (isLeft) wardrobeCycle(-1);
+        else if (isRight) wardrobeCycle(1);
+        else if (c === 'ArrowDown' || c === 'KeyS') { wRow = (wRow + 1) % SLOTS.length; audio.click(); }
+        else if (c === 'ArrowUp' || c === 'KeyW') { wRow = (wRow + SLOTS.length - 1) % SLOTS.length; audio.click(); }
+        else if (isEnter || c === 'Escape' || c === 'KeyC' || c === 'Space') primaryAction();
+        return;
+      }
+      if (c === 'KeyC' && state === 'title') { openWardrobe(); return; }
       if (state === 'title' && !paused) {
         if (isLeft) stepStage(-1);
         if (isRight) stepStage(1);
@@ -434,16 +456,17 @@ export const pelicanBike: GameModule = {
       const padMove = (e: PointerEvent) => {
         const r = pad.getBoundingClientRect();
         const dir = e.clientX < r.left + r.width / 2 ? -1 : 1;
-        if (state === 'title') { keys.left = keys.right = false; return; }
+        if (state === 'title' || state === 'wardrobe') { keys.left = keys.right = false; return; }
         keys.left = dir < 0; keys.right = dir > 0; paintPad();
       };
       const padDown = (e: PointerEvent) => {
         e.preventDefault();
         padPointer = e.pointerId;
         try { pad.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
-        if (state === 'title' && !paused) {
+        if ((state === 'title' || state === 'wardrobe') && !paused) {
           const r = pad.getBoundingClientRect();
-          stepStage(e.clientX < r.left + r.width / 2 ? -1 : 1);
+          const d = e.clientX < r.left + r.width / 2 ? -1 : 1;
+          if (state === 'wardrobe') wardrobeCycle(d); else stepStage(d);
           return;
         }
         padMove(e);
@@ -494,6 +517,10 @@ export const pelicanBike: GameModule = {
         if (i === sel) primaryAction(); else pickStage(i);
       } else if (hit?.act.startsWith('coast:')) pickCoast(Number(hit.act.slice(6)));
       else if (hit?.act === 'storm') toggleStorm();
+      else if (hit?.act === 'wardrobe') openWardrobe();
+      else if (hit?.act.startsWith('look:')) { const [, row, d] = hit.act.split(':'); wRow = Number(row); wardrobeCycle(Number(d)); }
+      else if (hit?.act.startsWith('row:')) { wRow = Number(hit.act.slice(4)); audio.click(); }
+      else if (state === 'wardrobe' && !hit) return;
       else if (hit?.act === 'retry') retryAction();
       else if (hit || state === 'title' || userPaused) primaryAction();
     };
@@ -519,7 +546,7 @@ export const pelicanBike: GameModule = {
       updateFx(dt);
 
       if (stormHintT > 0) stormHintT = Math.max(0, stormHintT - dt);
-      if (state === 'title') {
+      if (state === 'title' || state === 'wardrobe') {
         camX = (gtime * 45) % Math.max(1, sim.worldW - VW);
         jumpQueued = false;
         return;
@@ -549,6 +576,11 @@ export const pelicanBike: GameModule = {
       if (!P.dead) {
         if (P.turbo && Math.random() < dt * 34) emit(P.x + (P.dir > 0 ? 0 : PW), P.y + PH - 6, 1, { col: ['#ffd166', '#ff8c42', '#fff'], s0: 3, s1: 6, v0: 20, v1: 60, g: -40, d0: 0.18, d1: 0.32 });
         if (P.gliding && Math.random() < dt * 18) emit(P.x + PW / 2, P.y + 20, 1, { col: '#fff', s0: 2, s1: 4, v0: 10, v1: 35, g: 30, d0: 0.25, d1: 0.45 });
+        const trail = item(look.trail)?.col ?? [];
+        if (trail.length && Math.abs(P.vx) > 120 && Math.random() < dt * (services.isReducedMotion ? 10 : 30)) {
+          const col = look.trail === 'rainbow' ? trail[Math.floor(gtime * 8) % trail.length] : trail;
+          emit(P.x + (P.dir > 0 ? 2 : PW - 2), P.y + PH - 12, 1, { col, s0: 3, s1: 5.5, v0: 5, v1: 25, vx: -P.dir * 30, g: look.trail === 'bubbles' ? -60 : 0, d0: 0.4, d1: 0.7 });
+        }
         lookDir = lerp(lookDir, P.dir, 1 - Math.exp(-dt * 3.2));
         camX = lerp(camX, camTarget(), 1 - Math.exp(-dt * 7));
       }
@@ -586,14 +618,14 @@ export const pelicanBike: GameModule = {
         const g = poseAt(ghost, sim.time);
         if (!g.dead && g.x > camX - 80 && g.x < camX + VW + 80) {
           ctx.globalAlpha = 0.36;
-          drawPelican(ctx, { x: g.x, y: g.y, dir: g.dir, sx: 1, sy: 1, tilt: g.air ? -0.12 : 0, wheel: g.x * 0.095, pedal: g.x * 0.055, pouch: 0, flap: g.gliding ? gtime * 16 : 0, gliding: g.gliding, inv: 0, dead: false, vx: 300 }, gtime);
+          drawPelican(ctx, { x: g.x, y: g.y, dir: g.dir, sx: 1, sy: 1, tilt: g.air ? -0.12 : 0, wheel: g.x * 0.095, pedal: g.x * 0.055, pouch: 0, flap: g.gliding ? gtime * 16 : 0, gliding: g.gliding, inv: 0, dead: false, vx: 300 }, gtime, { hat: look.hat, paint: paint() });
           ctx.globalAlpha = 0.7;
           ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff';
           ctx.fillText(isZh ? '最佳' : 'BEST', g.x + PW / 2, g.y - 18);
           ctx.globalAlpha = 1;
         }
       }
-      if (state !== 'title') drawPelican(ctx, sim.P, gtime);
+      if (state !== 'title' && state !== 'wardrobe') drawPelican(ctx, sim.P, gtime, { hat: look.hat, paint: paint() });
       if (sim.chaseSpeed && state !== 'title') drawPursuer(ctx, sim.chaseKind, chaseX(sim), sim.P.y, camX, gtime);
 
       for (const p of particles) {
@@ -627,7 +659,8 @@ export const pelicanBike: GameModule = {
       ctx.setTransform(UI, 0, 0, UI, 0, 0);
       const ui = {
         uw, uh, padL, touch: isTouchDevice, isZh, gtime,
-        state: (state === 'playing' && userPaused ? 'paused' : state) as 'title' | 'playing' | 'paused' | 'levelclear' | 'victory',
+        state: (state === 'playing' && userPaused ? 'paused' : state) as 'title' | 'playing' | 'paused' | 'levelclear' | 'victory' | 'wardrobe',
+        stars: stars(), look, wRow, paintCol: paint(), nextLook: nextUnlock(stars()) ?? null,
         P: sim.P, lv: state === 'title' ? sel : sim.lv, label: stageLabel(state === 'title' ? sel : sim.lv), par: sim.par,
         stormHint: stormHintT > 0,
         chaseGap: sim.chaseSpeed ? sim.P.x - chaseX(sim) : Infinity, coast: coastOf(state === 'title' ? sel : sim.lv), coastOpen: COASTS.map((_c, i) => coastOpen(i)),
@@ -636,7 +669,7 @@ export const pelicanBike: GameModule = {
         score: sim.score, hiScore, sel, open: LEVELS.map((_l, i) => modeOpen(i)), bests, stormBests, result,
         storm: state === 'title' ? storm : sim.storm, stormOpen: stormOpen(state === 'title' ? sel : sim.lv)
       };
-      if (state !== 'title') drawHUD(ctx, ui);
+      if (state !== 'title' && state !== 'wardrobe') drawHUD(ctx, ui);
       hits = drawOverlay(ctx, ui);
       if (root.dataset.state !== ui.state) {
         root.dataset.state = ui.state;
