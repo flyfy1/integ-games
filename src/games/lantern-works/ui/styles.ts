@@ -111,4 +111,7 @@ export const STYLES = `
 .lw.compact .lw-controls .lw-btn{min-height:36px;font-size:.78rem}
 .lw.compact .lw-order img{width:24px;height:24px}
 .lw.compact .lw-title{font-size:.85rem}
+.lw-hint{display:none;margin:0;font-size:.78rem;line-height:1.3;color:#e6d3b0;opacity:.85}
+.lw.tall .lw-hint{display:block}
+.lw-pop.docked{max-width:min(420px,calc(100% - 8px))}
 `;

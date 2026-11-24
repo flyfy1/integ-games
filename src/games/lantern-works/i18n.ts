@@ -14,6 +14,8 @@ export const EN = {
   'hud.beat': 'Beat {n}', 'hud.parts': 'Parts {n}', 'hud.tidy': 'Tidy ≤ {n}', 'hud.swift': 'Swift ≤ {n}', 'hud.delivered': 'Delivered',
   'hud.order': 'Order', 'hud.then': 'then', 'hud.wrong': 'Wrong {n}/3', 'hud.score': 'Score {n}', 'hud.strikes': 'Missed {n}/3', 'hud.left': '{n} left',
   'hud.rotate': 'Rotate', 'hud.remove': 'Remove', 'hud.dial': 'Setting', 'hud.close': 'Done', 'hud.fixed': 'Bolted down', 'hud.new': 'New part',
+  'hud.aimed': '{part} now sends goods this way', 'hud.jam': 'Stuck! Check which way the part before the jam points: drag a belt out of it to aim it.',
+  'night.waiting': 'Paused, but the customers still wait', 'night.tray': 'Your tray holds the parts of the chapters you have cleared.',
   'hud.paused': 'Paused: edit freely, then Resume', 'hud.building': 'Build, then press Run', 'hud.running': 'Running',
   'fail.blocked': 'Nothing can go there', 'fail.fixed': 'That machine is bolted down', 'fail.empty': 'Nothing there', 'fail.none-left': 'None left in the tray',
   'fail.not-in-tray': 'Not in this workshop', 'fail.no-dial': 'No setting to change', 'fail.bad-dial': 'Not available here',
@@ -28,7 +30,7 @@ export const EN = {
   'settings.title': 'Settings', 'settings.lang': 'Language', 'settings.sound': 'Sound', 'settings.music': 'Workshop hum', 'settings.glyphs': 'Colour glyphs on lanterns',
   'settings.reduced': 'Reduce motion', 'settings.reset': 'Reset progress', 'settings.resetConfirm': 'Erase every star and saved build?', 'settings.resetDone': 'Progress reset',
   'common.back': 'Back', 'common.on': 'On', 'common.off': 'Off', 'common.storage': 'Saving is unavailable: progress lasts until you leave.',
-  'keys': 'Keys: arrows move · 1-9 / Q E pick · Space place (hold to draw) · R rotate · T setting · X remove · Z undo · Enter run · Backspace reset · F speed'
+  'keys': 'Keys: arrows move · 1-9 0 - = / Q E pick · Space place (hold to draw) · R rotate · T setting · X remove · Z undo · Enter run · Backspace reset · F speed'
 } as const;
 
 export type Key = keyof typeof EN;
@@ -42,6 +44,8 @@ export const ZH: Record<Key, string> = {
   'hud.beat': '第 {n} 拍', 'hud.parts': '零件 {n}', 'hud.tidy': '省料 ≤ {n}', 'hud.swift': '快手 ≤ {n}', 'hud.delivered': '交货',
   'hud.order': '订单', 'hud.then': '然后', 'hud.wrong': '错件 {n}/3', 'hud.score': '得分 {n}', 'hud.strikes': '误单 {n}/3', 'hud.left': '还差 {n}',
   'hud.rotate': '旋转', 'hud.remove': '拆除', 'hud.dial': '设定', 'hud.close': '完成', 'hud.fixed': '固定机器', 'hud.new': '新零件',
+  'hud.aimed': '{part}已改朝这个方向出货', 'hud.jam': '卡住了！看看堵点前面那个零件朝哪边：从它拖出一条带子就能改方向。',
+  'night.waiting': '已暂停，但客人还在等', 'night.tray': '零件盒里是你已通关章节的零件。',
   'hud.paused': '已暂停：随意修改，再按继续', 'hud.building': '先搭好，再按开工', 'hud.running': '运行中',
   'fail.blocked': '这里放不了', 'fail.fixed': '这台机器是固定的', 'fail.empty': '这里没有东西', 'fail.none-left': '托盘里没有了',
   'fail.not-in-tray': '这间工坊没有这个', 'fail.no-dial': '没有可调的设定', 'fail.bad-dial': '这里用不了',
@@ -56,7 +60,7 @@ export const ZH: Record<Key, string> = {
   'settings.title': '设置', 'settings.lang': '语言', 'settings.sound': '音效', 'settings.music': '工坊背景音', 'settings.glyphs': '灯笼上显示颜色符号',
   'settings.reduced': '减少动画', 'settings.reset': '重置进度', 'settings.resetConfirm': '清除所有星星和保存的搭建？', 'settings.resetDone': '进度已重置',
   'common.back': '返回', 'common.on': '开', 'common.off': '关', 'common.storage': '无法保存：离开后进度不会保留。',
-  'keys': '按键：方向键移动 · 1-9 / Q E 选零件 · 空格放置（按住可连铺）· R 旋转 · T 设定 · X 拆除 · Z 撤销 · 回车开工 · 退格清空 · F 速度'
+  'keys': '按键：方向键移动 · 1-9 0 - = / Q E 选零件 · 空格放置（按住可连铺）· R 旋转 · T 设定 · X 拆除 · Z 撤销 · 回车开工 · 退格清空 · F 速度'
 };
 
 export function createI18n(lang: Lang) {
