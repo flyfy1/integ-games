@@ -1,5 +1,5 @@
 import type { GameStorage } from '../../core/game-types';
-import { AFTER_HOURS, AFTER_HOURS_STARS, DAILY_ID, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, PUZZLES, STARTING_DEFENDERS } from './data';
+import { AFTER_HOURS, AFTER_HOURS_STARS, challengeOf, CRUMBS_CHALLENGE, DAILY_ID, DEFENDERS, ENDLESS_LEVEL, LEVEL_LIST, META_UPGRADES, PUZZLES, STARTING_DEFENDERS } from './data';
 import { isLang, type Lang } from './i18n';
 import { isDifficulty } from './sim';
 import type { Difficulty, LevelDef, MetaState, MetaUpgradeDef } from './types';
@@ -242,6 +242,25 @@ export function applyOutcome(save: Save, level: LevelDef, outcome: Outcome): Rew
   save.crumbs += reward.crumbs;
   return reward;
 }
+
+/**
+ * Folds a finished Chef's Challenge into the save. Only the challenge list (the fourth star), its crumbs and the
+ * Cookbook move: the night's own stars, best time, loss counter and Chef-difficulty record are left alone.
+ */
+export function applyChallenge(save: Save, level: LevelDef, outcome: Pick<Outcome, 'won' | 'recipes' | 'enemiesSeen' | 'defendersUsed'>): Reward {
+  const reward: Reward = { crumbs: 0, newStars: 0, unlocked: [], newRecipes: [], firstClear: false, newBest: false };
+  for (const id of outcome.recipes) if (!save.cookbook.recipes.includes(id)) { save.cookbook.recipes.push(id); reward.newRecipes.push(id); }
+  for (const id of outcome.enemiesSeen) if (!save.cookbook.enemies.includes(id)) save.cookbook.enemies.push(id);
+  for (const id of outcome.defendersUsed) if (!save.cookbook.defenders.includes(id)) save.cookbook.defenders.push(id);
+  if (outcome.won && !save.challenges.includes(level.id)) {
+    save.challenges.push(level.id);
+    reward.firstClear = true; reward.newStars = 1; reward.crumbs = CRUMBS_CHALLENGE;
+  }
+  save.crumbs += reward.crumbs;
+  return reward;
+}
+/** A night's Chef's Challenge opens once the night itself has been won. */
+export const challengeOpen = (save: Save, levelId: string): boolean => !!challengeOf(levelId) && !!save.levels[levelId]?.win;
 
 export const upgradeLevel = (save: Save, upgrade: MetaUpgradeDef): number => Math.min(upgrade.costs.length, save.upgrades[upgrade.id] ?? 0);
 /** Crumbs for the next level of an upgrade, or null when maxed. */

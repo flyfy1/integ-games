@@ -21,8 +21,10 @@ export type ResultsData = {
   ahOpened?: string[];
   /** Daily Night: the date, today's best, the streak, and whether this run set the best. */
   daily?: { key: string; best: number; streak: number; newBest: boolean };
+  /** A Chef's Challenge run (restricted kit, fourth star) rather than the night itself. */
+  challenge?: boolean;
 };
-export type ScreenParams = { level?: string; results?: ResultsData; from?: ScreenName; tab?: string; chapter?: number; panel?: string };
+export type ScreenParams = { level?: string; results?: ResultsData; from?: ScreenName; tab?: string; chapter?: number; panel?: string; /** Loadout for the night's Chef's Challenge. */ challenge?: boolean };
 
 export type UiContext = {
   i18n: I18n;
@@ -36,8 +38,8 @@ export type UiContext = {
   go(screen: ScreenName, params?: ScreenParams): void;
   /** Level chosen on the map: plays its intro scene the first time, then opens the loadout (or the level). */
   openLevel(levelId: string): void;
-  /** Loadout confirmed: start playing (with Granny's gift card, when she offered and one was picked). */
-  startNight(levelId: string, loadout: string[], gift?: string): void;
+  /** Loadout confirmed: start playing (with Granny's gift card, when she offered and one was picked; or as the night's Chef's Challenge). */
+  startNight(levelId: string, loadout: string[], gift?: string, challenge?: boolean): void;
   /** Difficulty for campaign and After Hours nights (kept in the save). */
   setDifficulty(difficulty: Difficulty): void;
   /** Daily Night record from the shared daily kit (today's best score, streak). */
@@ -45,7 +47,7 @@ export type UiContext = {
   /** Copy a line to the clipboard; resolves true when it worked. */
   copy(text: string): Promise<boolean>;
   /** Leave the results screen for the next step (outro scene, then map or next level). */
-  afterResults(results: ResultsData, choice: 'next' | 'retry' | 'map' | 'endless'): void;
+  afterResults(results: ResultsData, choice: 'next' | 'retry' | 'map' | 'endless' | 'challenge'): void;
   resume(): void;
   retry(): void;
   quitToMap(): void;

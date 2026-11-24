@@ -1,8 +1,9 @@
-import { DEFENDERS, dailyPlan, ENDLESS_LEVEL, ENEMIES, levelById, modeOf, RECIPES } from '../data';
+import { challengeLevel, challengeOf, DEFENDERS, dailyPlan, ENDLESS_LEVEL, ENEMIES, levelById, modeOf, RECIPES } from '../data';
 import * as ENDLESS from '../data/endless';
 import { clock, type Key } from '../i18n';
+import { botLoadout } from '../bot';
 import { spriteIcon } from '../render/sprites';
-import { CRUMBS_CHEF, grannyOffered } from '../save';
+import { challengeOpen, CRUMBS_CHEF, grannyOffered } from '../save';
 import type { BonusGoal, DefenderDef, Difficulty, EnemyDef, LevelDef } from '../types';
 import type { Screen, UiContext } from './context';
 import { h, head } from './dom';
@@ -118,9 +119,34 @@ function dailyPanel(ui: UiContext): HTMLElement {
       h('div', { class: 'mk-record' }, h('b', null, String(record.bestStreak)), h('small', null, t('daily.bestStreak')))));
 }
 
+/** The rules of a night's Chef's Challenge, as a list. */
+export function challengeRules(ui: UiContext, levelId: string): string[] {
+  const { t } = ui.i18n, rule = challengeOf(levelId), level = levelById(levelId);
+  if (!rule || !level) return [];
+  return [...(rule.slots && !level.cards ? [t('ch.slots', { n: rule.slots })] : []), ...(rule.noUpgrades ? [t('ch.noUpgrades')] : []), t('ch.rules')];
+}
+/** Top of the challenge briefing: what is restricted, and whether the fourth star is already won. */
+function challengePanel(ui: UiContext, levelId: string): HTMLElement {
+  const { t } = ui.i18n, won = ui.save.challenges.includes(levelId);
+  return h('div', { class: 'mk-panel mk-challenge', 'data-challenge': levelId },
+    h('h3', null, `♛ ${t('ch.title')}`, won ? h('span', { class: 'mk-chip', style: 'margin-left:8px' }, `★ ${t('ch.done')}`) : null),
+    h('ul', { class: 'mk-challenge-rules' }, challengeRules(ui, levelId).map(line => h('li', null, line))));
+}
+/** On a won night's normal briefing: the door into its Chef's Challenge. */
+function challengeDoor(ui: UiContext, levelId: string): HTMLElement {
+  const { t } = ui.i18n, won = ui.save.challenges.includes(levelId);
+  return h('div', { class: 'mk-panel mk-challenge', 'data-challenge-door': levelId },
+    h('h3', null, `♛ ${t('ch.title')}`, won ? h('span', { class: 'mk-chip', style: 'margin-left:8px' }, `★ ${t('ch.done')}`) : null),
+    h('p', { style: 'margin:4px 0 8px' }, t('ch.offer'), ' ', challengeRules(ui, levelId).slice(0, -1).join(' · ')),
+    h('button', { class: 'mk-btn', 'data-action': 'challenge', onclick: () => ui.go('loadout', { level: levelId, challenge: true }) }, `♛ ${t('ch.title')}`));
+}
+
 /** Briefing and hand picker. With a fixed hand (tutorial) or fewer cards than slots it is just a briefing. */
 export const loadoutScreen: Screen = (ui, params) => {
-  const { t, tr } = ui.i18n, level = levelById(params.level ?? '');
+  const { t, tr } = ui.i18n, night = levelById(params.level ?? '');
+  // The Chef's Challenge briefing shows the night as the challenge plays it (smaller hand, no upgrades).
+  const challenge = !!params.challenge && !!night && challengeOpen(ui.save, night.id);
+  const level = night && challenge ? challengeLevel(night) : night;
   if (!level) return h('div', { class: 'mk-screen', 'data-screen': 'loadout' });
   const mode = modeOf(level), daily = mode === 'daily', endless = level.id === ENDLESS_LEVEL.id || daily, rules = level.rules ?? {};
   // A conveyor night shows what rides the belt; a leftovers night deals from everything owned when it starts.
@@ -128,15 +154,18 @@ export const loadoutScreen: Screen = (ui, params) => {
   const fixed = !!level.cards || !!belt || !!rules.leftovers;
   const pool = belt ?? (level.cards ? level.cards.filter(id => DEFENDERS[id]) : ui.save.owned.filter(id => DEFENDERS[id]));
   const choosing = !fixed && pool.length > level.slots;
-  const suggested = recommend(level, pool);
+  // A challenge suggests the hand its bot proof was measured with (Heat, a shooter, then the answers to tonight's pests):
+  // the usual pick leans on big cards that a three-card hand cannot afford to lose.
+  const suggested = challenge ? botLoadout(level, pool) : recommend(level, pool);
   const remembered = ui.save.loadout.filter(id => pool.includes(id));
-  let chosen = !choosing ? [...pool] : [...new Set([...(level.introduces?.defenders ?? []).filter(id => pool.includes(id)), ...remembered, ...suggested])].slice(0, level.slots);
+  // A challenge starts from the suggested hand: the remembered one is usually bigger than the challenge allows.
+  let chosen = !choosing ? [...pool] : challenge ? [...suggested] : [...new Set([...(level.introduces?.defenders ?? []).filter(id => pool.includes(id)), ...remembered, ...suggested])].slice(0, level.slots);
   const ordered = () => pool.filter(id => chosen.includes(id));
   const fresh = new Set(level.introduces?.defenders ?? []), rec = new Set(choosing ? suggested : []);
   const counter = h('span', { class: 'mk-chip' }), note = h('p', { role: 'status', 'aria-live': 'polite' });
   const recipeList = h('div', { class: 'mk-recipe-hints' });
-  const granny = !endless && grannyOffered(ui.save, level.id), picked: { gift: string | null } = { gift: null };
-  const start = h('button', { class: 'mk-btn primary big', 'data-action': 'start', onclick: () => ui.startNight(level.id, belt ? [] : ordered(), granny && picked.gift ? picked.gift : undefined) }, endless ? t('endless.start') : t('loadout.start'));
+  const granny = !endless && !challenge && grannyOffered(ui.save, level.id), picked: { gift: string | null } = { gift: null };
+  const start = h('button', { class: 'mk-btn primary big', 'data-action': 'start', onclick: () => ui.startNight(level.id, belt ? [] : ordered(), granny && picked.gift ? picked.gift : undefined, challenge) }, endless ? t('endless.start') : challenge ? `♛ ${t('loadout.start')}` : t('loadout.start'));
   const buttons = pool.map(id => {
     const def = DEFENDERS[id];
     return h('button', { class: `mk-pick${rec.has(id) ? ' rec' : ''}`, 'data-card': id, 'aria-pressed': String(chosen.includes(id)), 'aria-label': `${tr(def.name)}, ${def.cost}. ${tr(def.desc)}`, title: tr(def.desc), onclick: () => {
@@ -171,10 +200,10 @@ export const loadoutScreen: Screen = (ui, params) => {
     h('div', { class: 'mk-eyebrow' }, daily ? `☀ ${ui.daily().key}` : endless ? '∞' : mode === 'afterhours' ? t('ah.eyebrow', { n: level.index }) : level.boss ? `${t('map.chapter', { n: level.chapter })} · ${t('map.boss')}` : `${t('map.chapter', { n: level.chapter })} · ${t('map.level', { n: level.index })}`),
     h('p', { class: 'mk-lead', style: 'margin-top:4px' }, tr(level.blurb)),
     facts.length ? h('div', { class: 'mk-facts' }, facts.map(fact => h('span', { class: 'mk-chip' }, fact))) : null,
-    endless ? null : h('div', { class: 'mk-goal', style: 'color:var(--ink);background:rgba(255,180,84,.18);border-color:rgba(181,101,13,.5)' }, `${t('loadout.bonus')}: ${bonusText(ui, level.bonus)}`),
+    endless || challenge ? null : h('div', { class: 'mk-goal', style: 'color:var(--ink);background:rgba(255,180,84,.18);border-color:rgba(181,101,13,.5)' }, `${t('loadout.bonus')}: ${bonusText(ui, level.bonus)}`),
     // What the chosen hand can cook sits on the briefing card, next to the goal, so it updates in view while picking.
     endless ? null : h('div', { class: 'mk-brief-recipes' }, h('div', { class: 'mk-eyebrow' }, t('loadout.recipes')), recipeList),
-    endless ? null : difficultyPicker(ui));
+    endless || challenge ? null : difficultyPicker(ui));
   const pests = seen.length ? h('div', { class: 'mk-panel' }, h('h3', null, t('loadout.visitors')),
     h('div', { class: 'mk-visitors' }, seen.map(id => {
       const def = ENEMIES[id];
@@ -192,9 +221,11 @@ export const loadoutScreen: Screen = (ui, params) => {
   // On a wide stage the picker and Start form a sticky right column (both always in view); on a phone that wrapper
   // dissolves (display:contents) so Start stays a sticky bar across the whole screen.
   return h('div', { class: 'mk-screen', 'data-screen': 'loadout' },
-    head(ui, tr(level.name), () => (mode === 'afterhours' ? ui.go('afterhours') : daily ? ui.go('map') : ui.go(endless ? 'title' : 'map', endless ? {} : { chapter: level.chapter }))),
+    head(ui, challenge ? `♛ ${tr(level.name)}` : tr(level.name), () => (challenge ? ui.go('loadout', { level: level.id }) : mode === 'afterhours' ? ui.go('afterhours') : daily ? ui.go('map') : ui.go(endless ? 'title' : 'map', endless ? {} : { chapter: level.chapter }))),
     h('div', { class: 'mk-body mk-loadout' },
-      h('div', { class: 'mk-brief' }, brief, grannyBox, daily ? dailyPanel(ui) : endless ? endlessPanel(ui) : pests),
+      h('div', { class: 'mk-brief' }, challenge ? challengePanel(ui, level.id) : null, brief,
+        !challenge && !endless && challengeOpen(ui.save, level.id) ? challengeDoor(ui, level.id) : null,
+        grannyBox, daily ? dailyPanel(ui) : endless ? endlessPanel(ui) : pests),
       endless ? pests : null,
       h('div', { class: 'mk-loadout-side' }, picker, h('div', { class: 'mk-loadout-foot' }, note, start))));
 };

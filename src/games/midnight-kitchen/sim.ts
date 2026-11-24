@@ -307,6 +307,7 @@ export function cellFree(sim: Sim, col: number, lane: number, def?: string): boo
 
 /** Heat to raise this defender one tier (or polish it in Endless), or null at max tier / for one-shots. */
 export function upgradeCost(sim: Sim, defender: Defender): number | null {
+  if (sim.rules.noUpgrades) return null;
   const tiers = defOf(sim, defender).tiers, next = tiers[defender.tier + 1];
   if (next) return next.upgradeCost ?? 0;
   if (!sim.level.polish || tiers.length < 3) return null;
@@ -496,6 +497,7 @@ export function upgrade(sim: Sim, col: number, lane: number): ActionResult {
   const d = defenderAt(sim, col, lane);
   if (!d) return { ok: false, reason: 'empty' };
   if (sim.rules.puzzle) return { ok: false, reason: 'max-tier' };
+  if (sim.rules.noUpgrades) return { ok: false, reason: 'challenge' };
   const cost = upgradeCost(sim, d);
   if (cost === null) return { ok: false, reason: 'max-tier' };
   if (sim.heat < cost) return { ok: false, reason: 'heat' };

@@ -225,7 +225,7 @@ export function botAct(sim: Sim, allowUpgrades = true, maxGenerators = 99, recip
   const candidates = botCandidates(sim, chase && goal.kind === 'maxDefenders' ? Math.min(maxGenerators, Math.max(3, Math.floor(goal.n / 3))) : maxGenerators, recipes)
     .filter(c => c.ready).sort((a, b) => b.priority - a.priority);
   for (const candidate of candidates) {
-    if (!allowUpgrades && candidate.kind === 'upgrade') continue;
+    if ((!allowUpgrades || sim.rules.noUpgrades) && candidate.kind === 'upgrade') continue;
     if (capped && candidate.kind === 'place') continue;
     // A real emergency (an open lane, a one-shot) may dip into the bank.
     const budget = candidate.priority >= 110 ? sim.heat : sim.heat - reserve;

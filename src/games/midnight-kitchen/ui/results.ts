@@ -5,7 +5,7 @@ import { spriteIcon } from '../render/sprites';
 import type { Screen, UiContext } from './context';
 import { crumbs, h, head } from './dom';
 import { bonusText } from './loadout';
-import { grannyOffered, hintOffered } from '../save';
+import { challengeOpen, grannyOffered, hintOffered } from '../save';
 import { helpPanel, settingsBody } from './settings';
 
 const TIPS: Key[] = ['tip.burners', 'tip.lanes', 'tip.walls', 'tip.upgrade', 'tip.recipes'];
@@ -57,6 +57,15 @@ export const resultsScreen: Screen = (ui, params) => {
         h('p', { style: 'margin-top:4px' }, reward.newBest && reward.prevBest?.score ? t('results.beat', { n: reward.prevBest.score }) : reward.newBest ? t('results.first') : t('results.bestWas', { n: ui.save.endless.bestScore }))),
       h('div', { class: 'mk-statgrid' }, stat(t('results.waves'), data.wave), stat(t('results.kills'), data.kills), stat(t('results.recipesCooked'), stats?.recipes.length ?? 0), stat(t('results.heatSpent'), stats?.heatSpent ?? 0), stat(t('results.time'), clock(data.time))));
     if (best) chime(ui, element, [0.3]);
+  } else if (data.challenge) {
+    // Chef's Challenge: one star at stake, the fourth. Won before? It stays lit without the ceremony.
+    const fresh = won && reward.firstClear;
+    box.append(h('div', { class: 'mk-eyebrow' }, `♛ ${t('ch.title')} · ${eyebrow} · ${tr(level.name)}`),
+      h('h2', null, won ? t('ch.winHead') : t('ch.loseHead')), h('p', { class: 'mk-tag' }, won ? t(fresh ? 'ch.winSub' : 'ch.againSub') : t('ch.loseSub')),
+      h('div', { class: 'mk-bigstars', 'data-challenge-star': won ? 'won' : 'lost', role: 'img', 'aria-label': `${t('ch.star')}: ${won || ui.save.challenges.includes(level.id) ? '★' : '☆'}` },
+        h('div', { class: `mk-bigstar${won || ui.save.challenges.includes(level.id) ? ` on${fresh ? '' : ' had'}` : ''}`, style: fresh ? '--d:.35s' : '' }, h('i', { class: 'g' }, '♛'), h('span', null, t('ch.star')),
+          fresh ? h('i', { class: 'mk-tagnew', style: '--d:.6s' }, t('common.new')) : null)));
+    if (fresh) chime(ui, element, [0.35]);
   } else if (mode === 'puzzle') {
     // Chef's Table: solved or not, no stars. A second miss in a row brings the hint (also shown on the counter).
     const puzzle = PUZZLES.find(item => item.level === level);
@@ -124,6 +133,9 @@ export const resultsScreen: Screen = (ui, params) => {
     won && data.nextLevel ? h('button', { class: 'mk-btn primary big', 'data-action': 'next', onclick: () => ui.afterResults(data, 'next') }, `${t('results.next')} ›`) : null,
     finale ? h('button', { class: 'mk-btn primary big', 'data-action': 'endless', onclick: () => ui.afterResults(data, 'endless') }, `∞ ${t('results.toEndless')}`) : null,
     h('button', { class: `mk-btn${(won && data.nextLevel) || finale ? '' : ' primary big'}`, 'data-action': 'retry', onclick: () => ui.afterResults(data, 'retry') }, `↻ ${won || endless ? t('results.replay') : t('results.retry')}`),
+    // A won night offers its Chef's Challenge (a replay with a restricted kit for a fourth star) until that star is won.
+    won && !data.challenge && mode === 'campaign' && challengeOpen(ui.save, level.id) && !ui.save.challenges.includes(level.id)
+      ? h('button', { class: 'mk-btn', 'data-action': 'challenge', onclick: () => ui.afterResults(data, 'challenge') }, `♛ ${t('ch.title')}`) : null,
     h('button', { class: 'mk-btn', 'data-action': 'map', onclick: () => ui.afterResults(data, 'map') }, t('results.map'))));
   return element;
 };

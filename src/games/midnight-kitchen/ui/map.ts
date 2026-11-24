@@ -57,16 +57,17 @@ export const mapScreen: Screen = (ui, params) => {
       h('div', { class: 'mk-eyebrow' }, t('map.chapter', { n: chosen.id })), h('h3', null, tr(chosen.name)),
       h('p', null, chosen.state === 'locked' ? t('map.chapterLocked', { n: chosen.id - 1 }) : chosen.blurb ? tr(chosen.blurb) : '')),
     chosen.state === 'open' ? h('span', { class: 'mk-chip' }, `★ ${chosen.stars}/${chosen.total}`) : null,
+    chosen.state === 'open' && save.challenges.some(id => chosen.levels.some(level => level.id === id)) ? h('span', { class: 'mk-chip', 'data-chef-count': '' }, t('ch.count', { n: chosen.levels.filter(level => save.challenges.includes(level.id)).length, total: chosen.levels.length })) : null,
     chosen.fresh ? h('span', { class: 'mk-ribbon', 'aria-hidden': 'true' }, t('map.newChapter')) : null);
 
   const path = h('div', { class: 'mk-path', 'data-chapter-levels': String(chosen.id) });
   for (const level of chosen.levels) {
-    const open = isUnlocked(save, level.id), got = starsOf(save.levels[level.id]);
+    const open = isUnlocked(save, level.id), got = starsOf(save.levels[level.id]), chef = save.challenges.includes(level.id);
     path.append(h('button', { class: `mk-node${level.boss ? ' boss' : ''}${level.id === current && open ? ' current' : ''}`, 'data-level': level.id, disabled: !open,
-      'aria-label': `${level.boss ? t('map.boss') : t('map.level', { n: level.index })}: ${tr(level.name)}. ${open ? `${got}/3 ★` : t('map.locked')}`, onclick: () => ui.openLevel(level.id) },
+      'aria-label': `${level.boss ? t('map.boss') : t('map.level', { n: level.index })}: ${tr(level.name)}. ${open ? `${got}/3 ★${chef ? ` · ♛ ${t('ch.done')}` : ''}` : t('map.locked')}`, onclick: () => ui.openLevel(level.id) },
       h('span', { class: 'mk-node-num', 'aria-hidden': 'true' }, level.boss ? '♛' : String(level.index)),
       h('b', null, tr(level.name)),
-      open ? stars(got) : h('em', null, `🔒 ${t('map.locked')}`)));
+      open ? h('span', { class: 'mk-node-stars' }, stars(got), chef ? h('i', { class: 'mk-chef-star', 'data-chef-star': '', title: t('ch.done') }, '♛') : null) : h('em', null, `🔒 ${t('map.locked')}`)));
   }
 
   const endlessOpen = !!save.levels[ENDLESS_UNLOCK]?.win, shopReady = META_UPGRADES.some(upgrade => canBuy(save, upgrade));

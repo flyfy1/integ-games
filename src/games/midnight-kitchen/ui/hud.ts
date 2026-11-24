@@ -235,7 +235,7 @@ export function createHud(root: HTMLElement, deps: HudDeps, session: Session, ac
         // Chef's Table: no upgrades, and taking a piece back just returns it to the hand (fixed pieces stay put).
         sim.rules.puzzle ? h('div', { class: 'mk-pop-row' }, d.fixed || !sim.prep ? '' : h('button', { class: 'mk-btn danger', 'data-action': 'remove', 'aria-label': t('hud.remove'), onclick: () => session.removeAt(d.col, d.lane) }, h('b', null, t('hud.remove')))) :
         h('div', { class: 'mk-pop-row' },
-          cost === null ? h('button', { class: 'mk-btn good', disabled: true }, h('b', null, t('hud.max')))
+          cost === null ? h('button', { class: 'mk-btn good', disabled: true }, h('b', null, sim.rules.noUpgrades ? `♛ ${t('hud.noUpgrades')}` : t('hud.max')))
             : h('button', { class: `mk-btn good${poor ? ' is-poor' : ''}`, 'data-action': 'upgrade', 'aria-label': `${t('hud.upgrade')} ${cost}`, onclick: () => session.upgradeAt(d.col, d.lane) }, h('b', null, `▲ ${t('hud.upgrade')}`), h('span', null, `♨ ${cost}`)),
           h('button', { class: 'mk-btn danger', 'data-action': 'remove', 'aria-label': `${t('hud.remove')} +${refund}`, onclick: () => session.removeAt(d.col, d.lane) }, h('b', null, t('hud.remove')), h('span', null, `+${refund}`))));
       pop.hidden = false;

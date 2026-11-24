@@ -150,6 +150,11 @@ export const STYLES = `
 .mk-node b{font-size:var(--fs-s);font-weight:900;line-height:1.2}
 .mk-node .mk-stars{font-size:19px}
 .mk-node .mk-stars i:not(.on){color:rgba(42,26,18,.22)}
+.mk-node-stars{display:inline-flex;align-items:center;gap:4px}
+.mk-chef-star{font-style:normal;font-size:17px;line-height:1;color:#b3262b;text-shadow:0 1px 0 #ffe9a8}
+.mk-challenge h3{margin:0 0 4px;display:flex;align-items:center;flex-wrap:wrap}
+.mk-challenge-rules{margin:4px 0 0;padding-left:1.2em}
+.mk-challenge-rules li{margin:2px 0}
 .mk-node.boss{background:linear-gradient(#ffd6dc,#f29aa9)}
 .mk-node.boss .mk-node-num{background:#7d2f45;font-size:22px}
 .mk-node.current{box-shadow:0 5px 0 var(--ink),0 0 0 4px var(--amber),0 0 24px rgba(255,180,84,.6)}

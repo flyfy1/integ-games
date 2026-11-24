@@ -479,6 +479,8 @@ export type NightRules = {
   fixedSlices?: boolean;
   /** Puzzle: no Heat, a stock of each card, place everything first and then press Cook. */
   puzzle?: { pieces: Record<string, number> };
+  /** Chef's Challenge: guards cannot be upgraded during the night. */
+  noUpgrades?: boolean;
 };
 
 export type SimOptions = {
@@ -566,7 +568,7 @@ export type Sim = {
 };
 
 export type PlaceFail = 'unknown-card' | 'cooldown' | 'heat' | 'occupied' | 'blocked' | 'mold' | 'out-of-bounds' | 'over' | 'wet' | 'dark' | 'stock' | 'cooking';
-export type ActionResult = { ok: true } | { ok: false; reason: PlaceFail | 'empty' | 'max-tier' | 'fixed' };
+export type ActionResult = { ok: true } | { ok: false; reason: PlaceFail | 'empty' | 'max-tier' | 'fixed' | 'challenge' };
 
 /** Everything that happens, in order. The renderer, the audio facade, the tutorial and the story barks subscribe. */
 export type SimEvent =

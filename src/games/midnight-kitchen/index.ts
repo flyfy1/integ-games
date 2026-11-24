@@ -1,12 +1,12 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createAudio } from './audio';
-import { AFTER_HOURS, DAILY_ID, dailyLevel, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelById, META_UPGRADES, modeOf, nextLevelId, PUZZLE_SEED, PUZZLES } from './data';
+import { AFTER_HOURS, challengeLevel, DAILY_ID, dailyLevel, CHAPTERS, DEFENDERS, ENDLESS_LEVEL, ENDLESS_UNLOCK, LEVEL_LIST, levelById, META_UPGRADES, modeOf, nextLevelId, PUZZLE_SEED, PUZZLES } from './data';
 import type { LevelDef } from './types';
 import { dailyKey, dailyRandom, readDaily, recordDaily } from '../_shared/daily';
 import { createI18n, defaultLang, type Lang } from './i18n';
 import { attachInput } from './input';
 import { createRenderer, type ViewState } from './render/renderer';
-import { applyOutcome, buyUpgrade, grannyOffered, hintOffered, isUnlocked, loadSave, metaOf, resetSave, respec, writeSave, type Save } from './save';
+import { applyChallenge, applyOutcome, buyUpgrade, grannyOffered, hintOffered, isUnlocked, loadSave, metaOf, resetSave, respec, writeSave, type Save } from './save';
 import { createSession, type Session } from './session';
 import { mulberry32, place, starFlags } from './sim';
 import { SCENES } from './story';
@@ -65,7 +65,7 @@ export const midnightKitchen: GameModule = {
 
     let session: Session | null = null, hud: Hud | null = null, dialogue: Dialogue | null = null;
     let screen: { name: ScreenName; params: ScreenParams; element: HTMLElement } | null = null;
-    let night: { level: string; loadout: string[]; gift?: string } | null = null;
+    let night: { level: string; loadout: string[]; gift?: string; challenge?: boolean } | null = null;
     let puzzleLayout: { level: string; moves: [string, number, number][] } | null = null;
     let pendingResults: ResultsData | null = null;
     let externalPause = false, destroyed = false, raf = 0, last = 0, clock = 0, endTimer = 0, ending = false, pixelRatio = 1;
@@ -134,7 +134,8 @@ export const midnightKitchen: GameModule = {
     const go = (name: ScreenName, params: ScreenParams = {}) => {
       if (destroyed) return;
       // Re-rendering the same screen (a purchase, a tab, a language switch) keeps the scroll position.
-      const scroll = screen && screen.name === name ? screen.element.scrollTop : 0;
+      // Switching a briefing between the night and its Chef's Challenge is a different page, so it starts at the top.
+      const scroll = screen && screen.name === name && !!screen.params.challenge === !!params.challenge ? screen.element.scrollTop : 0;
       closeScreen(name);
       if (name !== 'pause' && name !== 'results' && session) endNight();
       const element = SCREENS[name](ui, params);
@@ -188,24 +189,27 @@ export const midnightKitchen: GameModule = {
       root.classList.remove('hand-side');
       layout();
     }
-    function startNight(levelId: string, loadout: string[], gift?: string): void {
-      const level = levelById(levelId);
+    function startNight(levelId: string, loadout: string[], gift?: string, challenge = false): void {
+      const base = levelById(levelId);
+      // A Chef's Challenge plays the same night with its restricted kit (built in one place, shared with the bot proofs).
+      const level = base && challenge ? challengeLevel(base) : base;
       if (!level || destroyed) return;
       closeScreen();
       if (session) endNight();
-      if (!level.cards) { save.loadout = [...loadout]; persist(); }
-      // Granny only helps while the night is still being lost; a retry after a win plays it straight.
-      const help = gift && grannyOffered(save, levelId) ? gift : undefined;
+      // The challenge's smaller hand is not the hand the player normally brings, so it is not remembered.
+      if (!level.cards && !challenge) { save.loadout = [...loadout]; persist(); }
+      // Granny only helps while the night is still being lost; a retry after a win plays it straight. Never in a challenge.
+      const help = gift && !challenge && grannyOffered(save, levelId) ? gift : undefined;
       // Chef's Table: a retry puts back the pieces from the last attempt, so a near miss is one move away.
       const restore = puzzleLayout?.level === levelId ? puzzleLayout.moves : [];
-      night = { level: levelId, loadout: [...loadout], gift: help };
+      night = { level: levelId, loadout: [...loadout], gift: help, challenge };
       const steps = level.tutorial?.length ?? 0;
       // Puzzles replay the same seed with no upgrades, so the stored answers hold for everyone.
       // Daily Night too: today's seed for everyone, and no upgrades, so scores compare.
       const puzzle = modeOf(level) === 'puzzle', daily = level.id === DAILY_ID;
       session = createSession(level, {
         random: puzzle ? mulberry32(PUZZLE_SEED) : daily ? dailyRandom('midnight-kitchen', `${dailyKey()}:sim`) : services.random, loadout, meta: puzzle || daily ? undefined : metaOf(save), speed: save.speed, tutorialFrom: tutorialFrom(level.id, steps),
-        difficulty: level.id === ENDLESS_LEVEL.id || daily ? 'standard' : save.difficulty, gift: help,
+        difficulty: level.id === ENDLESS_LEVEL.id || daily || challenge ? 'standard' : save.difficulty, gift: help,
         onDeny: reason => { hud?.deny(reason); audio.sfx('deny'); },
         onTutorial: index => { for (let i = 0; i < index; i++) coachStore.see(`${level.id}:${i}`); }
       });
@@ -225,6 +229,18 @@ export const midnightKitchen: GameModule = {
     function commitNight(): void {
       if (!session || pendingResults) return;
       const sim = session.sim, level = session.level, flags = starFlags(sim), endless = level.id === ENDLESS_LEVEL.id;
+      if (night?.challenge) {
+        // A challenge only adds the fourth star (and its crumbs); the night's own record, progress and unlocks stay as they were.
+        const openNights = new Set(AFTER_HOURS.filter(item => isUnlocked(save, item.id)).map(item => item.id));
+        const reward = applyChallenge(save, level, { won: flags.win, recipes: sim.stats.recipes, enemiesSeen: sim.stats.enemiesSeen, defendersUsed: sim.stats.defendersUsed });
+        persist();
+        pendingResults = {
+          level, won: flags.win, flags, reward, time: sim.time, kills: sim.stats.kills, score: sim.score, wave: sim.wave + 1, stats: { ...sim.stats, recipes: [...sim.stats.recipes] },
+          nextLevel: null, endlessUnlocked: false, chapterOpened: null, challenge: true,
+          ahOpened: AFTER_HOURS.filter(item => !openNights.has(item.id) && isUnlocked(save, item.id)).map(item => item.id)
+        };
+        return;
+      }
       if (modeOf(level) === 'puzzle' && flags.win) puzzleLayout = null;
       const hadEndless = !!save.levels[ENDLESS_UNLOCK]?.win, isDaily = level.id === DAILY_ID;
       const dailyBefore = isDaily ? readDaily(services.storage) : null, today = dailyKey();
@@ -271,7 +287,7 @@ export const midnightKitchen: GameModule = {
     function pauseGame(): void {
       if (!session || session.sim.status !== 'playing' || screen || dialogue) return;
       audio.sfx('ui');
-      go('pause', { level: ui.i18n.tr(session.level.name) });
+      go('pause', { level: `${night?.challenge ? `♛ ${ui.i18n.t('ch.title')} · ` : ''}${ui.i18n.tr(session.level.name)}` });
     }
     function toggleSpeed(): void {
       if (!session) return;
@@ -297,24 +313,25 @@ export const midnightKitchen: GameModule = {
         const direct = modeOf(level) === 'campaign' && !!level.cards && !save.levels[level.id]?.win && !grannyOffered(save, level.id);
         playScene(level.intro, () => (direct ? startNight(levelId, level.cards!) : go('loadout', { level: levelId })));
       },
-      startNight(levelId, loadout, gift) { audio.sfx('ui'); startNight(levelId, loadout, gift); },
+      startNight(levelId, loadout, gift, challenge) { audio.sfx('ui'); startNight(levelId, loadout, gift, challenge); },
       setDifficulty(difficulty) { save.difficulty = difficulty; persist(); audio.sfx('select'); },
       daily() { const key = dailyKey(), record = readDaily(services.storage); return { key, best: record.scores[key] ?? null, streak: record.streak, bestStreak: record.bestStreak }; },
       async copy(text) { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } },
       afterResults(results, choice) {
         audio.sfx('ui');
         const proceed = () => {
-          if (choice === 'retry' && night) startNight(night.level, night.loadout, night.gift);
+          if (choice === 'retry' && night) startNight(night.level, night.loadout, night.gift, night.challenge);
+          else if (choice === 'challenge') { endNight(); go('loadout', { level: results.level.id, challenge: true }); }
           else if (choice === 'next' && results.nextLevel) { endNight(); ui.openLevel(results.nextLevel); }
           else if (choice === 'endless') { endNight(); ui.openLevel(ENDLESS_LEVEL.id); }
           // A boss win that opened the next kitchen lands on that kitchen's tab; side nights go back to their own list.
           else goHome(results.level, results.chapterOpened ?? undefined);
         };
-        // The outro belongs to the first win; retrying a won level should not sit through it again.
-        if (results.won && choice !== 'retry') playScene(results.level.outro, proceed); else proceed();
+        // The outro belongs to the first win; retrying a won level should not sit through it again (a challenge has none).
+        if (results.won && choice !== 'retry' && choice !== 'challenge' && !results.challenge) playScene(results.level.outro, proceed); else proceed();
       },
       resume() { resumeLevel(); audio.sfx('ui'); },
-      retry() { if (night) startNight(night.level, night.loadout, night.gift); },
+      retry() { if (night) startNight(night.level, night.loadout, night.gift, night.challenge); },
       quitToMap() { goHome(session?.level); },
       setLang(lang: Lang) {
         save.lang = lang; persist();

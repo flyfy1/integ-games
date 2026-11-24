@@ -16,3 +16,4 @@ export { endlessWave } from './endless';
 export { AFTER_HOURS, AFTER_HOURS_BY_ID, AFTER_HOURS_STARS } from './afterhours';
 export { PUZZLES, PUZZLE_SEED, type PuzzleDef } from './puzzles';
 export { DAILY_ID, dailyLevel, dailyPlan, type DailyPlan } from './daily';
+export { CHALLENGES, CRUMBS_CHALLENGE, challengeLevel, challengeOf, type ChefChallenge } from './challenges';
