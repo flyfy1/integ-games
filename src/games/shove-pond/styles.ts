@@ -75,4 +75,12 @@ export const STYLES = `
 .sp.compact .sp-pad{grid-template-columns:repeat(3,44px);grid-template-rows:repeat(2,40px)}
 .sp.compact .sp-act{height:50px;min-width:66px}
 .sp.compact .sp-act.ready{min-width:92px}
+.sp.wide .sp-bottom{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px 16px}
+.sp.wide .sp-hintrow{grid-column:1/-1;grid-row:1}
+.sp.wide .sp-timer{grid-column:1/-1;grid-row:2}
+.sp.wide .sp-controls{display:contents}
+.sp.wide .sp-pad{grid-column:1;grid-row:3/5;justify-self:start}
+.sp.wide .sp-slots:not(.sp-hintrow){grid-column:2;grid-row:3}
+.sp.wide .sp-emotes{grid-column:2;grid-row:4}
+.sp.wide .sp-acts{grid-column:3;grid-row:3/5}
 `;

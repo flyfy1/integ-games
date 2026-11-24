@@ -148,6 +148,7 @@ export const shovePond: GameModule = {
       height = Math.floor(height);
       root.style.setProperty('--sp-h', `${height}px`);
       root.classList.toggle('compact', width < 380 || height < 600);
+      root.classList.toggle('wide', width >= 640);
       hudTop = top.offsetHeight + 8; hudBottom = bottom.offsetHeight + 8;
       renderer.resize(width, height, Math.min(2, window.devicePixelRatio || 1), hudTop, hudBottom);
     };
@@ -261,7 +262,7 @@ export const shovePond: GameModule = {
         bottom.append(em);
       }
       if (scene?.kind === 'scenario' && scene.fails > 0 && !scene.hint) {
-        bottom.prepend(h('div', { class: 'sp-slots' }, h('button', { class: 'sp-small', onclick: () => { if (scene?.kind === 'scenario') { scene.hint = true; draft = []; refreshHud(); } } }, `💡 ${t('hud.hint')}`)));
+        bottom.prepend(h('div', { class: 'sp-slots sp-hintrow' }, h('button', { class: 'sp-small', onclick: () => { if (scene?.kind === 'scenario') { scene.hint = true; draft = []; refreshHud(); } } }, `💡 ${t('hud.hint')}`)));
       }
     }
 
