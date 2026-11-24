@@ -119,14 +119,14 @@ export const LEVELS: LevelDef[] = [
   L({
     id: '3-2', chapter: 3, index: 2, introduces: 'wick',
     name: { en: 'Light It', zh: '点亮' },
-    hint: { en: 'A Wick lights a lantern with a candle. Candles come slowly; the rest can wait in line. Two candle chutes: one belt more feeds the Wick from both.', zh: '点灯台用蜡烛点亮灯笼。蜡烛来得慢，其余的排队等着。有两个蜡烛槽：多铺一节带子，就能两边一起供。' },
+    hint: { en: 'A Wick lights a lantern with a candle. Candles come slowly; the rest can wait in line. There are two candle chutes: a Wick fed from both lights twice as often.', zh: '点灯台用蜡烛点亮灯笼。蜡烛来得慢，其余的排队等着。有两个蜡烛槽：两边一起供的点灯台，点得快一倍。' },
     grid: ['........', '........', '........', '........', '........', '........'],
     sources: [
       { x: 0, y: 1, dir: 0, goods: ['paper'], every: 2 }, { x: 0, y: 4, dir: 0, goods: ['hoop'], every: 2 },
       { x: 5, y: 0, dir: 1, goods: ['candle'], every: 4 }, { x: 5, y: 5, dir: 3, goods: ['candle'], every: 4, offset: 3 }
     ],
     stalls: [{ x: 7, y: 3, wants: [{ good: 'lantern lit', n: 6 }] }],
-    tray: { belt: 20, folder: 1, joiner: 1, wick: 1 }, parTidy: 13, parSwift: 21
+    tray: { belt: 20, folder: 1, joiner: 1, wick: 1 }, parTidy: 10, parSwift: 20
   }),
   L({
     id: '3-3', chapter: 3, index: 3, introduces: 'gate',

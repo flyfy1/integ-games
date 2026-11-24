@@ -50,6 +50,11 @@ export const SOLUTIONS: Record<string, Record<string, string[]>> = {
   '3-2': {
     line: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'belt 4,3 >', 'wick 5,3 >', 'belt 5,1 vv', 'belt 6,3 >'],
     tucked: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'wick 4,3 >', 'belt 5,1 v<', 'belt 4,2 v', 'belt 5,3 >>'],
+    // The Wick sits between the chutes, so feeding it from both always costs three belts: lean is Tidy, twoCandles is Swift.
+    lean: ['folder 1,1 v', 'belt 1,2 v', 'joiner 1,3 >', 'belt 1,4 ^', 'belt 2,3 >>>', 'wick 5,3 >', 'belt 6,3 >', 'belt 5,4 ^'],
+    lowCandle: ['folder 1,1 v', 'belt 1,2 vv', 'joiner 1,4 >', 'belt 2,4 >>>', 'wick 5,4 >', 'belt 6,4 ^>'],
+    lowBoth: ['folder 1,1 v', 'belt 1,2 vv', 'joiner 1,4 >', 'belt 2,4 >>>', 'wick 5,4 >', 'belt 6,4 ^>', 'belt 5,1 vvv'],
+    twoCandles: ['folder 1,1 v', 'belt 1,2 v', 'joiner 1,3 >', 'belt 1,4 ^', 'belt 2,3 >>>', 'wick 5,3 >', 'belt 6,3 >', 'belt 5,4 ^', 'belt 5,1 vv'],
     bothCandles: ['folder 1,1 >', 'belt 2,1 >v', 'belt 3,2 v', 'joiner 3,3 >', 'belt 1,4 >>^', 'belt 4,3 >', 'wick 5,3 >', 'belt 5,1 vv', 'belt 6,3 >', 'belt 5,4 ^']
   },
   '3-3': {
