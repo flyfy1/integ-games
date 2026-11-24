@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { arcade, catalog, categoryInfo, featuredSlugs, findGame, gamesInCategory, isListed, recommendationsFor } from '../src/core/catalog';
 
 describe('arcade catalog', () => {
-  it('contains exactly the 26 launch cabinets with unique slugs', () => {
-    expect(catalog).toHaveLength(27);
-    expect(new Set(catalog.map((game) => game.slug)).size).toBe(27);
+  it('contains exactly the 28 launch cabinets with unique slugs', () => {
+    expect(catalog).toHaveLength(28);
+    expect(new Set(catalog.map((game) => game.slug)).size).toBe(28);
   });
 
   it('finds the reference game by route slug', () => {
     expect(findGame('merge-2048')?.title).toBe('Merge 2048');
   });
 
-  it('lists exactly eleven featured cabinets and keeps the rest installed but hidden', () => {
+  it('lists exactly twelve featured cabinets and keeps the rest installed but hidden', () => {
     expect(arcade.map((game) => game.slug)).toEqual([...featuredSlugs]);
-    expect(arcade).toHaveLength(11);
-    expect(new Set(featuredSlugs).size).toBe(11);
+    expect(arcade).toHaveLength(12);
+    expect(new Set(featuredSlugs).size).toBe(12);
     expect(isListed('ashfall')).toBe(true);
     expect(isListed('snake')).toBe(false);
     expect(findGame('snake')?.title).toBe('Neon Snake');

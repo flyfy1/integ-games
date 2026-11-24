@@ -17,14 +17,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputDir = path.join(root, 'public', 'game-art');
 const slugs = [
   'merge-2048', 'block-drop', 'snake', 'mines', 'solitaire', 'sudoku', 'word-grid', 'memory', 'stack', 'flap',
-  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen'
+  'breakout', 'invaders', 'runner', 'platformer', 'drive', 'fruit-merge', 'bubble', 'hex-puzzle', 'knife', 'arena', 'ashfall', 'pad-pals', 'tank-clash', 'tank-brawl-opus', 'pelican-bike', 'capital-quiz', 'midnight-kitchen', 'ant-raid'
 ];
 const selectedSlugs = process.env.ONLY ? process.env.ONLY.split(',').filter((slug) => slugs.includes(slug)) : slugs;
 if (!selectedSlugs.length) throw new Error('ONLY did not contain a known game slug');
 
 const framing = {
   'merge-2048': { fit: 'contain', position: 'center center' },
-  'midnight-kitchen': { iconPosition: '2% center' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
+  'midnight-kitchen': { iconPosition: '2% center' }, 'ant-raid': { position: 'center center', iconPosition: '62% 40%' }, 'block-drop': { fit: 'contain', position: 'center center', iconPosition: 'center 70%' }, 'capital-quiz': { fit: 'contain', position: 'center center', iconPosition: 'center 38%' }, 'pelican-bike': { position: 'center 60%', iconPosition: '18% 80%' }, snake: { position: 'center 58%' }, mines: { position: 'center center' },
   solitaire: { position: 'center 42%' }, sudoku: { position: 'center 48%' }, 'word-grid': { position: 'center 44%' }, memory: { position: 'center 52%' },
   stack: { position: 'center 84%' }, flap: { position: 'center 52%' }, breakout: { position: 'center 36%' }, invaders: { position: 'center 20%' },
   runner: { position: 'center 84%', delay: 900 }, platformer: { position: 'center 70%' }, drive: { position: 'center 56%' },
@@ -73,6 +73,28 @@ const safeInteraction = {
       for (const [id, lane, x] of pests) S.spawnEnemy(sim, id, lane, x);
     }, root);
     await page.waitForTimeout(1600);
+  },
+  // Stages Old Gulp's yard through the game's debug handle: two busy trails, a cake on the move and the toad watching.
+  'ant-raid': async (page) => {
+    const root = '[data-ant-raid]';
+    await page.waitForFunction((selector) => !!document.querySelector(selector)?.__ar, root);
+    await page.evaluate(async (selector) => {
+      const ar = document.querySelector(selector).__ar;
+      ar.save.coach.off = true;
+      ar.start('1-5', ['worker', 'porter', 'soldier']);
+      const S = await import('/src/games/ant-raid/sim.ts');
+      const sim = ar.session.sim;
+      const id = (x, y) => y * 16 + x;
+      const trail = (cells) => { let prev = sim.nest; for (const [x, y] of cells) { S.paint(sim, id(x, y), prev); prev = id(x, y); } };
+      trail([[1, 5], [1, 6], [2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6]]);
+      trail([[1, 3], [1, 2], [2, 2], [3, 2], [4, 2], [5, 2], [6, 2], [7, 2], [8, 2], [9, 2], [10, 2], [11, 2], [12, 2], [13, 2]]);
+      sim.sugar = 900;
+      for (let i = 0; i < 1500 && !sim.foods[0].moving; i += 1) { if (i % 12 === 0) S.playCard(sim, i % 48 === 0 ? 'porter' : 'worker'); S.step(sim); }
+      for (let i = 0; i < 150; i += 1) S.step(sim);
+      S.drainEvents(sim);
+    }, root);
+    await page.addStyleTag({ content: '.ar-coach,.ar-toasts,.ar-deny{display:none!important}' });
+    await page.waitForTimeout(900);
   },
   'pelican-bike': async (page) => { await page.keyboard.press('Space'); await page.waitForTimeout(600); await page.keyboard.press('Enter'); await page.waitForTimeout(2600); await page.keyboard.down('ArrowRight'); await page.waitForTimeout(2300); await page.keyboard.press('Space'); await page.waitForTimeout(260); await page.keyboard.up('ArrowRight'); },
   'capital-quiz': async (page) => { await page.locator('.cq-mode[data-mode]').nth(1).click(); await page.waitForTimeout(900); },

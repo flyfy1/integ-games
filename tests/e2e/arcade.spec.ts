@@ -87,7 +87,7 @@ test('every cabinet can pause, restart, and accept its primary keyboard input', 
   const primaryKey: Record<string, string> = {
     'merge-2048': 'ArrowLeft', 'block-drop': 'ArrowDown', snake: 'ArrowDown', mines: 'Enter', solitaire: 'd', sudoku: '4',
     'word-grid': 'Space', memory: 'Enter', stack: 'Space', flap: 'Space', breakout: 'ArrowLeft', invaders: 'Space', runner: 'ArrowUp',
-    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space', 'midnight-kitchen': 'Enter'
+    platformer: 'ArrowUp', drive: 'ArrowRight', 'fruit-merge': 'Space', bubble: 'Space', 'hex-puzzle': '1', knife: 'Space', arena: 'ArrowRight', 'capital-quiz': '1', 'pad-pals': 'Space', 'tank-clash': 'Space', 'tank-brawl-opus': 'Space', 'pelican-bike': 'Space', 'midnight-kitchen': 'Enter', 'ant-raid': 'Enter'
   };
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
