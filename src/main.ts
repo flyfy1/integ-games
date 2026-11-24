@@ -1,5 +1,5 @@
 import { registerSW } from 'virtual:pwa-register';
-import { arcade, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, isListed, loadGame, recommendationsFor } from './core/catalog';
+import { arcade, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, isListed, loadGame, recommendationsFor, showsController } from './core/catalog';
 import { createShellServices, storageFor } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
@@ -275,7 +275,7 @@ function attachGamepad(slug: string, stage: HTMLElement) {
     onStatus: (state) => {
       const pill = appRoot.querySelector<HTMLElement>('[data-action=gamepad]');
       const summary = gamepadSummary(state);
-      if (pill) { pill.hidden = !summary.show; pill.classList.toggle('is-on', summary.ready); }
+      if (pill) { pill.hidden = !summary.show || !showsController(slug); pill.classList.toggle('is-on', summary.ready); }
       const label = appRoot.querySelector('[data-pad-pill]');
       if (label && label.textContent !== summary.pill) label.textContent = summary.pill;
       gamepadPanel?.refresh(state);

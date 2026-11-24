@@ -17,6 +17,10 @@ export const catalog: readonly CatalogGame[] = catalogRows.map(([slug, title, ca
  * The twelve cabinets the arcade lists, in display order. Every other catalog entry stays installed and playable
  * from its direct link, but is hidden from the home grid, search, category counts and recommendations.
  */
+/** Pointer-first games where a controller is a poor fit: the play page hides its controller entry point. */
+export const noControllerSlugs: ReadonlySet<string> = new Set(['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz']);
+export function showsController(slug: string): boolean { return !noControllerSlugs.has(slug); }
+
 export const featuredSlugs = ['midnight-kitchen', 'ant-raid', 'ashfall', 'pelican-bike', 'tank-brawl-opus', 'arena', 'block-drop', 'lantern-works', 'fruit-merge', 'merge-2048', 'capital-quiz', 'tank-clash', 'pad-pals'] as const;
 const featuredSet = new Set<string>(featuredSlugs);
 

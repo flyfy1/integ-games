@@ -46,3 +46,11 @@ describe('arcade catalog', () => {
     }
   });
 });
+
+describe('controller entry point', () => {
+  it('is hidden only for pointer-first games', async () => {
+    const { showsController } = await import('../src/core/catalog');
+    for (const slug of ['midnight-kitchen', 'ant-raid', 'lantern-works', 'capital-quiz']) expect(showsController(slug)).toBe(false);
+    for (const slug of ['ashfall', 'block-drop', 'pelican-bike', 'arena']) expect(showsController(slug)).toBe(true);
+  });
+});
