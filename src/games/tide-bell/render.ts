@@ -45,6 +45,10 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
   let hint: { from: number; dir: Dir; t0: number } | null = null;
   let ghost: number | null = null;
   let winAt = 0, busyUntil = 0;
+  /** The keeper's reactions: ears covered at its own bell, sitting when stuck, and the
+   *  win (two hops and sunglasses for a shortest clear, one hop and a shrug otherwise). Times on the `now` clock. */
+  let earsAt = -1e9, sitting = false;
+  let mood: { kind: 'perfect' | 'over'; t0: number } | null = null;
 
   const xy = (i: number) => ({ x: i % b!.w, y: Math.floor(i / b!.w) });
 
@@ -83,7 +87,7 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
     rafts = state.rafts.map(r => { const q = xy(r); return still(q.x, q.y); });
     tide = { from: state.tide, to: state.tide, t0: 0, dur: TIDE_MS };
     washes.clear();
-    splashes = []; hint = null; bump = null;
+    splashes = []; hint = null; bump = null; mood = null; earsAt = -1e9;
   }
 
   function finishAll() {
@@ -109,7 +113,7 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
       finishAll();
       const reduced = reducedMotion();
       const walk = reduced ? 0 : WALK_MS;
-      facing = dir; hint = null;
+      facing = dir; hint = null; sitting = false;
       let t = now, end = now + walk;
       for (const e of events) {
         if (e.type === 'walk') {
@@ -133,6 +137,7 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
           if (ghost !== null && e.bell === ghost) ghost = null;
           const t0 = t + walk * 0.75;
           rings.set(e.bell, t0);
+          earsAt = t0;
           if (e.from !== e.to) { tide = { from: e.from, to: e.to, t0, dur: reduced ? 0 : TIDE_MS }; end = Math.max(end, t0 + TIDE_MS); }
         } else if (e.type === 'wash') {
           for (const i of e.tiles) washes.set(i, tide.t0 + 90);
@@ -152,6 +157,13 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
       }
       st = next;
       busyUntil = end;
+    },
+    setStuck(on: boolean, now: number) { if (on && !sitting) { sitting = true; facing = 'D'; } else if (!on) sitting = false; void now; },
+    /** Starts the win reaction at `at`; returns how long it wants on screen before the card (ms). */
+    celebrate(kind: 'perfect' | 'over', at: number) {
+      mood = { kind, t0: at }; sitting = false; facing = 'D';
+      if (reducedMotion()) return kind === 'perfect' ? 450 : 150;
+      return kind === 'perfect' ? 950 : 480;
     },
     bump(dir: Dir, now: number) { if (!reducedMotion()) bump = { dir, t0: now }; facing = dir; },
     showHint(from: number, dir: Dir, now: number) { hint = { from, dir, t0: now }; },
@@ -436,22 +448,66 @@ export function createRenderer(canvas: HTMLCanvasElement, reducedMotion: () => b
       const q = (now - bump.t0) / 140;
       if (q >= 1) bump = null; else { const k = Math.sin(q * Math.PI) * 0.12; x += DXY[bump.dir][0] * k; y += DXY[bump.dir][1] * k; }
     }
-    const hop = !reduced && now < hopUntil ? Math.sin(clamp01(1 - (hopUntil - now) / WALK_MS) * Math.PI) * cs * 0.12 : 0;
+    let hop = !reduced && now < hopUntil ? Math.sin(clamp01(1 - (hopUntil - now) / WALK_MS) * Math.PI) * cs * 0.12 : 0;
     const breathe = reduced ? 0 : Math.sin(time * 2.4) * cs * 0.008;
-    const cx = ox + (x + 0.5) * cs, cy = oy + (y + 0.5) * cs - hop;
-    g.fillStyle = 'rgba(20,20,30,0.3)'; g.beginPath(); g.ellipse(cx, oy + (y + 0.5) * cs + cs * 0.24, cs * 0.2, cs * 0.07, 0, 0, Math.PI * 2); g.fill();
-    // Raincoat body.
-    g.fillStyle = '#e8a91c'; g.beginPath(); g.ellipse(cx, cy + cs * 0.08, cs * 0.2, cs * 0.21 + breathe, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#ffc93c'; g.beginPath(); g.ellipse(cx - cs * 0.03, cy + cs * 0.05, cs * 0.15, cs * 0.17, 0, 0, Math.PI * 2); g.fill();
-    // Hooded head, looking the way you last moved.
-    const [fx, fy] = DXY[facing];
-    const hx = cx + fx * cs * 0.03, hy = cy - cs * 0.16 + fy * cs * 0.02;
+    // Reactions.
+    const ears = now >= earsAt && now < earsAt + 450;
+    const squash = ears && !reduced ? Math.sin(clamp01((now - earsAt) / 120) * Math.PI) * 0.06 : 0;
+    let shrug = 0, glasses = -1;
+    if (mood && now >= mood.t0) {
+      const m = now - mood.t0;
+      if (mood.kind === 'perfect') {
+        if (!reduced && m < 440) hop += Math.sin(((m % 220) / 220) * Math.PI) * cs * 0.25;
+        glasses = reduced ? 1 : clamp01((m - 440) / 400);
+      } else {
+        if (!reduced && m < 220) hop += Math.sin((m / 220) * Math.PI) * cs * 0.12;
+        if (m >= 180) shrug = reduced ? 1 : Math.sin(clamp01((m - 180) / 300) * Math.PI / 2);
+      }
+    }
+    const sit = sitting ? cs * 0.06 : 0;
+    const cx = ox + (x + 0.5) * cs, cy = oy + (y + 0.5) * cs - hop + sit;
+    const shadowW = sitting ? 1.15 : 1;
+    g.fillStyle = 'rgba(20,20,30,0.3)'; g.beginPath(); g.ellipse(cx, oy + (y + 0.5) * cs + cs * 0.24, cs * 0.2 * shadowW, cs * 0.07, 0, 0, Math.PI * 2); g.fill();
+    // Raincoat body (squashed for a beat when its own bell rings).
+    const bodyH = (cs * 0.21 + breathe) * (1 - squash) - sit * 0.5;
+    g.fillStyle = '#e8a91c'; g.beginPath(); g.ellipse(cx, cy + cs * 0.08, cs * 0.2 * (1 + squash), bodyH, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffc93c'; g.beginPath(); g.ellipse(cx - cs * 0.03, cy + cs * 0.05, cs * 0.15 * (1 + squash), Math.max(cs * 0.05, bodyH - cs * 0.04), 0, 0, Math.PI * 2); g.fill();
+    // Hooded head, looking the way you last moved (or at the player when reacting).
+    const look: Dir = ears || mood || sitting ? 'D' : facing;
+    const [fx, fy] = DXY[look];
+    const hx = cx + fx * cs * 0.03, hy = cy - cs * 0.16 + fy * cs * 0.02 + squash * cs * 0.4;
+    // Arm stubs: up at the hood (ears), out (shrug), or hidden.
+    const arm = (ax: number, ay: number, rot: number) => { g.fillStyle = '#e8a91c'; g.beginPath(); g.ellipse(ax, ay, cs * 0.05, cs * 0.03, rot, 0, Math.PI * 2); g.fill(); };
+    if (shrug > 0) for (const s of [-1, 1]) arm(cx + s * cs * (0.19 + 0.05 * shrug), cy - cs * 0.02 - shrug * cs * 0.04, s * -0.6);
     g.fillStyle = '#ffc93c'; g.beginPath(); g.arc(hx, hy, cs * 0.16, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#fbe3c4'; g.beginPath(); g.arc(hx + fx * cs * 0.04, hy + cs * 0.02 + fy * cs * 0.03, cs * 0.105, 0, Math.PI * 2); g.fill();
-    if (facing !== 'U') {
-      g.fillStyle = '#2a2a35';
+    const fcx = hx + fx * cs * 0.04, fcy = hy + cs * 0.02 + fy * cs * 0.03;
+    g.fillStyle = '#fbe3c4'; g.beginPath(); g.arc(fcx, fcy, cs * 0.105, 0, Math.PI * 2); g.fill();
+    if (ears) for (const s of [-1, 1]) arm(hx + s * cs * 0.15, hy - cs * 0.01, Math.PI / 2);
+    if (look !== 'U') {
       const ex = hx + fx * cs * 0.06, ey = hy + cs * 0.02 + fy * cs * 0.04;
-      for (const s of fx === 0 ? [-1, 1] : [fx * 0.3 - 0.5, fx * 0.3 + 0.9]) { g.beginPath(); g.arc(ex + s * cs * 0.04, ey, cs * 0.018, 0, Math.PI * 2); g.fill(); }
+      const xs = fx === 0 ? [-1, 1] : [fx * 0.3 - 0.5, fx * 0.3 + 0.9];
+      g.fillStyle = '#2a2a35'; g.strokeStyle = '#2a2a35'; g.lineCap = 'round';
+      const blink = !reduced && !ears && glasses < 0 && ((time + 1.7) % 7.3) < 0.09;
+      for (const s of xs) {
+        const exx = ex + s * cs * 0.04;
+        if (ears || blink) {
+          // Squeezed shut (or a blink): short lines.
+          g.lineWidth = Math.max(1, cs * 0.016);
+          g.beginPath(); g.moveTo(exx - cs * 0.022, ey + (ears ? s * cs * 0.006 : 0)); g.lineTo(exx + cs * 0.022, ey - (ears ? s * cs * 0.006 : 0)); g.stroke();
+        } else {
+          g.beginPath(); g.arc(exx, ey, cs * 0.018, 0, Math.PI * 2); g.fill();
+        }
+      }
+      if (glasses >= 0) {
+        // Deal with it: sunglasses slide down onto the eyes.
+        const k = reduced ? 1 : glasses < 1 ? 1 + 2.6 * (glasses - 1) ** 3 + 1.6 * (glasses - 1) ** 2 : 1;
+        const gy = ey - (1 - k) * cs * 0.5;
+        g.fillStyle = '#111418';
+        for (const s of xs) roundRect(g, ex + s * cs * 0.04 - cs * 0.035, gy - cs * 0.0225, cs * 0.07, cs * 0.045, cs * 0.015), g.fill();
+        g.fillRect(ex + xs[0] * cs * 0.04, gy - cs * 0.017, (xs[1] - xs[0]) * cs * 0.04, Math.max(1, cs * 0.012));
+        g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 1;
+        g.beginPath(); g.moveTo(ex + xs[0] * cs * 0.04 - cs * 0.022, gy - cs * 0.008); g.lineTo(ex + xs[0] * cs * 0.04 - cs * 0.008, gy - cs * 0.016); g.stroke();
+      }
     }
   }
 

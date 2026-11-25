@@ -28,6 +28,8 @@ type Play = {
   level: LevelDef; board: Board; state: State; start: State;
   history: { state: State; moves: number }[]; moves: number;
   analysis: Analysis | null; won: boolean; stuckShown: boolean;
+  /** For the win card's comment: undos and hints used on this level. */
+  undos: number; hints: number;
 };
 
 const KEY_DIR: Record<string, Dir> = { ArrowUp: 'U', ArrowDown: 'D', ArrowLeft: 'L', ArrowRight: 'R', w: 'U', s: 'D', a: 'L', d: 'R', W: 'U', S: 'D', A: 'L', D: 'R' };
@@ -171,7 +173,7 @@ export const tideBell: GameModule = {
       stopWalk(); closeCard(); hideBanner();
       const board = parseBoard(lv.rows, lv.tide);
       const start = initialState(board);
-      play = { level: lv, board, state: start, start, history: [], moves: 0, analysis: null, won: false, stuckShown: false };
+      play = { level: lv, board, state: start, start, history: [], moves: 0, analysis: null, won: false, stuckShown: false, undos: 0, hints: 0 };
       if (lv.id !== 'daily') { save.last = lv.id; writeSave(); }
       showLesson(lv);
       layout();
@@ -215,13 +217,14 @@ export const tideBell: GameModule = {
       const d = distanceOf(play.analysis, play.state);
       if (d === -1) { if (!play.stuckShown) audio.cue('stuck'); play.stuckShown = true; showBanner(i18n.t('stuck'), true); }
       else play.stuckShown = false;
+      renderer.setStuck(d === -1, performance.now());
     }
 
     function undo() {
       if (!play || !play.history.length) return;
       stopWalk(); closeCard();
       const prev = play.history.pop()!;
-      play.state = prev.state; play.moves = prev.moves; play.won = false;
+      play.state = prev.state; play.moves = prev.moves; play.won = false; play.undos++;
       renderer.snap(play.state, performance.now());
       audio.cue('undo'); hideBanner(); hud(); checkStuck();
     }
@@ -240,6 +243,7 @@ export const tideBell: GameModule = {
       audio.unlock();
       const hnt = hintFrom(play.board, play.state, play.analysis);
       if (!hnt.move) { showBanner(i18n.t('stuck'), true); audio.cue('stuck'); return; }
+      play.hints++;
       renderer.showHint(play.state.pos, hnt.move, performance.now());
       showBanner(i18n.t('hintLeft', { n: hnt.left }), false);
       audio.cue('tap');
@@ -255,8 +259,9 @@ export const tideBell: GameModule = {
         const wait = Math.max(0, renderer.busyUntil - performance.now());
         setTimeout(() => audio.cue('win'), wait);
         if (cardTimer) clearTimeout(cardTimer);
+        const show = renderer.celebrate(moves === lv.par ? 'perfect' : 'over', performance.now() + wait);
         pendingCard = () => showWinCard(lv, moves, rec.streak);
-        cardTimer = setTimeout(() => flushCard(), wait + CARD_DELAY);
+        cardTimer = setTimeout(() => flushCard(), wait + show + CARD_DELAY);
         return;
       }
       const prevBest = save.best[lv.id];
@@ -270,8 +275,9 @@ export const tideBell: GameModule = {
       const wait = Math.max(0, renderer.busyUntil - performance.now());
       setTimeout(() => audio.cue('win'), wait);
       if (cardTimer) clearTimeout(cardTimer);
+      const show = renderer.celebrate(moves === lv.par ? 'perfect' : 'over', performance.now() + wait);
       pendingCard = () => showWinCard(lv, moves);
-      cardTimer = setTimeout(() => flushCard(), wait + CARD_DELAY);
+      cardTimer = setTimeout(() => flushCard(), wait + show + CARD_DELAY);
     }
 
     // ---------------------------------------------------------------- cards & banners
@@ -296,7 +302,11 @@ export const tideBell: GameModule = {
       const next = lv.id === 'daily' ? null : nextLevelId(lv.id);
       const box = h('div', { class: 'tb-panel win' });
       const perfect = moves === lv.par;
-      box.innerHTML = `<p class="tb-kicker">${lv.id} · <span></span></p><h2>${i18n.t('clear')}</h2><p class="tb-result">${perfect ? '★ ' + i18n.t('perfect', { n: moves }) : i18n.t('yours', { n: moves, par: lv.par })}</p>${perfect ? '' : `<p class="tb-sub">${i18n.t('tryShorter', { par: lv.par })}</p>`}`;
+      // A line that noticed how you played: shortest or not, hints, and a lot of undos.
+      const d = moves - lv.par, hinted = (play?.hints ?? 0) > 0, undos = play?.undos ?? 0;
+      const remark = perfect ? i18n.t(hinted ? 'winPerfectHint' : 'winPerfect') : d <= 2 ? i18n.t('winNear', { d, par: lv.par }) : i18n.t('winFar', { d });
+      box.innerHTML = `<p class="tb-kicker">${lv.id} · <span></span></p><h2>${i18n.t('clear')}</h2><p class="tb-result">${perfect ? '★ ' + i18n.t('perfect', { n: moves }) : i18n.t('yours', { n: moves, par: lv.par })}</p><p class="tb-sub tb-remark"></p>`;
+      box.querySelector('.tb-remark')!.textContent = undos >= 10 ? `${remark}${i18n.lang === 'zh' ? '' : ' '}${i18n.t('winUndos', { n: undos })}` : remark;
       box.querySelector('.tb-kicker span')!.textContent = lv.name[i18n.lang];
       const row = h('div', { class: 'tb-row' });
       const again = h('button', { class: 'tb-btn2', 'data-act': 'replay' }); again.textContent = i18n.t('replay');
