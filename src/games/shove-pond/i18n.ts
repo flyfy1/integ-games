@@ -33,6 +33,9 @@ export const EN = {
   'room.left': 'away (a bot plays)', 'room.you': 'you', 'room.bot': 'bot', 'room.host': 'host', 'room.joining': 'Joining room…', 'room.error': 'Could not reach online rooms',
   'room.taken': 'You take over a bot next round',
   'emote.0': '😂', 'emote.1': '😱', 'emote.2': '👑', 'emote.3': '🐸',
+  'bark.0': 'Nothing personal.', 'bark.1': 'Rude.', 'bark.2': 'Who pushed me?!', 'bark.3': 'I meant to do that.', 'bark.4': 'My pad now.', 'bark.5': 'Ribbit happens.',
+  'title.boss': 'Pond boss', 'title.shover': 'Chief shover', 'title.fish': 'Honorary fish', 'title.dry': 'Dry feet', 'title.rock': 'Immovable', 'title.there': 'Was also there',
+  'end.share': 'Share result', 'end.shareText': '{winner} won Shove Pond with {n} points.', 'end.shareFish': '{fish} is now an honorary fish.', 'end.copied': 'Result copied', 'end.and': ' & ',
   'keys': 'Arrows/WASD hop · Space brace · Backspace undo · Enter ready',
   'common.on': 'On', 'common.off': 'Off'
 } as const;
@@ -68,6 +71,9 @@ export const ZH: Record<Key, string> = {
   'room.left': '离开（机器人代打）', 'room.you': '你', 'room.bot': '机器人', 'room.host': '房主', 'room.joining': '正在加入房间…', 'room.error': '连不上在线房间',
   'room.taken': '下回合你接管一只机器人蛙',
   'emote.0': '😂', 'emote.1': '😱', 'emote.2': '👑', 'emote.3': '🐸',
+  'bark.0': '对事不对蛙。', 'bark.1': '没礼貌。', 'bark.2': '谁推的我？！', 'bark.3': '我是故意的。', 'bark.4': '这片叶子归我了。', 'bark.5': '蛙生无常。',
+  'title.boss': '塘主', 'title.shover': '推蛙王', 'title.fish': '荣誉鱼类', 'title.dry': '滴水不沾', 'title.rock': '稳如老蛙', 'title.there': '重在参与',
+  'end.share': '分享战绩', 'end.shareText': '{winner} 以 {n} 分赢了荷塘推推蛙。', 'end.shareFish': '{fish} 喜提“荣誉鱼类”。', 'end.copied': '战绩已复制', 'end.and': '和',
   'keys': '方向键/WASD 跳 · 空格 站稳 · 退格 撤销 · 回车 准备',
   'common.on': '开', 'common.off': '关'
 };

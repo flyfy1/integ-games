@@ -1,5 +1,6 @@
 import type { GameController, GameModule, GameServices } from '../../core/game-types';
 import { createAudio } from './audio';
+import { botReactions, countRound, emptyStats, titlesFor, type SeatStats } from './banter';
 import { botPlan, type BotLevel } from './bot';
 import { FROG_NAMES, createI18n, defaultLang, isLang, type Key, type Lang } from './i18n';
 import { LESSONS, PUZZLES, buildScenario, scenarioPlans, scenarioWon, type Scenario } from './levels';
@@ -21,6 +22,8 @@ type MatchMode = 'quick' | 'ladder' | 'pass' | 'online';
 type ScenarioScene = { kind: 'scenario'; list: 'lesson' | 'puzzle'; index: number; sc: Scenario; state: State; fails: number; hint: boolean };
 type MatchScene = {
   kind: 'match'; mode: MatchMode; state: State; seats: SeatCfg[]; me: number; ladder?: number; dealt: number[];
+  /** Per-seat counts for the pond report (splashes dealt, times in the water, rounds braced). */
+  stats: SeatStats[];
   /** Pass and play: seats still to plan this round, and the drafts already locked in. */
   passQueue: number[]; passDrafts: (Plan | null)[]; passing: number;
   online?: OnlineLink;
@@ -102,6 +105,8 @@ export const shovePond: GameModule = {
     let resumeFromMenu: (() => void) | null = null;
     let awaySeats = new Set<number>();
     let pendingPlans: Plan[] | null = null;
+    /** Seats wearing the winner's face behind the end card. */
+    let winnerFaces: number[] = [];
     const online = createOnline({
       t, name: () => myName(),
       onState: () => { refreshHud(); },
@@ -387,7 +392,7 @@ export const shovePond: GameModule = {
       closePanel(); online.leave(); removeLobby();
       const seed = (Math.floor(services.random() * 2 ** 31) ^ Date.now()) >>> 0;
       const seats = namesFor(mode, humans);
-      scene = { kind: 'match', mode, state: createMatch(seed, 4), seats, me: 0, ladder: mode === 'ladder' ? Math.min(2, save.ladder) : undefined, dealt: [0, 0, 0, 0], passQueue: [], passDrafts: [], passing: 0 };
+      scene = { kind: 'match', mode, state: createMatch(seed, 4), seats, me: 0, ladder: mode === 'ladder' ? Math.min(2, save.ladder) : undefined, dealt: [0, 0, 0, 0], stats: emptyStats(4), passQueue: [], passDrafts: [], passing: 0 };
       readySeats = new Set(); awaySeats = new Set();
       startRound();
     }
@@ -435,6 +440,7 @@ export const shovePond: GameModule = {
       const before = s.state;
       const result = resolveRound(before, plans);
       for (const e of result.events) if (e.k === 'splash' && e.by >= 0) s.dealt[e.by] = (s.dealt[e.by] ?? 0) + 1;
+      countRound(s.stats, result);
       s.state = result.state;
       deadline = 0;
       play(before, result, () => {
@@ -448,10 +454,13 @@ export const shovePond: GameModule = {
       refreshHud();
       renderer.play(before, result, () => { phase = 'idle'; done(); });
     }
+    /** Bots answer back: chosen from the round by seed, round and seat (banter.ts), so online clients agree without
+     *  sending anything. They start 400 ms after the reveal, so they never cover the action. */
     function botEmotes(s: MatchScene, r: RoundResult) {
-      for (const e of r.events) if (e.k === 'splash') {
-        if (e.by >= 0 && s.seats[e.by]?.kind === 'bot' && (e.s + r.state.round) % 3 === 0) showEmote(e.by, 0);
-        if (s.seats[e.s]?.kind === 'bot' && (e.s + r.state.round) % 4 === 1) showEmote(e.s, 1);
+      const bots = s.seats.map((x, i) => (x.kind === 'bot' ? i : -1)).filter(i => i >= 0);
+      for (const re of botReactions(r, bots)) {
+        if ('emote' in re) showEmote(re.seat, re.emote, 0.4);
+        else showBark(re.seat, t(`bark.${re.bark}` as Key), 0.4);
       }
     }
     function endMatch() {
@@ -471,9 +480,13 @@ export const shovePond: GameModule = {
       else if (st.winners[0] === s.me && s.mode !== 'pass') title = `🏆 ${t('end.you')}`;
       else title = t('end.win', { name: s.seats[st.winners[0]].name });
       if (won) audio.win(); else audio.lose();
-      const board = h('div', { class: 'sp-board' });
+      // The pond report: one title per frog.
+      const titles = titlesFor(s.stats, st.winners);
+      const board = h('div', { class: 'sp-board sp-report' });
       [...st.frogs.keys()].sort((a, b) => st.frogs[b].score - st.frogs[a].score).forEach(i => board.append(h('div', null,
-        h('i', { style: `background:${PALETTE[i % 6].body}` }), h('span', { text: `${st.winners.includes(i) ? '👑 ' : ''}${s.seats[i].name}` }), t('end.points', { n: st.frogs[i].score }))));
+        h('i', { style: `background:${PALETTE[i % 6].body}` }),
+        h('span', null, `${st.winners.includes(i) ? '👑 ' : ''}${s.seats[i].name}`, h('small', { text: t(`title.${titles[i]}` as Key) })),
+        t('end.points', { n: st.frogs[i].score }))));
       const buttons: CardButton[] = [];
       if (s.mode === 'ladder') {
         const step = s.ladder ?? 0;
@@ -487,9 +500,11 @@ export const shovePond: GameModule = {
         const humans = s.seats.filter(x => x.kind === 'pass').length;
         buttons.push({ label: t('end.rematch'), primary: true, fn: () => startLocalMatch(s.mode === 'pass' ? 'pass' : 'quick', humans) });
       }
+      buttons.push({ label: `↗ ${t('end.share')}`, fn: () => void shareResult(s, titles) });
       buttons.push({ label: t('end.menu'), fn: () => openMenu() });
       persist();
       showCard(title, t('end.splashes', { n: s.dealt[s.me] ?? 0 }), buttons, board);
+      winnerFaces = st.winners.slice();
     }
 
     // ---------------------------------------------------------------- pass and play
@@ -516,7 +531,7 @@ export const shovePond: GameModule = {
     // ---------------------------------------------------------------- online
     function startOnlineMatch(state: State, seats: { name: string; kind: 'me' | 'remote' | 'bot' }[], me: number) {
       closePanel(); removeLobby();
-      scene = { kind: 'match', mode: 'online', state, seats: seats.map(s => ({ kind: s.kind, level: 2, name: s.name })), me, dealt: state.frogs.map(() => 0), passQueue: [], passDrafts: [], passing: me, online: online };
+      scene = { kind: 'match', mode: 'online', state, seats: seats.map(s => ({ kind: s.kind, level: 2, name: s.name })), me, dealt: state.frogs.map(() => 0), stats: emptyStats(state.frogs.length), passQueue: [], passDrafts: [], passing: me, online: online };
       readySeats = new Set();
       phase = 'idle'; draft = [];
       refreshHud();
@@ -535,12 +550,16 @@ export const shovePond: GameModule = {
       if (phase === 'plan') { deadline = deadline || renderer.clock + PLAN_SECONDS; refreshHud(); }
       else if (phase === 'idle' && !s.state.over) startRound();
     }
-    function showEmote(seat: number, e: number) {
+    function showEmote(seat: number, e: number, delay = 0) {
       if (!scene || scene.kind !== 'match') return;
       const text = t(`emote.${e % 4}` as Key);
       emotes = emotes.filter(x => renderer.clock - x.t0 < 2 && x.seat !== seat);
-      emotes.push({ seat, text, t0: renderer.clock });
-      audio.croak(seat);
+      emotes.push({ seat, text, t0: renderer.clock + delay });
+      if (delay > 0) setTimeout(() => { if (!destroyed) audio.croak(seat); }, delay * 1000); else audio.croak(seat);
+    }
+    function showBark(seat: number, text: string, delay = 0) {
+      emotes = emotes.filter(x => renderer.clock - x.t0 < 2 && x.seat !== seat);
+      emotes.push({ seat, text, t0: renderer.clock + delay, bark: true });
     }
     function sendEmote(e: number) {
       audio.unlock();
@@ -575,6 +594,19 @@ export const shovePond: GameModule = {
       const sc = (list === 'lesson' ? LESSONS : PUZZLES)[i];
       scene = { kind: 'scenario', list, index: i, sc, state: buildScenario(sc), fails: 0, hint: false };
       beginPlanning(0);
+    }
+    /** "Moss won Shove Pond with 6 points. Pip is now an honorary fish." plus the game link. */
+    async function shareResult(s: MatchScene, titles: string[]) {
+      const st = s.state;
+      const plain = (i: number) => s.seats[i].name.replace(/\s*🤖/u, '');
+      const winner = st.winners.map(plain).join(t('end.and'));
+      const fish = titles.map((x, i) => (x === 'fish' ? plain(i) : '')).filter(Boolean)[0];
+      const url = 'https://games.integ.life/play/shove-pond/';
+      const text = `${t('end.shareText', { winner, n: st.frogs[st.winners[0]]?.score ?? 0 })}${fish ? `${i18n.lang === 'zh' ? '' : ' '}${t('end.shareFish', { fish })}` : ''}`;
+      try {
+        if (navigator.share) { await navigator.share({ title: t('title.name'), text, url }); return; }
+      } catch (err) { if ((err as { name?: string })?.name === 'AbortError') return; }
+      try { await navigator.clipboard.writeText(`${text} ${url}`); say(t('end.copied')); } catch { say(`${text} ${url}`, 3500); }
     }
     async function shareLink(link: string) {
       try {
@@ -741,7 +773,8 @@ export const shovePond: GameModule = {
       const showMe = phase === 'plan' && !(scene?.kind === 'match' && scene.mode === 'online' && !online.playing);
       renderer.draw({
         state: st, looks: looksFor(), me: showMe ? me : -1, draft, ghosts: ghostPlans(),
-        order: moveOrder(st), crown: crownOf(st), away: st.frogs.map((_, i) => awaySeats.has(i)), emotes, hand: handDir(), dim: !!panel && phase === 'card'
+        order: moveOrder(st), crown: crownOf(st), away: st.frogs.map((_, i) => awaySeats.has(i)), emotes, hand: handDir(), dim: !!panel && phase === 'card',
+        winners: scene?.kind === 'match' && scene.state.over ? winnerFaces : undefined
       }, dt);
     }
     function timeUp() {

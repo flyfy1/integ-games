@@ -1,22 +1,18 @@
+import { grudges } from './banter';
+import { PALETTE, drawFrog, drawGrudge, type Face } from './frog-art';
 import { BRACE, DX, DY, SIT, isPad, type Plan, type RoundResult, type SimEvent, type State } from './sim';
 
 /**
  * Canvas 2D pond: top-down with a slight tilt (rows are squashed and pads have a dark underside). Frogs are
- * procedural (body, legs, eyes that look where they last hopped, one colour and pattern per seat). A round is
+ * procedural (`frog-art.ts`: body, legs, a face that reacts to being shoved, shoving, bracing and falling in). A round is
  * played back from the sim's event list: step 1 for all frogs, then 2, then 3; within a step frogs act in their
  * printed order, staggered so the order is visible. Squash and stretch, splashes and ripples are skipped or
  * reduced with reduced motion.
  */
-export const PALETTE = [
-  { body: '#5fd068', dark: '#2f8a3c', belly: '#c9f5b0' },
-  { body: '#ff9f43', dark: '#b8621a', belly: '#ffe0b8' },
-  { body: '#a77bff', dark: '#6a43c4', belly: '#e3d4ff' },
-  { body: '#ff6fa8', dark: '#c23a72', belly: '#ffd3e4' },
-  { body: '#4fc3f7', dark: '#1d7fae', belly: '#d2f1ff' },
-  { body: '#ffd54f', dark: '#b8901a', belly: '#fff3c4' }
-];
+export { PALETTE };
 export type Look = { name: string; pattern: number; tag: boolean };
-export type Emote = { seat: number; text: string; t0: number };
+/** An emoji bubble, or a short line of text (`bark`) from a bot. */
+export type Emote = { seat: number; text: string; t0: number; bark?: boolean };
 export type View = {
   state: State;
   looks: Look[];
@@ -32,6 +28,8 @@ export type View = {
   /** Ghost hand: swipe from my frog's planned spot in this direction (0-3), or -1. */
   hand: number;
   dim?: boolean;
+  /** Seats drawn with the winner's face (end of a match). */
+  winners?: readonly number[];
 };
 
 type Seg = { t0: number; t1: number; kind: 'hop' | 'push' | 'bounce' | 'fall' | 'drop'; fx: number; fy: number; tx: number; ty: number };
@@ -39,15 +37,19 @@ type Cue = { t: number; fn: () => void; done?: boolean };
 type Particle = { x: number; y: number; vx: number; vy: number; life: number; max: number; r: number; color: string };
 type Ring = { x: number; y: number; t0: number; max: number };
 type Popup = { x: number; y: number; text: string; t0: number; color: string };
+type Shock = { seat: number; t0: number; t1: number };
 type Anim = {
   t0: number; duration: number; before: State; result: RoundResult;
   segs: Seg[][]; wetAt: number[]; respawnAt: number[]; sinkAt: number; sinkCells: Set<number>;
   braceSteps: { seat: number; t0: number; t1: number }[]; bounceWalls: { seat: number; t: number }[];
   cues: Cue[]; done: () => void; eatAt: number;
+  /** Face windows (reveal time) and the hit-stop: playback runs at a quarter speed until `slowUntil` (clock). */
+  shocks: Shock[]; slowUntil: number; stops: number;
 };
 export type Sounds = {
   hop(seat: number): void; shove(): void; bounce(): void; splash(): void; brace(): void; sink(): void; croak(seat: number): void; eat(): void;
 };
+const SMUG_S = 1.1, SULK_S = 1.8, STOP_S = 0.12, STOP_RATE = 0.25;
 
 const HOP = 0.3, STAG = 0.13, PUSH = 0.2;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -71,16 +73,31 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
   const rings: Ring[] = [];
   const popups: Popup[] = [];
   const facing: number[] = [2, 2, 2, 2, 2, 2];
+  /** Faces that outlive a reveal, on the renderer clock: smug after a splash dealt, sulk after climbing back. */
+  const smugUntil: number[] = [0, 0, 0, 0, 0, 0];
+  const sulk: { until: number; at: number }[] = Array.from({ length: 6 }, () => ({ until: 0, at: -1 }));
+  /** Frogs shoved in last round carry a grudge mark through the next one (keyed by match seed and round). */
+  let grudge: { seed: number; round: number; seats: number[] } | null = null;
   let clock = 0;
   let top = 60, bottom = 160;
 
   function layout(state: State) {
     size = state.size;
     const availH = H - top - bottom;
-    cell = Math.floor(Math.min((W - 16) / (size + 0.5), availH / (size * tilt + 0.9)));
+    // Lessons and puzzles sit in a ring of water: fit the pads (plus room for a splash beside them), not the map.
+    let x0 = 0, y0 = 0, w = size, hgt = size, m = 0;
+    if (state.scenario) {
+      let x1 = -1, y1 = -1; x0 = size; y0 = size;
+      state.pads.forEach((k, i) => { if (!k) return; const x = i % size, y = Math.floor(i / size); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+      if (x1 < 0) { x0 = 0; y0 = 0; x1 = size - 1; y1 = size - 1; }
+      w = x1 - x0 + 1; hgt = y1 - y0 + 1; m = 0.85;
+    }
+    cell = Math.floor(state.scenario
+      ? Math.min((W - 16) / (w + 2 * m), availH / ((hgt + 2 * m) * tilt + 0.6))
+      : Math.min((W - 16) / (size + 0.5), availH / (size * tilt + 0.9)));
     cell = clamp(cell, 24, 120);
-    ox = Math.round((W - cell * size) / 2);
-    oy = Math.round(top + (availH - cell * size * tilt) / 2 + cell * 0.25);
+    ox = Math.round(W / 2 - (x0 + w / 2) * cell);
+    oy = Math.round(top + (availH - cell * hgt * tilt) / 2 + cell * 0.25 - y0 * cell * tilt);
   }
   const sx = (x: number) => ox + (x + 0.5) * cell;
   const sy = (y: number) => oy + (y + 0.5) * cell * tilt;
@@ -112,6 +129,7 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     const cues: Cue[] = [];
     const braceSteps: Anim['braceSteps'] = [];
     const bounceWalls: Anim['bounceWalls'] = [];
+    const shocks: Shock[] = [];
     const slotOf = (seat: number) => Math.max(0, result.order.indexOf(seat));
     let slotT = 0, lastHop = 0, eatAt = Infinity;
     const sinkAt = 3 * step + 0.1;
@@ -130,6 +148,7 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
         case 'pushed': {
           const t0 = slotT + HOP * 0.4;
           segs[e.s].push({ t0, t1: t0 + PUSH, kind: 'push', fx: e.fx, fy: e.fy, tx: e.tx, ty: e.ty });
+          shocks.push({ seat: e.s, t0, t1: t0 + PUSH + 0.3 });
           break;
         }
         case 'hop': {
@@ -152,9 +171,18 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
           wetAt[e.s] = t;
           const x = e.x, y = e.y, pts = e.pts, by = e.by;
           if (e.why === 'sink') segs[e.s].push({ t0: sinkAt, t1: t, kind: 'fall', fx: x, fy: y, tx: x, ty: y });
+          const victim = e.s, shoved = by >= 0 && by !== victim;
+          shocks.push({ seat: victim, t0: e.why === 'sink' ? sinkAt : t - (shoved ? PUSH + 0.1 : 0.2), t1: t });
+          // Hit-stop: the shove that sends a frog off the pads plays at a quarter speed for a beat (twice a round at most).
+          if (e.why === 'shove' && shoved && !reduced) cues.push({ t: t - PUSH, fn: () => {
+            if (anim && anim.stops < 2) { anim.stops += 1; anim.slowUntil = clock + STOP_S; }
+          } });
           cues.push({ t, fn: () => {
             sounds.splash();
             splashAt(sx(x), sy(y));
+            haptic();
+            if (shoved) { smugUntil[by] = clock + SMUG_S; sulk[victim] = { until: 0, at: by }; }
+            else sulk[victim] = { until: 0, at: -1 };
             if (pts > 0 && by >= 0) popups.push({ x: sx(x), y: sy(y) - cell * 0.4, text: `+${pts}`, t0: clock, color: PALETTE[by % 6].body });
           } });
           break;
@@ -166,23 +194,32 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
           respawnAt[e.s] = t0;
           segs[e.s].push({ t0, t1: t0 + 0.45, kind: 'drop', fx: e.x, fy: e.y, tx: e.x, ty: e.y });
           const seat = e.s;
-          cues.push({ t: t0 + 0.4, fn: () => sounds.croak(seat) });
+          cues.push({ t: t0 + 0.4, fn: () => { sounds.croak(seat); sulk[seat].until = clock + SULK_S; } });
           break;
         }
         case 'end': break;
       }
     }
     for (const list of segs) list.sort((p, q) => p.t0 - q.t0);
-    anim = { t0: clock, duration: revealLength(before, result, reduced), before, result, segs, wetAt, respawnAt, sinkAt, sinkCells, braceSteps, bounceWalls, cues, done, eatAt };
+    const finish = () => {
+      if (!before.scenario) grudge = { seed: result.state.seed, round: result.state.round, seats: grudges(result) };
+      done();
+    };
+    anim = { t0: clock, duration: revealLength(before, result, reduced), before, result, segs, wetAt, respawnAt, sinkAt, sinkCells, braceSteps, bounceWalls, cues, done: finish, eatAt, shocks, slowUntil: 0, stops: 0 };
   }
   const busy = () => anim !== null;
   function skip() { if (anim) anim.t0 = clock - anim.duration; }
 
+  function haptic() {
+    try { if (!reducedMotion()) navigator.vibrate?.(25); } catch { /* not supported */ }
+  }
   function splashAt(x: number, y: number) {
-    rings.push({ x, y, t0: clock, max: cell * 0.9 });
+    rings.push({ x, y, t0: clock, max: cell * 1.17 });
+    rings.push({ x, y, t0: clock + 0.07, max: cell * 0.8 });
     if (reducedMotion()) return;
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2, v = cell * (1.2 + (i % 3) * 0.5);
+    rings.push({ x, y, t0: clock + 0.14, max: cell * 1.5 });
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2, v = cell * (1.2 + (i % 3) * 0.5);
       particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.6 - cell * 2.2, life: 0, max: 0.55 + (i % 4) * 0.08, r: cell * 0.05 + (i % 3), color: i % 2 ? '#d7f6ff' : '#8fd8f0' });
     }
   }
@@ -229,10 +266,11 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     ctx.restore();
   }
 
-  function frog(seat: number, x: number, y: number, z: number, squash: number, look: Look, opts: { braced: boolean; crown: boolean; order: number; alpha: number; away: boolean; showOrder: boolean; dir: number }) {
+  function frog(seat: number, x: number, y: number, z: number, squash: number, look: Look, opts: { braced: boolean; crown: boolean; order: number; alpha: number; away: boolean; showOrder: boolean; dir: number; face: Face; lookX: number; lookY: number; grudge: boolean }) {
     if (!ctx) return;
     const pal = PALETTE[seat % PALETTE.length];
     const s = cell * 0.5;
+    const reduced = reducedMotion();
     ctx.save();
     ctx.globalAlpha = opts.alpha;
     // Shadow on the pad.
@@ -242,33 +280,14 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     ctx.translate(x, y - z);
     const sxk = 1 + squash * 0.22, syk = 1 - squash * 0.22;
     ctx.scale(sxk, syk);
-    if (opts.braced) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.ellipse(0, s * 0.05, s * 0.72, s * 0.52, 0, 0, Math.PI * 2); ctx.stroke();
-    }
-    // Legs (spread when braced).
-    ctx.fillStyle = pal.dark;
-    const spread = opts.braced ? 1.25 : 1;
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.ellipse(side * s * 0.42 * spread, s * 0.2, s * 0.2, s * 0.12, side * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(side * s * 0.34 * spread, -s * 0.18, s * 0.13, s * 0.09, -side * 0.5, 0, Math.PI * 2); ctx.fill();
-    }
-    // Body.
-    ctx.fillStyle = pal.body;
-    ctx.beginPath(); ctx.ellipse(0, 0, s * 0.42, s * 0.36, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = pal.belly;
-    ctx.beginPath(); ctx.ellipse(0, s * 0.1, s * 0.25, s * 0.18, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = pal.dark;
-    if (look.pattern === 1) for (const [dx, dy] of [[-0.18, -0.05], [0.2, 0.02], [0.02, -0.2]]) { ctx.beginPath(); ctx.arc(dx * s, dy * s, s * 0.06, 0, Math.PI * 2); ctx.fill(); }
-    else if (look.pattern === 2) { ctx.fillRect(-s * 0.05, -s * 0.34, s * 0.1, s * 0.3); }
-    // Eyes look the way the frog last hopped.
-    const lx = DX[opts.dir] * s * 0.05, ly = DY[opts.dir] * s * 0.05;
-    for (const side of [-1, 1]) {
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(side * s * 0.2, -s * 0.28, s * 0.13, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#132';
-      ctx.beginPath(); ctx.arc(side * s * 0.2 + lx, -s * 0.28 + ly, s * 0.06, 0, Math.PI * 2); ctx.fill();
-    }
+    // Blinks: every 3 to 6 s per frog, 90 ms, idle only.
+    const period = 3 + ((seat * 7) % 4) * 0.9;
+    const blink = !reduced && opts.face === 'idle' && ((clock + seat * 1.3) % period) < 0.09;
+    drawFrog(ctx, s, pal, {
+      face: opts.face, braced: opts.braced, pattern: look.pattern, blink,
+      lookX: opts.lookX, lookY: opts.lookY, drip: reduced ? -1 : (clock * 2) % 1
+    });
+    if (opts.grudge) drawGrudge(ctx, s * 0.42, -s * 0.58, s);
     ctx.restore();
     ctx.save();
     ctx.globalAlpha = opts.alpha;
@@ -386,6 +405,7 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     clock += dt;
     const reduced = reducedMotion();
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    if (anim && clock < anim.slowUntil) anim.t0 += dt * (1 - STOP_RATE);
     const a = anim;
     const t = a ? clock - a.t0 : 0;
     const state = a ? a.before : view.state;
@@ -441,13 +461,26 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
       }
       return { seat, x, y, z, squash, alpha };
     }).sort((p, q) => p.y - q.y);
+    const grudged = grudge && grudge.seed === state.seed && grudge.round === state.round && !state.scenario ? grudge.seats : [];
     for (const d of drawn) {
       if (d.alpha <= 0) continue;
       const braced = a ? a.braceSteps.some(b => b.seat === d.seat && t >= b.t0 && t < b.t1) : false;
       const order = (a ? a.result.order : view.order).indexOf(d.seat) + 1;
       const crown = (a ? a.result.crown : view.crown) === d.seat;
+      const dir = facing[d.seat] ?? 2;
+      let face: Face = 'idle', lookX = DX[dir] * 0.05, lookY = DY[dir] * 0.05;
+      if (view.winners?.includes(d.seat) && !a) face = 'win';
+      else if (a && a.shocks.some(q => q.seat === d.seat && t >= q.t0 && t < q.t1)) face = 'shock';
+      else if (braced) face = 'brace';
+      else if (clock < smugUntil[d.seat]) face = 'smug';
+      else if (clock < sulk[d.seat].until) {
+        face = 'sulk';
+        const at = drawn.find(q => q.seat === sulk[d.seat].at && q.alpha > 0);
+        if (at) { const vx = at.x - d.x, vy = at.y - d.y, n = Math.hypot(vx, vy) || 1; lookX = vx / n * 0.06; lookY = vy / n * 0.05; }
+      }
       frog(d.seat, sx(d.x), sy(d.y), d.z, d.squash, view.looks[d.seat] ?? { name: '', pattern: 0, tag: false }, {
-        braced, crown, order, alpha: d.alpha * (view.dim ? 0.55 : 1), away: !!view.away[d.seat], showOrder: state.n > 1, dir: facing[d.seat] ?? 2
+        braced, crown, order, alpha: d.alpha * (view.dim ? 0.55 : 1), away: !!view.away[d.seat], showOrder: state.n > 1, dir,
+        face, lookX, lookY, grudge: grudged.includes(d.seat) && face !== 'win'
       });
       if (a) for (const w of a.bounceWalls) if (w.seat === d.seat && Math.abs(t - w.t) < 0.25) {
         ctx.save(); ctx.globalAlpha = 1 - Math.abs(t - w.t) * 4; ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
@@ -465,6 +498,7 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     for (let i = rings.length - 1; i >= 0; i--) {
       const r = rings[i], p = (clock - r.t0) / 0.8;
       if (p >= 1) { rings.splice(i, 1); continue; }
+      if (p <= 0) continue;
       ctx.strokeStyle = `rgba(215, 246, 255, ${0.8 * (1 - p)})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(r.x, r.y, r.max * p, r.max * p * tilt * 0.7, 0, 0, Math.PI * 2); ctx.stroke();
     }
@@ -478,18 +512,42 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
     for (let i = popups.length - 1; i >= 0; i--) {
       const p = popups[i], k = (clock - p.t0) / 1.1;
       if (k >= 1) { popups.splice(i, 1); continue; }
-      ctx.save(); ctx.globalAlpha = 1 - k; ctx.fillStyle = p.color; ctx.strokeStyle = '#06141a'; ctx.lineWidth = 4;
-      ctx.font = `900 ${Math.round(cell * 0.5)}px system-ui, sans-serif`; ctx.textAlign = 'center';
-      ctx.strokeText(p.text, p.x, p.y - k * cell * 0.8); ctx.fillText(p.text, p.x, p.y - k * cell * 0.8); ctx.restore();
+      // The score pops: 1 -> 1.4 -> 1 over the first 260 ms.
+      const age = clock - p.t0, q = clamp(age / 0.26, 0, 1);
+      const pop = reduced ? 1 : 1 + 0.4 * Math.sin(Math.PI * q);
+      ctx.save(); ctx.globalAlpha = 1 - k * k; ctx.fillStyle = p.color; ctx.strokeStyle = '#06141a'; ctx.lineWidth = 4;
+      ctx.font = `900 ${Math.round(cell * 0.5 * pop)}px system-ui, sans-serif`; ctx.textAlign = 'center';
+      const px = clamp(p.x, cell * 0.45, W - cell * 0.45);
+      ctx.strokeText(p.text, px, p.y - k * cell * 0.8); ctx.fillText(p.text, px, p.y - k * cell * 0.8); ctx.restore();
     }
     // Emotes.
+    const placed: [number, number, number, number][] = [];
     for (const e of view.emotes) {
       const age = clock - e.t0;
       if (age > 1.8 || age < 0) continue;
       const d = drawn.find(q => q.seat === e.seat);
       if (!d || d.alpha <= 0) continue;
-      const bx = sx(d.x), by = sy(d.y) - d.z - cell * 0.9 - Math.min(age, 0.2) * 20;
+      const by = sy(d.y) - d.z - cell * 0.9 - Math.min(age, 0.2) * 20;
+      let bx = sx(d.x);
       ctx.save(); ctx.globalAlpha = age > 1.4 ? (1.8 - age) / 0.4 : 1;
+      if (e.bark) {
+        // A speech bubble kept inside the stage, with a tail toward the frog.
+        const fs = Math.max(12, Math.min(17, Math.round(cell * 0.26)));
+        ctx.font = `800 ${fs}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const w = ctx.measureText(e.text).width + fs * 1.1, hh = fs * 1.75;
+        const fx = bx;
+        bx = clamp(bx, w / 2 + 6, W - w / 2 - 6);
+        let top = by - hh / 2 - cell * 0.05;
+        // Two bubbles side by side would collide: stack the later one above.
+        for (let k = 0; k < 3 && placed.some(([x, y, pw, ph]) => Math.abs(x - bx) < (pw + w) / 2 + 4 && Math.abs(y - top) < (ph + hh) / 2 + 2); k++) top -= hh + 6;
+        placed.push([bx, top, w, hh]);
+        ctx.fillStyle = '#fff';
+        roundRect(bx - w / 2, top, w, hh, hh / 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(clamp(fx, bx - w / 2 + 12, bx + w / 2 - 12) - 6, top + hh - 1); ctx.lineTo(fx, top + hh + 8); ctx.lineTo(clamp(fx, bx - w / 2 + 12, bx + w / 2 - 12) + 6, top + hh - 1); ctx.fill();
+        ctx.fillStyle = '#10303a'; ctx.fillText(e.text, bx, top + hh / 2 + 1);
+        ctx.restore();
+        continue;
+      }
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(bx, by, cell * 0.32, 0, Math.PI * 2); ctx.fill();
       ctx.font = `${Math.round(cell * 0.36)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(e.text, bx, by + 1); ctx.restore();
