@@ -14,6 +14,7 @@ export type Stone = { x: number; y: number; r: number; spring?: boolean };
 export type Gate = { a: Pt; b: Pt; period: number; open: number; phase?: number };
 export type Pipe = { a: Pt; b: Pt; out: number };
 export type Zone = { kind: 'gravel' | 'moss'; poly: Pt[] };
+export type Fence = { r: number; mouth: number; w: number };
 export type Shot = { angle: number; power: number; at?: number };
 
 export type Hole = {
@@ -33,6 +34,11 @@ export type Hole = {
   zones?: Zone[];
   gates?: Gate[];
   pipes?: Pipe[];
+  /**
+   * A low bamboo edging round the cup with one mouth: `mouth` is the direction (degrees) the opening faces, `w` the
+   * gap between the edging's ends. It keeps the back board from catching near-misses, so an ace has to thread the mouth.
+   */
+  fence?: Fence;
   /** Decoration only: lanterns, maples, bamboo clumps, raked islands. */
   decor?: { kind: 'lantern' | 'maple' | 'bamboo' | 'pine' | 'rock'; x: number; y: number; s?: number }[];
   /** The proven routes (found by scripts/pebble-putt-search.ts, replayed by the tests). */

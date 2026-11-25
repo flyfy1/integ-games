@@ -10,7 +10,7 @@ import {
   PointsMaterial, Quaternion, Raycaster, RingGeometry, Scene, Shape, ShapeGeometry, SphereGeometry, SRGBColorSpace, TorusGeometry, Vector2, Vector3,
   WebGLRenderer, type Material
 } from 'three';
-import { BALL_R, CUP_R, gateLift, gradient, height, type World } from './physics';
+import { BALL_R, CUP_R, fenceSegments, gateLift, gradient, height, type World } from './physics';
 import type { Hole, Pt } from './types';
 
 export type Palette = {
@@ -212,8 +212,23 @@ export function createGl(canvas: HTMLCanvasElement) {
             const shade = 0.95 + 0.05 * st - 0.13 * groove + 0.05 * (n - 0.5) + hv * 0.18;
             r = sr * shade; g = sg * shade; b = sb * shade;
             for (const z of zoneBoxes) if (x >= z.a && x <= z.b && y >= z.c && y <= z.d && pointIn(z.poly, x, y)) {
-              if (z.kind === 'gravel') { const q = 0.62 + 0.3 * vnoise(x * 16, y * 16) + 0.12 * (n - 0.5); r = 158 * q; g = 150 * q; b = 140 * q; }
-              else { const q = 0.85 + 0.15 * n; r = 74 * q; g = 128 * q; b = 70 * q; }
+              const edge = polyEdge(z.poly, x, y);
+              if (z.kind === 'gravel') {
+                // rounded pebbles, one per jittered cell, with dark gaps between them and a firmer edge row
+                const gx = x * 8.5, gy = y * 8.5, ci = Math.floor(gx), cj = Math.floor(gy);
+                const ox = ci + 0.2 + hash(ci, cj) * 0.6, oy = cj + 0.2 + hash(cj, ci + 7) * 0.6;
+                const dd = Math.hypot(gx - ox, gy - oy), tone = 0.72 + 0.4 * hash(ci + 3, cj - 5);
+                const q = tone * (1 - 0.32 * Math.min(1, Math.max(0, (dd - 0.32) / 0.22))) * (0.92 + 0.08 * (gy - oy + 0.5)) + 0.04 * (n - 0.5);
+                const rim = edge < 0.07 ? 0.72 : 1;
+                r = 168 * q * rim; g = 159 * q * rim; b = 147 * q * rim;
+              } else {
+                // moss cushions: two scales of mottling, bright tufts, and a soft creeping edge into the sand
+                const m = 0.7 + 0.32 * vnoise(x * 2.4, y * 2.4) + 0.16 * vnoise(x * 9, y * 9) + 0.08 * (n - 0.5);
+                const tuft = hash(Math.floor(x * 22), Math.floor(y * 22)) > 0.93 ? 1.25 : 1;
+                const mr = 70 * m * tuft, mg = 122 * m * tuft, mb = 64 * m * tuft;
+                const k2 = Math.min(1, edge / (0.06 + 0.1 * vnoise(x * 5, y * 5)));
+                r = r + (mr - r) * k2; g = g + (mg - g) * k2; b = b + (mb - b) * k2;
+              }
               break;
             }
             // the edge just inside the boards is smoothed by the rake's turn
@@ -232,6 +247,17 @@ export function createGl(canvas: HTMLCanvasElement) {
     const mesh = new Mesh(geo, mat);
     holeGroup.add(mesh);
     void gardenId;
+  }
+
+  /** Distance from a point inside a polygon to its nearest edge. */
+  function polyEdge(poly: readonly Pt[], x: number, y: number) {
+    let best = Infinity;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [ax, ay] = poly[j], [bx, by] = poly[i], dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy || 1;
+      let t = ((x - ax) * dx + (y - ay) * dy) / l; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(x - ax - dx * t, y - ay - dy * t));
+    }
+    return best;
   }
 
   function pointIn(poly: readonly Pt[], x: number, y: number) {
@@ -278,6 +304,29 @@ export function createGl(canvas: HTMLCanvasElement) {
     holeGroup.add(caps);
   }
 
+  /** The cup's low bamboo edging: a rail on short stakes, with two taller posts marking the mouth. */
+  function buildFence(h: Hole) {
+    const segs = fenceSegments(h);
+    if (!segs.length) return;
+    const rail = track(new MeshLambertMaterial({ color: '#b9b06a' })), stake = track(new MeshLambertMaterial({ color: '#8c7a45' }));
+    const railGeo = track(new CylinderGeometry(0.055, 0.055, 1, 8)); railGeo.rotateZ(Math.PI / 2);
+    const stakeGeo = track(new CylinderGeometry(0.035, 0.04, 1, 6));
+    const rails = new InstancedMesh(railGeo, rail, segs.length), stakes = new InstancedMesh(stakeGeo, stake, segs.length + 1);
+    const m = new Matrix4(), q = new Quaternion(), sc = new Vector3(), p = new Vector3(), up = new Vector3(0, 1, 0);
+    segs.forEach(([a, b], i) => {
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]), mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      p.set(mx, hAt(mx, my) + 0.13, -my); q.setFromAxisAngle(up, Math.atan2(b[1] - a[1], b[0] - a[0])); sc.set(len + 0.05, 1, 1);
+      m.compose(p, q, sc); rails.setMatrixAt(i, m);
+    });
+    const ends = [segs[0][0], ...segs.map(s => s[1])];
+    ends.forEach(([x, y], i) => {
+      const mouth = i === 0 || i === ends.length - 1, hh = mouth ? 0.36 : 0.2;
+      p.set(x, hAt(x, y) + hh / 2, -y); q.identity(); sc.set(mouth ? 1.5 : 1, hh, mouth ? 1.5 : 1);
+      m.compose(p, q, sc); stakes.setMatrixAt(i, m);
+    });
+    holeGroup.add(rails, stakes);
+  }
+
   function buildStones(h: Hole) {
     const list = h.stones ?? [];
     const rocks = list.filter(s => !s.spring), posts = list.filter(s => s.spring);
@@ -315,14 +364,55 @@ export function createGl(canvas: HTMLCanvasElement) {
       const geo = track(new ShapeGeometry(shape)); geo.rotateX(-Math.PI / 2);
       let minH = Infinity, cx = 0, cy = 0;
       for (const [x, y] of poly) { minH = Math.min(minH, hAt(x, y)); cx += x / poly.length; cy += y / poly.length; }
-      const mat = track(new MeshPhongMaterial({ color: palette.water, shininess: 90, specular: 0xffffff, transparent: true, opacity: 0.88, emissive: new Color(palette.water).multiplyScalar(0.25) }));
+      // depth: pale shallows along the edge darkening to a deep middle, with a few slow light streaks
+      let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (const [x, y] of poly) { bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
+      const ppu = 40, tw = Math.max(8, Math.round((bx1 - bx0) * ppu)), th = Math.max(8, Math.round((by1 - by0) * ppu));
+      const wc = new Color(palette.water), wr = wc.r * 255, wg = wc.g * 255, wb = wc.b * 255;
+      const tex = track(canvasTex(tw, th, (ctx) => {
+        const img = ctx.createImageData(tw, th), d = img.data;
+        for (let j = 0; j < th; j++) for (let i = 0; i < tw; i++) {
+          const x = bx0 + (i + 0.5) / ppu, y = by1 - (j + 0.5) / ppu, k = (j * tw + i) * 4;
+          const e = Math.min(1, polyEdge(poly, x, y) / 0.75), deep = e * e * (3 - 2 * e);
+          const streak = 0.06 * Math.pow(Math.max(0, Math.sin(x * 2.1 + y * 0.9 + 1.7 * vnoise(x * 0.8, y * 0.8))), 12);
+          const sh = 1.28 - 0.52 * deep + streak + 0.03 * (vnoise(x * 6, y * 6) - 0.5);
+          d[k] = Math.min(255, wr * sh + 18 * (1 - deep)); d[k + 1] = Math.min(255, wg * sh + 22 * (1 - deep)); d[k + 2] = Math.min(255, wb * sh + 8 * (1 - deep)); d[k + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+      }));
+      tex.repeat.set(1 / (bx1 - bx0), 1 / (by1 - by0)); tex.offset.set(-bx0 / (bx1 - bx0), -by0 / (by1 - by0));
+      const mat = track(new MeshPhongMaterial({ map: tex, shininess: 90, specular: 0xffffff, transparent: true, opacity: 0.84, emissive: new Color(palette.water).multiplyScalar(0.18) }));
       waterMats.push(mat);
       const mesh = new Mesh(geo, mat); mesh.position.y = minH + 0.03; holeGroup.add(mesh);
-      // a stone rim
-      const rimGeo = track(new BufferGeometry());
-      const rim: number[] = [];
-      for (let i = 0; i < poly.length; i++) { const [x, y] = poly[i]; rim.push(x, minH + 0.05, -y); }
-      rimGeo.setAttribute('position', new BufferAttribute(new Float32Array(rim), 3));
+      // a rim of small flat river stones where the pond meets the sand (none where a board already edges it)
+      const rimPts: [number, number, number][] = [];
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [ax, ay] = poly[j], [qx, qy] = poly[i], len = Math.hypot(qx - ax, qy - ay), n = Math.max(1, Math.round(len / 0.19));
+        for (let k = 0; k < n; k++) {
+          const f = (k + 0.5) / n, x = ax + (qx - ax) * f, y = ay + (qy - ay) * f;
+          if (wallDist(h, x, y) < 0.14 || x <= h.bounds[0] + 0.05 || x >= h.bounds[2] - 0.05) continue;
+          rimPts.push([x, y, hash(x * 7.1, y * 3.3)]);
+        }
+      }
+      if (rimPts.length) {
+        const rim = new InstancedMesh(rimGeoShared, track(new MeshLambertMaterial({ color: '#ffffff', flatShading: true })), rimPts.length);
+        const m4 = new Matrix4(), q4 = new Quaternion(), s4 = new Vector3(), p4 = new Vector3(), up = new Vector3(0, 1, 0), c4 = new Color();
+        rimPts.forEach(([x, y, r0], i) => {
+          const sz = 0.085 + r0 * 0.05;
+          p4.set(x, minH + 0.03, -y); q4.setFromAxisAngle(up, r0 * 6.28); s4.set(sz * 1.25, sz * 0.5, sz);
+          m4.compose(p4, q4, s4); rim.setMatrixAt(i, m4);
+          rim.setColorAt(i, c4.set(palette.stone).offsetHSL(0, -0.02, (r0 - 0.5) * 0.16 + 0.06));
+        });
+        holeGroup.add(rim);
+      }
+      // two lily pads where the pond is deep enough
+      let pads = 0;
+      for (let k = 0; k < 40 && pads < 2; k++) {
+        const x = bx0 + hash(k, cx * 3 + 1) * (bx1 - bx0), y = by0 + hash(cy * 5 + 2, k) * (by1 - by0);
+        if (!pointIn(poly, x, y) || polyEdge(poly, x, y) < 0.32 || Math.hypot(x - cx, y - cy) < 0.3) continue;
+        const pad = new Mesh(padGeo, padMat); pad.position.set(x, minH + 0.045, -y); pad.rotation.y = hash(k, 3) * 6.28; pad.scale.setScalar(0.8 + hash(3, k) * 0.45);
+        holeGroup.add(pad); pads++;
+      }
       // koi: two slow fish circling near the middle
       let minR = Infinity;
       for (const [x, y] of poly) minR = Math.min(minR, Math.hypot(x - cx, y - cy));
@@ -333,9 +423,22 @@ export function createGl(canvas: HTMLCanvasElement) {
         const body = new Mesh(track(new SphereGeometry(0.12, 10, 6)), k ? finMat : fishMat); body.scale.set(2.6, 0.5, 1); fish.add(body);
         const tail = new Mesh(track(new ConeGeometry(0.09, 0.2, 6)), k ? fishMat : finMat); tail.rotation.z = Math.PI / 2; tail.position.x = -0.36; tail.scale.set(1, 1, 0.3); fish.add(tail);
         holeGroup.add(fish);
-        koi.push({ mesh: fish, cx, cy, r: Math.max(0.3, minR * (0.55 - k * 0.2)), speed: 0.35 + k * 0.12, phase: k * 2.4, h: minH - 0.04, leap: IDLE, lx: 0, ly: 0, dir: 0 });
+        koi.push({ mesh: fish, cx, cy, r: Math.max(0.3, minR * (0.55 - k * 0.2)), speed: 0.35 + k * 0.12, phase: k * 2.4, h: minH - 0.012, leap: IDLE, lx: 0, ly: 0, dir: 0 });
       }
     }
+  }
+
+  const rimGeoShared = new DodecahedronGeometry(1, 0);
+  const padGeo = new CircleGeometry(0.2, 18, 0.35, Math.PI * 2 - 0.5); padGeo.rotateX(-Math.PI / 2);
+  const padMat = new MeshLambertMaterial({ color: '#4f8a3c', side: DoubleSide });
+  function wallDist(h: Hole, x: number, y: number) {
+    let best = Infinity;
+    for (const line of h.walls) for (let i = 0; i + 1 < line.length; i++) {
+      const [ax, ay] = line[i], [bx, by] = line[i + 1], dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy || 1;
+      let t = ((x - ax) * dx + (y - ay) * dy) / l; t = t < 0 ? 0 : t > 1 ? 1 : t;
+      best = Math.min(best, Math.hypot(x - ax - dx * t, y - ay - dy * t));
+    }
+    return best;
   }
 
   function buildGates(h: Hole) {
@@ -576,7 +679,7 @@ export function createGl(canvas: HTMLCanvasElement) {
     const [x0, y0, x1, y1] = h.bounds, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     // golden hour: a low sun from the left and slightly ahead, so dunes throw readable light and shade
     sun.position.set(cx - 9, 6, -cy - 6); sun.target.position.set(cx, 0, -cy);
-    buildGround(h, gardenId); buildBoards(h); buildStones(h); buildWater(h); buildGates(h); buildPipes(h); buildCup(h); buildDecor(h); buildShishi(h); buildGrains(h);
+    buildGround(h, gardenId); buildBoards(h); buildStones(h); buildWater(h); buildGates(h); buildPipes(h); buildCup(h); buildFence(h); buildDecor(h); buildShishi(h); buildGrains(h);
     // pebbles
     for (const b of balls) { scene.remove(b.mesh); scene.remove(b.blob); b.mat.dispose(); }
     balls = [];
@@ -811,7 +914,7 @@ export function createGl(canvas: HTMLCanvasElement) {
     for (const d of disposables) d.dispose();
     for (const b of balls) b.mat.dispose();
     for (const r of ripples) { r.mat.dispose(); r.geo.dispose(); } for (const q of splashes) q.mat.dispose();
-    for (const m of [splashGeo, ballGeo, blobGeo, blobMat, shadowGeo, shadowMat, dotGeo, arrowGeo, arrowMat, ringGeo, pebbleTex, blobTex, dotTex, glowTex] as { dispose(): void }[]) m.dispose();
+    for (const m of [rimGeoShared, padGeo, padMat, splashGeo, ballGeo, blobGeo, blobMat, shadowGeo, shadowMat, dotGeo, arrowGeo, arrowMat, ringGeo, pebbleTex, blobTex, dotTex, glowTex] as { dispose(): void }[]) m.dispose();
     (dots.material as Material).dispose(); (ring.material as Material).dispose();
     renderer.dispose();
     renderer.forceContextLoss?.();

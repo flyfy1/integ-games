@@ -106,6 +106,7 @@ export function compile(hole: Hole): Course {
   for (const s of hole.slopes) if (s.kind === 'bump' && s.rot !== undefined) { s.cos = Math.cos(s.rot); s.sin = Math.sin(s.rot); }
   const segs: Seg[] = [];
   for (const line of hole.walls) for (let i = 0; i + 1 < line.length; i++) segs.push(seg(line[i], line[i + 1]));
+  for (const [a, b] of fenceSegments(hole)) segs.push(seg(a, b));
   (hole.gates ?? []).forEach((g, k) => segs.push(seg(g.a, g.b, k)));
   const course: Course = {
     hole, segs,
@@ -116,6 +117,19 @@ export function compile(hole: Hole): Course {
   };
   cache.set(hole, course);
   return course;
+}
+
+/** The cup's bamboo edging as straight pieces (an arc of about 0.3-long chords that leaves the mouth open). */
+export function fenceSegments(hole: Hole): [Pt, Pt][] {
+  const f = hole.fence;
+  if (!f) return [];
+  const half = Math.asin(Math.min(1, f.w / 2 / f.r)), a0 = f.mouth * Math.PI / 180 + half, span = Math.PI * 2 - 2 * half;
+  const n = Math.max(6, Math.round(span * f.r / 0.3));
+  const pts: Pt[] = [];
+  for (let i = 0; i <= n; i++) { const a = a0 + span * i / n; pts.push([hole.cup[0] + Math.cos(a) * f.r, hole.cup[1] + Math.sin(a) * f.r]); }
+  const out: [Pt, Pt][] = [];
+  for (let i = 0; i + 1 < pts.length; i++) out.push([pts[i], pts[i + 1]]);
+  return out;
 }
 
 /** A gate is open for `open` seconds at the start of every period (shifted by its phase). */
