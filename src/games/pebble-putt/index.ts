@@ -21,10 +21,14 @@ type Play = {
   phase: 'aim' | 'rolling' | 'done';
   acc: number; fast: boolean; shots: number; doneAt: number;
   kbAim: { angle: number; power: number } | null;
+  /** Solo stroke one that will sink: its sink time (shot clock), so the last moments can run in slow motion; else -1. */
+  aceAt: number; ace: boolean;
 };
 type Drag = { id: number; sx: number; sy: number; x: number; y: number; angle: number; power: number; path: number[] | null };
 
 const SHOT_CAP_OVER_PAR = 5;
+/** The ace's slow motion: the last 0.4 s of the roll before the drop run at 0.3x. */
+const ACE_SLOW_S = 0.4, ACE_SLOW = 0.3;
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> | null = null, ...children: (Node | string | null | undefined | false)[]) => {
   const el = document.createElement(tag);
   if (props) for (const [k, v] of Object.entries(props)) {
@@ -41,6 +45,8 @@ const h = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, 
   return el;
 };
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+/** An ensō, the zen brush circle, drawn round the word on an ace card (one stroke, left a little open). */
+const ENSO_SVG = '<svg viewBox="0 0 120 120"><path d="M80 18C60 6 28 12 16 40S20 100 56 107s58-14 54-50c-2-15-9-26-19-33" fill="none" stroke="#2b2118" stroke-width="9" stroke-linecap="round" pathLength="100" opacity=".8"/></svg>';
 const HAND_SVG = '<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M18 6c2 0 3.5 1.5 3.5 3.5V22l1-.2V7.5c0-2 1.5-3.5 3.5-3.5S29.5 5.5 29.5 7.5V22l1 .1V10c0-2 1.5-3.5 3.5-3.5S37.5 8 37.5 10v19c0 8-5 14-12.5 14C18 43 14 39 11 33l-4.5-9c-1-2 0-4 2-4.5 1.6-.4 3 .4 3.8 1.8L14.5 26V9.5C14.5 7.5 16 6 18 6z" fill="#fff8ec" stroke="#2b2118" stroke-width="2.2" stroke-linejoin="round"/></svg>';
 
 export const pebblePutt: GameModule = {
@@ -74,7 +80,9 @@ export const pebblePutt: GameModule = {
     let hud: { el: HTMLElement; update(): void } | null = null;
     let caption: HTMLElement | null = null, ghost: HTMLElement | null = null, turnBanner: HTMLElement | null = null;
     let destroyed = false, paused = false, raf = 0, last = 0, clock = 0, storageWarned = false, frameFailed = false;
-    let toastTimer: ReturnType<typeof setTimeout> | null = null;
+    let toastTimer: ReturnType<typeof setTimeout> | null = null, konTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Times each hole was opened in solo this session (the ace card notices how long it took). */
+    const tries: Record<number, number> = {};
     let width = 360, heightPx = 560;
     /** Render-resolution scale: drops (1 -> 0.7 -> 0.55) while the device cannot hold ~48 fps and each drop clearly helps. */
     let quality = 1, prevQuality = 1, slowFrames = 0, sampled = 0, lastShare = 1, justDropped = false, adapting = true, hiccup = false;
@@ -244,6 +252,7 @@ export const pebblePutt: GameModule = {
     // ------------------------------------------------------------ playing a hole
     function leaveHole() {
       play = null; drag = null;
+      if (konTimer) { clearTimeout(konTimer); konTimer = null; }
       hud?.el.remove(); hud = null; caption?.remove(); caption = null; ghost?.remove(); ghost = null; turnBanner?.remove(); turnBanner = null;
       closeCard();
     }
@@ -256,7 +265,9 @@ export const pebblePutt: GameModule = {
       const players = mode === 'party' && party ? party.players : 1;
       const world = createWorld(hole, players, 0);
       if (players > 1) for (const b of world.balls) b.onCourse = false;
-      play = { hole, mode, world, strokes: Array(players).fill(0), holed: Array(players).fill(false), out: Array(players).fill(false), turn: 0, shooter: 0, phase: 'aim', acc: 0, fast: false, shots: 0, doneAt: 0, kbAim: null };
+      play = { hole, mode, world, strokes: Array(players).fill(0), holed: Array(players).fill(false), out: Array(players).fill(false), turn: 0, shooter: 0, phase: 'aim', acc: 0, fast: false, shots: 0, doneAt: 0, kbAim: null, aceAt: -1, ace: false };
+      if (konTimer) { clearTimeout(konTimer); konTimer = null; }
+      if (mode === 'solo') tries[id] = (tries[id] ?? 0) + 1;
       teeUp(0);
       root.dataset.state = 'play'; root.dataset.hole = String(id);
       gl?.setHole(hole, gardenOf(id).id, players, PLAYER_COLORS); resetQualityWindow();
@@ -358,6 +369,9 @@ export const pebblePutt: GameModule = {
       if (!play || play.phase !== 'aim') return;
       const i = play.turn;
       teeUp(i);
+      // the first solo stroke is simulated ahead (the same deterministic physics) so an ace can slow down before it drops
+      const b0 = play.world.balls[i];
+      play.aceAt = play.mode === 'solo' && play.strokes[i] === 0 ? (r => r.sunk ? r.t : -1)(simulateShot(play.hole, b0.x, b0.y, angle, power, play.world.t)) : -1;
       strike(play.world, i, angle, power);
       play.strokes[i]++; play.shooter = i; play.phase = 'rolling'; play.fast = false; play.shots++;
       audio.unlock(); audio.shoot(power);
@@ -439,15 +453,28 @@ export const pebblePutt: GameModule = {
         else if (e.kind === 'pipe') audio.pipe();
         else if (e.kind === 'water') {
           audio.splash();
-          if (e.ball === play.shooter) { play.strokes[e.ball]++; say(t('toast.water')); hud?.update(); }
+          if (e.ball === play.shooter) { play.strokes[e.ball]++; say(t('toast.water'), 1900); hud?.update(); }
         } else if (e.kind === 'cup') {
           const i = e.ball;
           play.holed[i] = true;
           const ace = play.mode === 'solo' && play.strokes[i] === 1;
           audio.cup(ace);
+          if (ace) aceMoment();
           if (play.mode === 'party' && i !== play.shooter) say(t('toast.knocked', { name: i18n.tr(PLAYER_NAMES[i]) }));
         }
       }
+    }
+
+    /** Stroke one dropped: rake rings, the flag, the koi, and the deer scarer's "kon" once its tube swings back onto the stone. */
+    function aceMoment() {
+      if (!play) return;
+      play.ace = true;
+      const reduced = reducedNow();
+      gl?.aceBurst(reduced);
+      try { navigator.vibrate?.([18, 70, 30]); } catch { /* no haptics */ }
+      if (konTimer) clearTimeout(konTimer);
+      konTimer = setTimeout(() => { konTimer = null; if (!play?.ace || destroyed) return; audio.kon(); say(t('toast.kon'), 1700); }, reduced ? 250 : 620);
+      services.track?.('ace', { hole: play.hole.id, tries: Math.min(9, tries[play.hole.id] ?? 1) });
     }
 
     let gateWasOpen: boolean[] = [];
@@ -495,12 +522,19 @@ export const pebblePutt: GameModule = {
       const rec = save.holes[hole.id];
       const stars = rec?.stars ?? [false, false, false];
       const nextId = hole.id < HOLES.length ? hole.id + 1 : null;
-      const showDelay = reducedNow() ? 250 : 750;
+      const aced = holed && strokes === 1;
+      const n = tries[hole.id] ?? 1;
+      const showDelay = reducedNow() ? 250 : aced ? 1900 : 750;
+      const remark = aced ? (n <= 1 ? t('result.aceFirst') : t('result.aceTries', { n })) : holed && diff >= 2 ? t('result.rake') : null;
       setTimeout(() => {
         if (!play || play.phase !== 'done' || destroyed) return;
         closeCard();
-        card = h('div', { class: 'pp-card', role: 'dialog', 'aria-label': title, 'data-result': strokes === 1 && holed ? 'ace' : diff <= 0 ? 'par' : 'over' },
-          h('h2', { text: title }),
+        const head = h('h2', { text: title });
+        let enso: HTMLElement | null = null;
+        if (aced) { enso = h('span', { class: 'pp-enso', 'aria-hidden': 'true' }); enso.innerHTML = ENSO_SVG; enso.append(h('span', { class: 'pp-seal', text: '一' })); }
+        card = h('div', { class: `pp-card${aced ? ' ace' : ''}`, role: 'dialog', 'aria-label': title, 'data-result': aced ? 'ace' : diff <= 0 ? 'par' : 'over' },
+          enso, head,
+          remark ? h('p', { class: 'pp-remark', text: remark }) : null,
           h('p', { text: strokes === 1 ? t('result.stroke1', { par: hole.par }) : t('result.strokes', { n: strokes, par: hole.par }) }),
           h('div', { class: 'pp-stars' }, ...(['star.finish', 'star.par', 'star.ace'] as const).map((k, i) => h('div', { class: `${stars[i] ? 'on' : ''}${fresh[i] ? ' fresh' : ''}` }, h('b', { text: '★' }), t(k)))),
           !stars[2] ? h('p', { class: 'pp-tease', text: t('result.tease') }) : null,
@@ -586,7 +620,9 @@ export const pebblePutt: GameModule = {
         }
       }
       if (play) {
-        play.acc += dt * (play.fast ? 4 : 1);
+        let speed = play.fast ? 4 : 1;
+        if (play.aceAt > 0 && !play.fast && play.phase === 'rolling' && !reducedNow() && play.world.shotT > play.aceAt - ACE_SLOW_S) { speed = ACE_SLOW; gl?.acePrime(); }
+        play.acc += dt * speed;
         let n = 0;
         while (play.acc >= DT && n < MAX_STEPS) {
           events.length = 0;
@@ -658,6 +694,7 @@ export const pebblePutt: GameModule = {
         destroyed = true;
         if (raf) cancelAnimationFrame(raf);
         if (toastTimer) clearTimeout(toastTimer);
+        if (konTimer) clearTimeout(konTimer);
         observer?.disconnect();
         window.removeEventListener('resize', layout);
         root.removeEventListener('keydown', onKey);

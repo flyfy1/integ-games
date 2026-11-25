@@ -41,6 +41,8 @@ export type GameServices = {
   reportScore(score: number): void;
   reportComplete(progress?: number): void;
   isReducedMotion: boolean;
+  /** Analytics event (production only; params are numbers or short enums, never free text). */
+  track?(name: string, params: Record<string, number | string>): void;
 };
 
 export type GameController = {

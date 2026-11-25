@@ -30,6 +30,7 @@ export const PALETTES: Record<number, Palette> = {
 export type AimView = { x: number; y: number; angle: number; power: number; path: number[] | null };
 export type FrameView = { world: World; time: number; dt: number; aim: AimView | null; active: number; reduced: boolean; colors: string[] };
 
+const IDLE = -99; // a koi that is not leaping
 const v3 = (x: number, y: number, h: number) => new Vector3(x, h, -y);
 
 function canvasTex(w: number, h: number, draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void) {
@@ -55,6 +56,7 @@ export function createGl(canvas: HTMLCanvasElement) {
   const gl = renderer.getContext();
   if (!gl || typeof gl.getParameter !== 'function') throw new Error('no webgl');
   renderer.outputColorSpace = SRGBColorSpace;
+  renderer.localClippingEnabled = true; // the ace ripples stay inside the boards
   const scene = new Scene();
   const camera = new PerspectiveCamera(42, 1, 0.1, 200);
   const hemi = new HemisphereLight(0xffffff, 0x888888, 1);
@@ -99,11 +101,33 @@ export function createGl(canvas: HTMLCanvasElement) {
   let balls: BallView[] = [];
   let gates: { pivot: Object3D; g: NonNullable<Hole['gates']>[number] }[] = [];
   let flag: Mesh | null = null;
-  let koi: { mesh: Object3D; cx: number; cy: number; r: number; speed: number; phase: number; h: number }[] = [];
+  let koi: { mesh: Object3D; cx: number; cy: number; r: number; speed: number; phase: number; h: number; leap: number; lx: number; ly: number; dir: number }[] = [];
   let springs: { mesh: Object3D; x: number; y: number; pulse: number }[] = [];
   let grains: { pts: Points; pos: Float32Array; life: Float32Array; spots: Float32Array } | null = null;
   let waterMats: MeshPhongMaterial[] = [];
   let palette = PALETTES[1];
+  /** The deer scarer (shishi-odoshi) behind the cup: it only clacks for an ace. */
+  let shishi: { tube: Object3D; t: number } | null = null;
+  /** Ace effects: rake-ring ripples from the cup, a flag spin, leaping koi and a slow push-in, all on the real clock. */
+  const ace = { t: -1, push: -1, cx: 0, cy: 0, ch: 0, spin: -1 };
+  const clip = [new Plane(), new Plane(), new Plane(), new Plane()];
+  const RIPPLES = 4;
+  const rippleGeo = new RingGeometry(0.93, 1, 72); rippleGeo.rotateX(-Math.PI / 2);
+  const ripples = Array.from({ length: RIPPLES * 2 }, (_, i) => {
+    const mat = new MeshBasicMaterial({ color: i % 2 ? 0xfff6e0 : 0x3a2410, transparent: true, opacity: 0, depthWrite: false, clippingPlanes: clip });
+    const m = new Mesh(rippleGeo, mat); m.visible = false; m.renderOrder = 2; scene.add(m);
+    return { m, mat };
+  });
+  const splashGeo = new RingGeometry(0.75, 1, 40); splashGeo.rotateX(-Math.PI / 2);
+  const splashes = Array.from({ length: 4 }, () => {
+    const mat = new MeshBasicMaterial({ color: 0xe8fbff, transparent: true, opacity: 0, depthWrite: false });
+    const m = new Mesh(splashGeo, mat); m.visible = false; scene.add(m);
+    return { m, mat, t: -1 };
+  });
+  const splashAt = (x: number, y: number, h: number) => {
+    const s = splashes.find(q => q.t < 0) ?? splashes[0];
+    s.t = 0; s.m.position.set(x, h + 0.02, -y); s.m.visible = true;
+  };
 
   // aim: dotted preview and a power arrow
   const DOTS = 80;
@@ -297,7 +321,7 @@ export function createGl(canvas: HTMLCanvasElement) {
         const body = new Mesh(track(new SphereGeometry(0.12, 10, 6)), k ? finMat : fishMat); body.scale.set(2.6, 0.5, 1); fish.add(body);
         const tail = new Mesh(track(new ConeGeometry(0.09, 0.2, 6)), k ? fishMat : finMat); tail.rotation.z = Math.PI / 2; tail.position.x = -0.36; tail.scale.set(1, 1, 0.3); fish.add(tail);
         holeGroup.add(fish);
-        koi.push({ mesh: fish, cx, cy, r: Math.max(0.3, minR * (0.55 - k * 0.2)), speed: 0.35 + k * 0.12, phase: k * 2.4, h: minH - 0.04 });
+        koi.push({ mesh: fish, cx, cy, r: Math.max(0.3, minR * (0.55 - k * 0.2)), speed: 0.35 + k * 0.12, phase: k * 2.4, h: minH - 0.04, leap: IDLE, lx: 0, ly: 0, dir: 0 });
       }
     }
   }
@@ -398,6 +422,33 @@ export function createGl(canvas: HTMLCanvasElement) {
       decor.push({ g, x: d.x, y: d.y });
     }
   }
+  function buildShishi(h: Hole) {
+    // a shishi-odoshi stands just behind the back board, level with the cup: bamboo tube on two posts, a strike stone, a basin
+    const [x0, , x1, y1] = h.bounds;
+    const x = Math.max(x0 + 1.1, Math.min(x1 - 1.1, h.cup[0])), y = y1 + 0.85;
+    const base = hAt(Math.max(x0, Math.min(x1, x)), y1) * 0.6 - 0.12;
+    const g = new Group(); g.position.set(x, base, -y); g.scale.setScalar(1.3);
+    const bam = track(new MeshLambertMaterial({ color: '#a9c45c' })), dark = track(new MeshLambertMaterial({ color: '#6d8a2e' }));
+    const rockM = track(new MeshLambertMaterial({ color: palette.stone, flatShading: true }));
+    const basin = new Mesh(track(new CylinderGeometry(0.26, 0.3, 0.16, 14)), rockM); basin.position.set(0.42, 0.08, 0); g.add(basin);
+    const pool = new Mesh(track(new CircleGeometry(0.2, 14)), track(new MeshBasicMaterial({ color: palette.water }))); pool.rotation.x = -Math.PI / 2; pool.position.set(0.42, 0.165, 0); g.add(pool);
+    const strikeStone = new Mesh(track(new DodecahedronGeometry(0.15, 0)), rockM); strikeStone.scale.set(1.1, 0.6, 1); strikeStone.position.set(-0.46, 0.06, 0); g.add(strikeStone);
+    const postGeo = track(new CylinderGeometry(0.028, 0.032, 0.44, 6));
+    for (const z of [-0.11, 0.11]) { const p = new Mesh(postGeo, dark); p.position.set(-0.04, 0.22, z); g.add(p); }
+    const tube = new Group(); tube.position.set(-0.04, 0.36, 0);
+    const body = new Mesh(track(new CylinderGeometry(0.068, 0.068, 0.92, 12)), bam); body.rotation.z = Math.PI / 2; body.position.x = 0.0; tube.add(body);
+    const mouth = new Mesh(track(new CircleGeometry(0.06, 12)), track(new MeshBasicMaterial({ color: '#2a2a12' }))); mouth.rotation.y = Math.PI / 2; mouth.position.x = 0.461; tube.add(mouth);
+    const knot = new Mesh(track(new TorusGeometry(0.069, 0.013, 5, 12)), dark); knot.rotation.y = Math.PI / 2; knot.position.x = -0.12; tube.add(knot);
+    tube.rotation.z = 0.32;
+    g.add(tube);
+    // the feed pipe (kakei) that fills it
+    const feedPost = new Mesh(postGeo, dark); feedPost.scale.y = 1.7; feedPost.position.set(0.9, 0.37, 0); g.add(feedPost);
+    const feed = new Mesh(track(new CylinderGeometry(0.035, 0.035, 0.4, 8)), bam); feed.rotation.z = Math.PI / 2 + 0.25; feed.position.set(0.72, 0.68, 0); g.add(feed);
+    const sh = new Mesh(shadowGeo, shadowMat); sh.position.set(0.5, 0.03, 0.3); sh.rotation.y = -0.55; sh.scale.set(0.8, 1, 0.5); g.add(sh);
+    holeGroup.add(g);
+    shishi = { tube, t: -1 };
+  }
+
   let glows: Mesh[] = [];
   let decor: { g: Group; x: number; y: number }[] = [];
   const shadowGeo = new PlaneGeometry(2.2, 1.1); shadowGeo.rotateX(-Math.PI / 2);
@@ -494,14 +545,17 @@ export function createGl(canvas: HTMLCanvasElement) {
     if (!rebuild && h === hole && players === balls.length) {
       // a retry of the same hole: keep the baked garden, just reset the pebbles' look
       balls.forEach((b, i) => { b.sinkT = -1; b.lastX = NaN; b.lastY = NaN; b.q.identity(); b.mat.color.set(colors[i] ?? '#f4f1ea'); });
+      resetAce();
       return;
     }
+    resetAce();
     scene.remove(holeGroup);
     for (const d of disposables) d.dispose();
-    disposables = []; gates = []; koi = []; springs = []; grains = null; glows = []; flag = null; decor = [];
+    disposables = []; gates = []; koi = []; springs = []; grains = null; glows = []; flag = null; decor = []; shishi = null;
     holeGroup = new Group(); scene.add(holeGroup);
     hole = h;
     palette = PALETTES[gardenId] ?? PALETTES[1];
+    { const [bx0, by0, bx1, by1] = h.bounds, m = 0.07; clip[0].set(new Vector3(1, 0, 0), -(bx0 + m)); clip[1].set(new Vector3(-1, 0, 0), bx1 - m); clip[2].set(new Vector3(0, 0, -1), -(by0 + m)); clip[3].set(new Vector3(0, 0, 1), by1 - m); }
     const sky = track(canvasTex(4, 256, (ctx, w, hh) => { const g = ctx.createLinearGradient(0, 0, 0, hh); g.addColorStop(0, palette.skyTop); g.addColorStop(0.75, palette.skyLow); g.addColorStop(1, palette.fog); ctx.fillStyle = g; ctx.fillRect(0, 0, w, hh); }));
     scene.background = sky;
     scene.fog = new Fog(palette.fog, 18, 60);
@@ -510,7 +564,7 @@ export function createGl(canvas: HTMLCanvasElement) {
     const [x0, y0, x1, y1] = h.bounds, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     // golden hour: a low sun from the left and slightly ahead, so dunes throw readable light and shade
     sun.position.set(cx - 9, 6, -cy - 6); sun.target.position.set(cx, 0, -cy);
-    buildGround(h, gardenId); buildBoards(h); buildStones(h); buildWater(h); buildGates(h); buildPipes(h); buildCup(h); buildDecor(h); buildGrains(h);
+    buildGround(h, gardenId); buildBoards(h); buildStones(h); buildWater(h); buildGates(h); buildPipes(h); buildCup(h); buildDecor(h); buildShishi(h); buildGrains(h);
     // pebbles
     for (const b of balls) { scene.remove(b.mesh); scene.remove(b.blob); b.mat.dispose(); }
     balls = [];
@@ -601,9 +655,29 @@ export function createGl(canvas: HTMLCanvasElement) {
     // flag
     if (flag) flag.rotation.y = v.reduced ? 0.3 : 0.3 + Math.sin(t * 1.3) * 0.25;
     for (const k of koi) {
+      if (k.leap > IDLE) {
+        k.leap += v.dt;
+        if (k.leap >= 0 && k.lx === 0 && k.ly === 0) { // take off from where it swims, along its heading
+          const a0 = t * k.speed + k.phase;
+          k.lx = k.cx + Math.cos(a0) * k.r; k.ly = k.cy + Math.sin(a0) * k.r; k.dir = a0 + Math.PI; // over the middle of the pond
+          splashAt(k.lx, k.ly, k.h);
+        }
+        if (k.leap >= 0) {
+          const u = k.leap / 0.85;
+          const span = Math.max(0.5, k.r * 1.7);
+          if (u >= 1) { splashAt(k.lx + Math.cos(k.dir) * span, k.ly + Math.sin(k.dir) * span, k.h); k.leap = IDLE; k.lx = k.ly = 0; k.mesh.rotation.set(0, 0, 0); }
+          else {
+            const d = u * span, hgt = 0.95 * 4 * u * (1 - u);
+            k.mesh.position.set(k.lx + Math.cos(k.dir) * d, k.h + hgt, -(k.ly + Math.sin(k.dir) * d));
+            k.mesh.rotation.set(0, k.dir, 0);
+            k.mesh.rotateZ(Math.atan2(0.95 * 4 * (1 - 2 * u), span)); // nose follows the arc
+            continue;
+          }
+        } else continue;
+      }
       const a = (v.reduced ? k.phase : t * k.speed + k.phase);
       k.mesh.position.set(k.cx + Math.cos(a) * k.r, k.h, -(k.cy + Math.sin(a) * k.r));
-      k.mesh.rotation.y = a + Math.PI; // swims tangentially
+      k.mesh.rotation.y = a + Math.PI / 2; // nose along the circle it swims
     }
     for (const m of waterMats) m.emissiveIntensity = v.reduced ? 1 : 1 + Math.sin(t * 1.7) * 0.25;
     for (const s of springs) { s.pulse = Math.max(0, s.pulse - v.dt * 4); const k = 1 + Math.sin(s.pulse * 18) * s.pulse * 0.25; s.mesh.scale.set(k, 2 - k, k); }
@@ -624,7 +698,80 @@ export function createGl(canvas: HTMLCanvasElement) {
       }
       (grains.pts.geometry.getAttribute('position') as BufferAttribute).needsUpdate = true;
     }
+    aceFrame(v.dt, t);
     renderer.render(scene, camera);
+  }
+
+  // ------------------------------------------------------------------ the ace moment
+  function resetAce() {
+    ace.t = -1; ace.push = -1; ace.spin = -1;
+    for (const r of ripples) { r.m.visible = false; r.mat.opacity = 0; }
+    for (const s of splashes) { s.t = -1; s.m.visible = false; }
+    for (const k of koi) { k.leap = IDLE; k.lx = k.ly = 0; }
+    if (shishi) { shishi.t = -1; shishi.tube.rotation.z = 0.32; }
+    if (camT >= 1 && hole) { camera.position.copy(camPos); camera.lookAt(camLook); }
+  }
+  /** The last moment before an ace drops: the camera starts to lean in. */
+  function acePrime() { if (ace.push < 0) ace.push = 0; }
+  /** The pebble is in on stroke one: rake rings spread from the cup, the flag spins, koi leap, the deer scarer tips. */
+  function aceBurst(reduced: boolean) {
+    if (!hole) return;
+    if (ace.push < 0 && !reduced) ace.push = 0;
+    if (reduced) return;
+    ace.t = 0; ace.spin = 0; ace.cx = hole.cup[0]; ace.cy = hole.cup[1]; ace.ch = hAt(hole.cup[0], hole.cup[1]);
+    for (const r of ripples) { r.m.position.set(ace.cx, ace.ch + 0.028, -ace.cy); }
+    koi.forEach((k, i) => { if (i < 3) k.leap = -0.25 - i * 0.3; });
+    if (shishi) shishi.t = 0;
+  }
+  const easeOut = (u: number) => 1 - Math.pow(1 - u, 3);
+  function aceFrame(dt: number, t: number) {
+    // camera: lean in 8% toward the look point over 0.5 s, hold, and ease back over 0.6 s
+    if (ace.push >= 0 && camT >= 1) {
+      ace.push += dt;
+      const p = ace.push, k = p < 0.5 ? Math.sin(p / 0.5 * Math.PI / 2) : p < 2.2 ? 1 : Math.max(0, 1 - (p - 2.2) / 0.6);
+      const k2 = k < 1 && p >= 2.2 ? k * k * (3 - 2 * k) : k;
+      camera.position.lerpVectors(camPos, camLook, 0.08 * k2); camera.lookAt(camLook);
+      if (p > 2.8) { ace.push = -1; camera.position.copy(camPos); camera.lookAt(camLook); }
+    }
+    if (ace.t >= 0) {
+      ace.t += dt;
+      // four raked rings run out from the cup like the circles raked round a stone: a dark groove and a pale ridge each
+      for (let i = 0; i < RIPPLES; i++) {
+        const u = (ace.t - i * 0.2) / 1.7;
+        const groove = ripples[i * 2], ridge = ripples[i * 2 + 1];
+        if (u <= 0 || u >= 1) { groove.m.visible = ridge.m.visible = false; continue; }
+        const r = 0.34 + easeOut(u) * 4.2, fade = Math.sin(Math.PI * Math.min(1, u * 1.6 + 0.0)) * (1 - u);
+        groove.m.visible = ridge.m.visible = true;
+        groove.m.scale.setScalar(r); ridge.m.scale.setScalar(r + 0.075);
+        groove.mat.opacity = 0.32 * fade; ridge.mat.opacity = 0.55 * fade;
+      }
+      if (ace.t > 2.6) { ace.t = -1; for (const r of ripples) r.m.visible = false; }
+    }
+    if (flag && ace.spin >= 0) {
+      ace.spin += dt;
+      const u = Math.min(1, ace.spin / 0.6);
+      flag.rotation.y += easeOut(u) * Math.PI * 2;
+      if (u >= 1) ace.spin = -1;
+    }
+    if (shishi && shishi.t >= 0) {
+      shishi.t += dt;
+      const s = shishi.t, R = 0.32, DOWN = -0.52;
+      let z = R;
+      if (s < 0.3) { const u = s / 0.3; z = R + (DOWN - R) * u * u; }
+      else if (s < 0.42) z = DOWN;
+      else if (s < 0.62) { const u = (s - 0.42) / 0.2; z = DOWN + (R - DOWN) * u * u; }
+      else if (s < 0.82) z = R - 0.07 * Math.sin(Math.PI * (s - 0.62) / 0.2);
+      else shishi.t = -1;
+      shishi.tube.rotation.z = z;
+    }
+    for (const s of splashes) {
+      if (s.t < 0) continue;
+      s.t += dt;
+      const u = s.t / 0.7;
+      if (u >= 1) { s.t = -1; s.m.visible = false; continue; }
+      s.m.scale.setScalar(0.12 + easeOut(u) * 0.55); s.mat.opacity = 0.8 * (1 - u);
+    }
+    void t;
   }
 
   function pulseSpring(x: number, y: number) {
@@ -650,7 +797,8 @@ export function createGl(canvas: HTMLCanvasElement) {
   function dispose() {
     for (const d of disposables) d.dispose();
     for (const b of balls) b.mat.dispose();
-    for (const m of [ballGeo, blobGeo, blobMat, shadowGeo, shadowMat, dotGeo, arrowGeo, arrowMat, ringGeo, pebbleTex, blobTex, dotTex, glowTex] as { dispose(): void }[]) m.dispose();
+    for (const r of ripples) r.mat.dispose(); for (const q of splashes) q.mat.dispose();
+    for (const m of [rippleGeo, splashGeo, ballGeo, blobGeo, blobMat, shadowGeo, shadowMat, dotGeo, arrowGeo, arrowMat, ringGeo, pebbleTex, blobTex, dotTex, glowTex] as { dispose(): void }[]) m.dispose();
     (dots.material as Material).dispose(); (ring.material as Material).dispose();
     renderer.dispose();
     renderer.forceContextLoss?.();
@@ -662,6 +810,6 @@ export function createGl(canvas: HTMLCanvasElement) {
   };
 
   void lastLookFrom;
-  return { setHole, resize, frame, ground, project, dispose, pulseSpring, info, get settled() { return camT >= 1; } };
+  return { setHole, resize, frame, ground, project, dispose, pulseSpring, acePrime, aceBurst, info, get settled() { return camT >= 1; } };
 }
 export type Gl = ReturnType<typeof createGl>;

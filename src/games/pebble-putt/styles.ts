@@ -58,6 +58,17 @@ export const STYLES = `
 .pp-stars .fresh b{animation:pp-star .5s ease-out}
 @keyframes pp-star{0%{transform:scale(.2)}70%{transform:scale(1.35)}100%{transform:scale(1)}}
 .pp-tease{font-size:.85rem;font-style:italic}
+.pp-remark{font-weight:800;color:#7a4a1e!important}
+.pp-card.ace{padding-top:14px}
+.pp-card.ace h2{font-size:2.2rem;color:#9a2f1f;letter-spacing:-.01em;margin-top:-4px}
+.pp-enso{position:relative;display:block;width:92px;height:92px;margin-bottom:-2px;pointer-events:none}
+.pp-enso svg{width:100%;height:100%;display:block;transform:rotate(-14deg)}
+.pp-enso path{stroke-dasharray:100;stroke-dashoffset:100;animation:pp-enso .8s cubic-bezier(.5,0,.3,1) .12s forwards}
+.pp-seal{position:absolute;right:-6px;bottom:6px;width:24px;height:24px;border-radius:4px;background:#b8321f;color:#fff3e6;font:900 15px/24px system-ui,sans-serif;text-align:center;transform:rotate(4deg) scale(0);animation:pp-seal .25s cubic-bezier(.3,1.6,.5,1) .9s forwards}
+@keyframes pp-enso{to{stroke-dashoffset:0}}
+@keyframes pp-seal{to{transform:rotate(4deg) scale(1)}}
+.pp.reduced .pp-seal{animation:none;transform:rotate(4deg)}
+.pp.reduced .pp-enso path{animation:none;stroke-dashoffset:0}
 .pp-set{display:flex;align-items:center;justify-content:space-between;gap:12px;width:min(420px,100%);padding:8px 12px;border-radius:12px;background:#fff8ecb0;font-weight:700}
 .pp-seg{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
 .pp-seg .pp-btn.on{background:#e9b45a}

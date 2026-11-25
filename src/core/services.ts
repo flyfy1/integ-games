@@ -1,4 +1,5 @@
 import type { GameServices, GameSound, GameStorage } from './game-types';
+import { trackEvent } from '../analytics';
 
 const VERSION = 'v1';
 const keyFor = (scope: string, key: string) => `integ-games:${VERSION}:${scope}:${key}`;
@@ -79,6 +80,7 @@ export function createShellServices(): ShellServices {
           callbacks.score(score);
         },
         reportComplete: callbacks.complete,
+        track(name, params) { trackEvent(name, { ...params, slug }); },
         isReducedMotion: globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
       };
     },

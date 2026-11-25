@@ -95,6 +95,14 @@ export function createAudio(services: GameServices) {
     lip() { if (!ensure()) return; const t = now(); tone(500, t, 0.08, 0.15, 'triangle', 380); },
     splash() { if (!ensure()) return; const t = now(); burst(t, 0.5, 0.5, 2400, 0.7, 'lowpass', 300); tone(160, t, 0.25, 0.15, 'sine', 90); },
     pipe() { if (!ensure()) return; const t = now(); burst(t, 0.45, 0.35, 400, 3, 'bandpass', 1600); tone(140, t, 0.35, 0.12, 'sine', 260); },
+    /** The ace's shishi-odoshi: the bamboo tube swings back onto its stone, a hollow "kon" that echoes round the garden. */
+    kon() {
+      if (!ensure()) return; const t = now();
+      for (const [d, g] of [[0, 1], [0.21, 0.32], [0.43, 0.12]] as const) {
+        tone(560, t + d, 0.34, 0.42 * g, 'sine', 505); tone(1130, t + d, 0.16, 0.14 * g, 'sine', 1060); tone(205, t + d, 0.22, 0.16 * g, 'triangle', 180);
+        burst(t + d, 0.025, 0.3 * g, 2600, 3);
+      }
+    },
     /** The deer-scarer: a hollow bamboo knock as the arm drops. */
     bamboo() { if (!ensure()) return; const t = now(); tone(690, t, 0.16, 0.16, 'sine', 640); tone(1120, t, 0.08, 0.07, 'sine'); burst(t, 0.02, 0.12, 2000, 3); },
     shoot(power: number) { if (!ensure()) return; const t = now(); tone(240 + power * 120, t, 0.06, 0.2, 'triangle', 160); burst(t, 0.04, 0.25 + power * 0.2, 1400, 1.2); },
