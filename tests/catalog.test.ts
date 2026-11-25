@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arcade, catalog, categoryInfo, featuredSlugs, findGame, gamesInCategory, isListed, recommendationsFor } from '../src/core/catalog';
+import { arcade, catalog, categoryInfo, countWord, featuredSlugs, findGame, gamesInCategory, isListed, recommendationsFor } from '../src/core/catalog';
 
 describe('arcade catalog', () => {
   it('contains exactly the 30 launch cabinets with unique slugs', () => {
@@ -7,11 +7,17 @@ describe('arcade catalog', () => {
     expect(new Set(catalog.map((game) => game.slug)).size).toBe(32);
   });
 
+  it('spells the arcade count instead of typing it', () => {
+    expect(countWord(16)).toBe('Sixteen');
+    expect(countWord(9)).toBe('Nine');
+    expect(countWord(31)).toBe('31');
+  });
+
   it('finds the reference game by route slug', () => {
     expect(findGame('merge-2048')?.title).toBe('Merge 2048');
   });
 
-  it('lists exactly sixteen featured cabinets and keeps the rest installed but hidden', () => {
+  it('lists the featured cabinets in order and keeps the rest installed but hidden', () => {
     expect(arcade.map((game) => game.slug)).toEqual([...featuredSlugs]);
     expect(arcade).toHaveLength(16);
     expect(new Set(featuredSlugs).size).toBe(16);

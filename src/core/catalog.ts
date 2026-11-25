@@ -14,7 +14,7 @@ export const catalog: readonly CatalogGame[] = catalogRows.map(([slug, title, ca
 }));
 
 /**
- * The twelve cabinets the arcade lists, in display order. Every other catalog entry stays installed and playable
+ * The cabinets the arcade lists, in display order (the home page derives its count from this list). Every other catalog entry stays installed and playable
  * from its direct link, but is hidden from the home grid, search, category counts and recommendations.
  */
 /** Pointer-first games where a controller is a poor fit: the play page hides its controller entry point. */
@@ -25,6 +25,16 @@ export const featuredSlugs = ['shove-pond', 'tide-bell', 'pebble-putt', 'midnigh
 const featuredSet = new Set<string>(featuredSlugs);
 
 export function isListed(slug: string): boolean { return featuredSet.has(slug); }
+
+/** Card lines with a voice for the polished games; every other card shows its mechanic. */
+export const taglines: Readonly<Record<string, string>> = {
+  'shove-pond': 'Friendship-tested. Results vary.',
+  'tide-bell': 'A raincoat, a bell, and a sea that does as it is told.'
+};
+
+const NUMBER_WORDS = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen', 'Twenty'];
+/** "Sixteen" for 16: the arcade's count, spelled out for the start of a sentence (digits past twenty). */
+export function countWord(n: number): string { return NUMBER_WORDS[n] ?? String(n); }
 
 /** The visible arcade: the featured cabinets in display order. */
 export const arcade: readonly CatalogGame[] = featuredSlugs.map((slug) => {

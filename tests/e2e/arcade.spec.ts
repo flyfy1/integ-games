@@ -28,7 +28,7 @@ test('category filters persist in the URL and search stays within the active cat
   await expect(page.getByRole('button', { name: /Match & Build 3/ })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-grid] .game-card')).toHaveCount(3);
   await page.getByRole('searchbox', { name: 'Search Match & Build' }).fill('no-match-here');
-  await expect(page.getByText('No games matched')).toBeVisible();
+  await expect(page.getByText('Nothing by that name.')).toBeVisible();
   await expect(page.locator('[data-results]')).toHaveText('0 games in Match & Build');
   await page.reload();
   await expect(page.getByRole('button', { name: /Match & Build 3/ })).toHaveAttribute('aria-pressed', 'true');

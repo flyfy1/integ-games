@@ -1,5 +1,5 @@
 import { registerSW } from 'virtual:pwa-register';
-import { arcade, categoryInfo, categoryLabels, findGame, gameLoader, gamesInCategory, isGameCategory, isListed, loadGame, recommendationsFor, showsController } from './core/catalog';
+import { arcade, categoryInfo, categoryLabels, countWord, findGame, taglines, gameLoader, gamesInCategory, isGameCategory, isListed, loadGame, recommendationsFor, showsController } from './core/catalog';
 import { createShellServices, storageFor } from './core/services';
 import { consumeLoginResult, currentPlayer, leaderboard, loadPlayer, login, logout, submitScore } from './core/online';
 import type { GameCatalogEntry, GameCategory, GameController } from './core/game-types';
@@ -11,6 +11,7 @@ import '@integ-life/ui/static';
 import '@integ-life/ui/styles.css';
 import './styles/shared-layout.css';
 import { startAnalytics } from './analytics';
+import { mountHomePond } from './home-pond';
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Missing application root');
@@ -28,6 +29,8 @@ let gamepadPanel: GamepadPanel | undefined;
 let versusRequested = false;
 let versusActive = false;
 let viewToken = 0;
+/** Stops the home hero's animation when the view changes. */
+let disposeHero: (() => void) | undefined;
 let paused = false;
 let updateReady = false;
 const siteOrigin = 'https://games.integ.life';
@@ -55,10 +58,10 @@ function setMetaContent(selector: string, value: string): void {
 
 function applyPageMetadata(game?: GameCatalogEntry): void {
   const title = game ? `${game.title} · Integ Games` : 'Integ Games';
-  const description = game ? game.description : 'Sixteen original browser games made for any screen.';
+  const description = game ? game.description : `${countWord(arcade.length)} original browser games made for any screen.`;
   const path = game ? `/play/${game.slug}/` : '/';
   const url = new URL(path, siteOrigin).href;
-  const image = new URL(game ? `/game-art/${game.slug}-cover.jpg` : '/game-art/merge-2048-cover.jpg', siteOrigin).href;
+  const image = new URL(game ? `/game-art/${game.slug}-cover.jpg` : `/game-art/${arcade[0].slug}-cover.jpg`, siteOrigin).href;
   document.title = title;
   document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', url);
   setMetaContent('meta[name="description"]', description);
@@ -80,13 +83,13 @@ function layout(content: string): string {
 function home(): string {
   const category = selectedCategory();
   const visibleGames = category ? gamesInCategory(category) : arcade;
-  const heading = category ? categoryInfo[category] : { label: 'All games', promise: 'Sixteen bright little worlds, ready whenever you are.' };
+  const heading = category ? categoryInfo[category] : { label: 'All games', promise: `${countWord(arcade.length)} games, ready when you are.` };
   const recent = shell.recentlyPlayed().map(findGame).filter((item): item is GameCatalogEntry => Boolean(item) && isListed(item!.slug));
-  const featured = findGame('merge-2048') ?? arcade[0];
+  const featured = arcade[0];
   return layout(`
-    <section class="hero"><div><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">Sixteen original browser games, made for a two-minute break or a very long train ride.</p><a class="primary-button" href="${href(`play/${featured.slug}/`)}" data-route>Play ${featured.title} <span>→</span></a></div><div class="hero-orb" aria-hidden="true"><span>2048</span></div></section>
+    <section class="hero"><div class="hero-text"><p class="eyebrow">Small games, properly made</p><h1>Pick a bright little<br><em>world</em> to enter.</h1><p class="hero-copy">${countWord(arcade.length)} small games. Each one explains itself in ten seconds, or your money back. They are free.</p></div><a class="hero-pond" href="${href(`play/${featured.slug}/`)}" data-route aria-label="Play ${featured.title}" data-hero-pond><canvas aria-hidden="true"></canvas></a><div class="hero-cta"><a class="primary-button" href="${href(`play/${featured.slug}/`)}" data-route>Play ${featured.title} <span>→</span></a></div></section>
     ${recent.length ? `<section class="section"><div class="section-heading"><h2>Continue playing</h2></div><div class="game-rail">${recent.map(card).join('')}</div></section>` : ''}
-    <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${arcade.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>No games matched</h3><p>Try another search term or browse a different category.</p></div></section>
+    <section class="section"><div class="section-heading"><div><p class="eyebrow">The arcade</p><h2 data-category-heading>${heading.label}</h2><p class="category-promise${category ? '' : ' is-all'}" data-category-promise>${heading.promise}</p></div><label class="search"><span>⌕</span><input type="search" data-search placeholder="Search ${heading.label.toLowerCase()}" aria-label="Search ${heading.label}" /></label></div><div class="filters" role="group" aria-label="Filter games"><button class="filter${category ? '' : ' is-active'}" data-filter="all" aria-pressed="${!category}">All <span>${arcade.length}</span></button>${Object.entries(categoryInfo).map(([key, info]) => { const categoryKey = key as GameCategory; return `<button class="filter${category === categoryKey ? ' is-active' : ''}" data-filter="${categoryKey}" aria-pressed="${category === categoryKey}">${info.label} <span>${gamesInCategory(categoryKey).length}</span></button>`; }).join('')}</div><p class="results-status${category ? '' : ' is-all'}" data-results aria-live="polite">${resultMessage(visibleGames.length, heading.label)}</p><div class="games-grid" data-grid>${visibleGames.map(card).join('')}</div><div class="empty-state" data-empty hidden><h3>Nothing by that name.</h3><p>The frogs looked. Try another word or another shelf.</p></div></section>
     <section class="pad-strip"><span class="pad-strip-icon" aria-hidden="true">🎮</span><div><strong>Play with a game controller</strong><p>Plug in any USB or Bluetooth controller and press a button. Most games work with it.</p></div><div class="pad-strip-actions"><button class="primary-button" data-action="gamepad-home">Connect controller</button><a class="secondary-button" href="${href('play/pad-pals/')}" data-route>Learn with Pad Pals</a></div><p class="pad-strip-status" data-pad-home-status role="status"></p></section><section class="toy-strip" aria-labelledby="toy-strip-title"><div><strong id="toy-strip-title">Stress-relief toys</strong><p>Six tiny toys on their own sites. No sign-in, no scores, just release.</p></div><nav class="toy-links" aria-label="Stress-relief toys"><a class="toy-link" href="https://charge.integ.life/" rel="noopener"><img src="https://charge.integ.life/icon-192.png" alt="" width="40" height="40" loading="lazy" decoding="async"><span><strong>Charge Burst</strong><small>Hold to charge, let go to blow it all up</small></span></a><a class="toy-link" href="https://void.integ.life/" rel="noopener"><img src="https://void.integ.life/icon-192.png" alt="" width="40" height="40" loading="lazy" decoding="async"><span><strong>Void Harvest</strong><small>Your cursor is a black hole: swallow every block</small></span></a><a class="toy-link" href="https://smash.integ.life/" rel="noopener"><img src="https://smash.integ.life/icon-192.png" alt="" width="40" height="40" loading="lazy" decoding="async"><span><strong>Glass Smash</strong><small>Shatter glass panes of annoying words</small></span></a><a class="toy-link" href="https://pop.integ.life/" rel="noopener"><img src="https://pop.integ.life/icon-192.png" alt="" width="40" height="40" loading="lazy" decoding="async"><span><strong>Chain Pop</strong><small>Pop five fast for OVERDRIVE chain reactions</small></span></a><a class="toy-link" href="https://knock.integ.life/" rel="noopener"><img src="https://knock.integ.life/icon-192.png" alt="" width="40" height="40" loading="lazy" decoding="async"><span><strong>Knock on Wood</strong><small>Tap a wooden fish: merit +1 (电子木鱼)</small></span></a><a class="toy-link" href="https://purr.integ.life/" rel="noopener"><img src="https://purr.integ.life/icon-192.png" alt="" width="40" height="40" loading="lazy" decoding="async"><span><strong>Lap Cat</strong><small>Pet a purring cat. Mind the belly (云撸猫)</small></span></a></nav></section>
     <section class="section leaderboard-section"><div class="section-heading"><div><p class="eyebrow">Across the arcade</p><h2>Overall leaderboard</h2><p class="category-promise">Each player's best score from every game, added together.</p></div></div><ol class="leaderboard" data-leaderboard aria-live="polite"><li class="leaderboard-empty">Loading the standings…</li></ol></section>`);
 }
@@ -113,7 +116,7 @@ function card(game: GameCatalogEntry): string {
   const best = shell.bestScore(game.slug);
   const available = Boolean(gameLoader(game.slug));
   const searchable = `${game.title} ${game.description} ${game.mechanic} ${game.traits.join(' ')}`.toLowerCase();
-  return `<article class="game-card" data-game-card data-title="${searchable}"><a href="${href(`play/${game.slug}/`)}" data-route aria-label="Play ${game.title}, ${categoryLabels[game.primaryCategory]}"><div class="cover" style="--accent:${game.accent}"><img class="cover-image" src="${gameArt(game.slug, 'cover')}" width="640" height="360" loading="lazy" decoding="async" alt="${game.title} gameplay screenshot" /><span class="cover-glyph" aria-hidden="true">${coverGlyph(game.slug)}</span>${!available ? '<small>Loading soon</small>' : ''}</div><div class="card-info"><p class="card-category">${categoryLabels[game.primaryCategory]}</p><h3>${game.title}</h3><div class="trait-chips">${traitChips(game)}</div><p class="card-mechanic">${game.mechanic}</p><span>${best ? `Best ${best.toLocaleString()}` : 'New game'}</span></div></a></article>`;
+  return `<article class="game-card" data-game-card data-title="${searchable}"><a href="${href(`play/${game.slug}/`)}" data-route aria-label="Play ${game.title}, ${categoryLabels[game.primaryCategory]}"><div class="cover" style="--accent:${game.accent}"><img class="cover-image" src="${gameArt(game.slug, 'cover')}" width="640" height="360" loading="lazy" decoding="async" alt="${game.title} gameplay screenshot" /><span class="cover-glyph" aria-hidden="true">${coverGlyph(game.slug)}</span>${!available ? '<small>Loading soon</small>' : ''}</div><div class="card-info"><p class="card-category">${categoryLabels[game.primaryCategory]}</p><h3>${game.title}</h3><div class="trait-chips">${traitChips(game)}</div><p class="card-mechanic">${taglines[game.slug] ?? game.mechanic}</p><span>${best ? `Best ${best.toLocaleString()}` : 'New game'}</span></div></a></article>`;
 }
 
 function traitChips(game: GameCatalogEntry): string { return game.traits.map((trait) => `<span class="trait-chip">${trait}</span>`).join(''); }
@@ -191,13 +194,14 @@ async function gamePage(slug: string, token: number): Promise<void> {
 function notFound(): string { return '<section class="not-found"><p class="eyebrow">404</p><h1>That cabinet is elsewhere.</h1><a class="primary-button" href="' + href() + '" data-route>Back to arcade</a></section>'; }
 
 async function render(): Promise<void> {
+  disposeHero?.(); disposeHero = undefined;
   paused = false; shell.stopActiveSound(); gamepadPanel?.destroy(); gamepadPanel = undefined; gamepad?.destroy(); gamepad = undefined; controller?.destroy(); controller = undefined; activeSlug = undefined;
   void exitImmersive();
   pendingStart = undefined;
   versusActive = versusRequested; versusRequested = false;
   const token = ++viewToken;
   const current = route();
-  if (current === '/' || current === '') { applyPageMetadata(); appRoot.innerHTML = home(); void hydrateLeaderboard(); }
+  if (current === '/' || current === '') { applyPageMetadata(); appRoot.innerHTML = home(); const pond = appRoot.querySelector<HTMLElement>('[data-hero-pond]'); if (pond) disposeHero = mountHomePond(pond); void hydrateLeaderboard(); }
   else if (current.startsWith('/play/')) { const slug = decodeURIComponent(current.slice('/play/'.length)); applyPageMetadata(findGame(slug)); await gamePage(slug, token); }
   else { applyPageMetadata(); appRoot.innerHTML = layout(notFound()); }
   showUpdatePrompt();
