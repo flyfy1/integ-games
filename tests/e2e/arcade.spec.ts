@@ -44,7 +44,7 @@ test('game navigation updates canonical and social metadata', async ({ page }, t
   await expect(page).toHaveTitle('Pocket Survivor · Integ Games');
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://games.integ.life/play/arena/');
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute('content', 'Pocket Survivor · Integ Games');
-  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', 'https://games.integ.life/game-art/arena-cover.jpg');
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', 'https://games.integ.life/game-art/arena-og.jpg');
   await page.getByRole('link', { name: 'All games' }).click();
   await expect(page).toHaveTitle('Integ Games');
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://games.integ.life/');
@@ -113,7 +113,7 @@ test('system sharing sends the canonical game payload and confirms success', asy
   await expect(page.locator('[data-share-status]')).toHaveText('Game shared.');
   await expect.poll(() => page.evaluate(() => (window as Window & { capturedShare?: ShareData }).capturedShare)).toEqual({
     title: 'Merge 2048 · Integ Games',
-    text: 'Play Merge 2048 with me on Integ Games.',
+    text: 'Merge 2048, free in the browser. One round with me?',
     url: 'https://games.integ.life/play/merge-2048/'
   });
 });

@@ -24,7 +24,8 @@ describe('static social preview pages', () => {
     const page = readFileSync(join(output, 'play', 'arena', 'index.html'), 'utf8');
     expect(page).toContain('<title>Pocket Survivor · Integ Games</title>');
     expect(page).toContain('<meta property="og:title" content="Pocket Survivor · Integ Games" />');
-    expect(page).toContain('<meta property="og:image" content="https://games.integ.life/game-art/arena-cover.jpg" />');
+    expect(page).toContain('<meta property="og:image" content="https://games.integ.life/game-art/arena-og.jpg" />');
+    expect(page).toContain('<meta property="og:image:width" content="1200" />');
     expect(page).toContain('<meta name="twitter:card" content="summary_large_image" />');
     expect(page).toContain('<link rel="canonical" href="https://games.integ.life/play/arena/" />');
   });

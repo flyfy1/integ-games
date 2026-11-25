@@ -61,7 +61,8 @@ function applyPageMetadata(game?: GameCatalogEntry): void {
   const description = game ? game.description : `${countWord(arcade.length)} original browser games made for any screen.`;
   const path = game ? `/play/${game.slug}/` : '/';
   const url = new URL(path, siteOrigin).href;
-  const image = new URL(game ? `/game-art/${game.slug}-cover.jpg` : `/game-art/${arcade[0].slug}-cover.jpg`, siteOrigin).href;
+  // a game has its 1200×630 preview (scripts/og-covers.mjs); the home page keeps the plain arcade cover
+  const image = new URL(game ? `/game-art/${game.slug}-og.jpg` : `/game-art/${arcade[0].slug}-cover.jpg`, siteOrigin).href;
   document.title = title;
   document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', url);
   setMetaContent('meta[name="description"]', description);
@@ -69,6 +70,8 @@ function applyPageMetadata(game?: GameCatalogEntry): void {
   setMetaContent('meta[property="og:description"]', description);
   setMetaContent('meta[property="og:url"]', url);
   setMetaContent('meta[property="og:image"]', image);
+  setMetaContent('meta[property="og:image:width"]', game ? '1200' : '640');
+  setMetaContent('meta[property="og:image:height"]', game ? '630' : '360');
   setMetaContent('meta[property="og:image:alt"]', game ? `${game.title} gameplay screenshot` : 'Integ Games arcade preview');
   setMetaContent('meta[name="twitter:title"]', title);
   setMetaContent('meta[name="twitter:description"]', description);
