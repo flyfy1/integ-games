@@ -486,7 +486,7 @@ export const shovePond: GameModule = {
       [...st.frogs.keys()].sort((a, b) => st.frogs[b].score - st.frogs[a].score).forEach(i => board.append(h('div', null,
         h('i', { style: `background:${PALETTE[i % 6].body}` }),
         h('span', null, `${st.winners.includes(i) ? '👑 ' : ''}${s.seats[i].name}`, h('small', { text: t(`title.${titles[i]}` as Key) })),
-        t('end.points', { n: st.frogs[i].score }))));
+        t(st.frogs[i].score === 1 ? 'end.point' : 'end.points', { n: st.frogs[i].score }))));
       const buttons: CardButton[] = [];
       if (s.mode === 'ladder') {
         const step = s.ladder ?? 0;

@@ -81,23 +81,48 @@ export function createRenderer(canvas: HTMLCanvasElement, sounds: Sounds, reduce
   let clock = 0;
   let top = 60, bottom = 160;
 
+  /** Camera: the board is fitted to the live pads plus enough water for a splash beside them, using the stage
+   *  width (12 px margins) and the height between the HUD rows. When the pond shrinks between rounds it zooms in
+   *  over 400 ms (ease-out); a new scene, a resize or reduced motion snaps. */
+  type Cam = { cell: number; ox: number; oy: number };
+  let cam: Cam | null = null, camFrom: Cam | null = null, camTo: Cam | null = null, camT0 = 0, camKey = '', camSeed = -1;
+  const ZOOM_S = 0.4;
+  function fit(state: State): { cam: Cam; box: string } {
+    const availW = W - 24, availH = Math.max(80, H - top - bottom);
+    let x0 = size, y0 = size, x1 = -1, y1 = -1;
+    state.pads.forEach((k, i) => { if (!k) return; const x = i % size, y = Math.floor(i / size); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
+    if (x1 < 0) { x0 = 0; y0 = 0; x1 = size - 1; y1 = size - 1; }
+    const w = x1 - x0 + 1, hgt = y1 - y0 + 1;
+    // Water margin: a splash lands half a cell past the edge pads, so keep its centre a few px inside the stage.
+    let c = availW / (w + 0.5), m = 0.25;
+    for (let k = 0; k < 3; k++) {
+      // Small boards keep the splash centre well inside; the full 7x7 trades a little margin for frog size.
+      m = clamp((w >= 7 ? 0.55 : 0.7) - 12 / c, 0.25, 0.65);
+      c = Math.min(availW / (w + 2 * m), availH / ((hgt + 2 * m) * tilt + 0.5));
+    }
+    const cl = clamp(Math.floor(c), 24, 120);
+    return {
+      cam: { cell: cl, ox: Math.round(W / 2 - (x0 + w / 2) * cl), oy: Math.round(top + (availH - cl * hgt * tilt) / 2 + cl * 0.25 - y0 * cl * tilt) },
+      box: `${x0},${y0},${w},${hgt}`
+    };
+  }
   function layout(state: State) {
     size = state.size;
-    const availH = H - top - bottom;
-    // Lessons and puzzles sit in a ring of water: fit the pads (plus room for a splash beside them), not the map.
-    let x0 = 0, y0 = 0, w = size, hgt = size, m = 0;
-    if (state.scenario) {
-      let x1 = -1, y1 = -1; x0 = size; y0 = size;
-      state.pads.forEach((k, i) => { if (!k) return; const x = i % size, y = Math.floor(i / size); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); });
-      if (x1 < 0) { x0 = 0; y0 = 0; x1 = size - 1; y1 = size - 1; }
-      w = x1 - x0 + 1; hgt = y1 - y0 + 1; m = 0.85;
+    const { cam: target, box } = fit(state);
+    const frame = `${W}x${H}:${top}:${bottom}:${size}`;
+    const key = `${frame}|${box}`;
+    if (key !== camKey) {
+      const sameScene = cam && camKey.startsWith(`${frame}|`) && !state.scenario && state.seed === camSeed;
+      if (sameScene && !reducedMotion()) { camFrom = { ...cam! }; camTo = target; camT0 = clock; }
+      else { cam = target; camFrom = null; camTo = null; }
+      camKey = key; camSeed = state.seed;
     }
-    cell = Math.floor(state.scenario
-      ? Math.min((W - 16) / (w + 2 * m), availH / ((hgt + 2 * m) * tilt + 0.6))
-      : Math.min((W - 16) / (size + 0.5), availH / (size * tilt + 0.9)));
-    cell = clamp(cell, 24, 120);
-    ox = Math.round(W / 2 - (x0 + w / 2) * cell);
-    oy = Math.round(top + (availH - cell * hgt * tilt) / 2 + cell * 0.25 - y0 * cell * tilt);
+    if (camFrom && camTo) {
+      const p = clamp((clock - camT0) / ZOOM_S, 0, 1), e = 1 - (1 - p) ** 3;
+      cam = { cell: camFrom.cell + (camTo.cell - camFrom.cell) * e, ox: camFrom.ox + (camTo.ox - camFrom.ox) * e, oy: camFrom.oy + (camTo.oy - camFrom.oy) * e };
+      if (p >= 1) { cam = camTo; camFrom = null; camTo = null; }
+    }
+    cell = cam!.cell; ox = cam!.ox; oy = cam!.oy;
   }
   const sx = (x: number) => ox + (x + 0.5) * cell;
   const sy = (y: number) => oy + (y + 0.5) * cell * tilt;
