@@ -112,12 +112,24 @@ export function createGl(canvas: HTMLCanvasElement) {
   const ace = { t: -1, push: -1, cx: 0, cy: 0, ch: 0, spin: -1 };
   const clip = [new Plane(), new Plane(), new Plane(), new Plane()];
   const RIPPLES = 4;
-  const rippleGeo = new RingGeometry(0.93, 1, 72); rippleGeo.rotateX(-Math.PI / 2);
+  // each ring is draped over the sand (its vertices follow the height field), so tilted holes and dunes keep it on the ground
+  const RING_SEG = 72;
+  const ringIndex: number[] = [];
+  for (let k = 0; k < RING_SEG; k++) { const a = k * 2, b = ((k + 1) % RING_SEG) * 2; ringIndex.push(a, b, a + 1, b, b + 1, a + 1); }
   const ripples = Array.from({ length: RIPPLES * 2 }, (_, i) => {
-    const mat = new MeshBasicMaterial({ color: i % 2 ? 0xfff6e0 : 0x3a2410, transparent: true, opacity: 0, depthWrite: false, clippingPlanes: clip });
-    const m = new Mesh(rippleGeo, mat); m.visible = false; m.renderOrder = 2; scene.add(m);
-    return { m, mat };
+    const geo = new BufferGeometry(); geo.setAttribute('position', new BufferAttribute(new Float32Array(RING_SEG * 2 * 3), 3)); geo.setIndex(ringIndex);
+    const mat = new MeshBasicMaterial({ color: i % 2 ? 0xfff6e0 : 0x3a2410, transparent: true, opacity: 0, depthWrite: false, clippingPlanes: clip, side: DoubleSide });
+    const m = new Mesh(geo, mat); m.visible = false; m.renderOrder = 2; m.frustumCulled = false; scene.add(m);
+    return { m, mat, geo };
   });
+  const drapeRing = (geo: BufferGeometry, cx: number, cy: number, r0: number, r1: number) => {
+    const pos = geo.getAttribute('position') as BufferAttribute;
+    for (let k = 0; k < RING_SEG; k++) {
+      const a = k / RING_SEG * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a);
+      for (const [j, r] of [[0, r0], [1, r1]] as const) { const x = cx + c * r, y = cy + sn * r; pos.setXYZ(k * 2 + j, x, hAt(x, y) + 0.03, -y); }
+    }
+    pos.needsUpdate = true;
+  };
   const splashGeo = new RingGeometry(0.75, 1, 40); splashGeo.rotateX(-Math.PI / 2);
   const splashes = Array.from({ length: 4 }, () => {
     const mat = new MeshBasicMaterial({ color: 0xe8fbff, transparent: true, opacity: 0, depthWrite: false });
@@ -719,7 +731,8 @@ export function createGl(canvas: HTMLCanvasElement) {
     if (ace.push < 0 && !reduced) ace.push = 0;
     if (reduced) return;
     ace.t = 0; ace.spin = 0; ace.cx = hole.cup[0]; ace.cy = hole.cup[1]; ace.ch = hAt(hole.cup[0], hole.cup[1]);
-    for (const r of ripples) { r.m.position.set(ace.cx, ace.ch + 0.028, -ace.cy); }
+    const [sr, sg, sb] = palette.sand;
+    ripples.forEach((r, i) => r.mat.color.setRGB(...(i % 2 ? [0.55 + sr / 580, 0.55 + sg / 580, 0.55 + sb / 580] : [sr / 700, sg / 760, sb / 800]) as [number, number, number], SRGBColorSpace));
     koi.forEach((k, i) => { if (i < 3) k.leap = -0.25 - i * 0.3; });
     if (shishi) shishi.t = 0;
   }
@@ -742,7 +755,7 @@ export function createGl(canvas: HTMLCanvasElement) {
         if (u <= 0 || u >= 1) { groove.m.visible = ridge.m.visible = false; continue; }
         const r = 0.34 + easeOut(u) * 4.2, fade = Math.sin(Math.PI * Math.min(1, u * 1.6 + 0.0)) * (1 - u);
         groove.m.visible = ridge.m.visible = true;
-        groove.m.scale.setScalar(r); ridge.m.scale.setScalar(r + 0.075);
+        drapeRing(groove.geo, ace.cx, ace.cy, r * 0.93, r); drapeRing(ridge.geo, ace.cx, ace.cy, r + 0.075 - r * 0.07, r + 0.075);
         groove.mat.opacity = 0.32 * fade; ridge.mat.opacity = 0.55 * fade;
       }
       if (ace.t > 2.6) { ace.t = -1; for (const r of ripples) r.m.visible = false; }
@@ -797,8 +810,8 @@ export function createGl(canvas: HTMLCanvasElement) {
   function dispose() {
     for (const d of disposables) d.dispose();
     for (const b of balls) b.mat.dispose();
-    for (const r of ripples) r.mat.dispose(); for (const q of splashes) q.mat.dispose();
-    for (const m of [rippleGeo, splashGeo, ballGeo, blobGeo, blobMat, shadowGeo, shadowMat, dotGeo, arrowGeo, arrowMat, ringGeo, pebbleTex, blobTex, dotTex, glowTex] as { dispose(): void }[]) m.dispose();
+    for (const r of ripples) { r.mat.dispose(); r.geo.dispose(); } for (const q of splashes) q.mat.dispose();
+    for (const m of [splashGeo, ballGeo, blobGeo, blobMat, shadowGeo, shadowMat, dotGeo, arrowGeo, arrowMat, ringGeo, pebbleTex, blobTex, dotTex, glowTex] as { dispose(): void }[]) m.dispose();
     (dots.material as Material).dispose(); (ring.material as Material).dispose();
     renderer.dispose();
     renderer.forceContextLoss?.();
