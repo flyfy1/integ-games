@@ -49,6 +49,19 @@ describe('Pebble Putt course', () => {
     }
   });
 
+  it.each(HOLES.filter(h => h.id > 1).map(h => [h.id, h] as const))('hole %i: a sloppy shot (±3°, ±3% power) around the stored ace seldom sinks', (_id, hole) => {
+    // Aces need a clever, exact line: hole 1 (the tutorial) is the only hole a sloppy straight shot may ace.
+    const rng = mulberry(900 + hole.id);
+    let sunk = 0;
+    const n = 300;
+    for (let i = 0; i < n; i++) {
+      const a = hole.ace.angle + (rng() * 2 - 1) * 3, p = hole.ace.power * (1 + (rng() * 2 - 1) * 0.03);
+      const at = hole.ace.at !== undefined ? hole.ace.at + (rng() * 2 - 1) * 0.05 : 0;
+      if (simulateShot(hole, hole.tee[0], hole.tee[1], a, Math.min(1, p), at).sunk) sunk++;
+    }
+    expect(sunk / n).toBeLessThanOrEqual(0.2); // the 2026-11-25 tightening: about 10% (4-19% at the best aim); was 30-100%
+  });
+
   it('every full-power shot rests within six seconds', () => {
     for (const hole of HOLES) for (let a = 0; a < 360; a += 15) {
       const r = simulateShot(hole, hole.tee[0], hole.tee[1], a, 1, 0);
@@ -73,12 +86,12 @@ describe('Pebble Putt course', () => {
     expect(w.balls[1].y).toBeGreaterThan(hole.tee[1] + 2.5);
   });
 
-  it.each(GARDENS.map(g => [g.id, g] as const))('garden %i: a sloppy bot (±3°) finishes each hole within par + 2 (sample)', (_id, garden) => {
+  it.each(GARDENS.map(g => [g.id, g] as const))('garden %i: a sloppy bot (±3°) finishes each hole within par + 3 (sample)', (_id, garden) => {
     const rng = mulberry(4242 + garden.id);
     for (const id of garden.holes) {
       const hole = HOLES.find(h => h.id === id)!;
       const r = sloppyRound(hole, rng, pathField(hole), { angleStep: 3, powers: 16 });
-      expect(r.strokes, `hole ${id}`).toBeLessThanOrEqual(hole.par + 2);
+      expect(r.strokes, `hole ${id}`).toBeLessThanOrEqual(hole.par + 3); // par is the sloppy median now, so the tail is real
     }
   }, 120_000);
 });

@@ -42,6 +42,29 @@ function parRoute(hole: Hole, field = pathField(hole)) {
   return { shots, strokes: shots.length, holed: false };
 }
 
+/**
+ * Aces are narrow (well under a degree), so a 1° grid cell can sit on the window's edge. Scan 0.1° × 0.005 power around
+ * it and keep the shot with the most sinking neighbours (±0.3°, ±0.015), so the stored proof is in the middle of its window.
+ */
+function centreAce(hole: Hole, s: Shot): Shot {
+  const at = s.at ?? 0, A = 15, P = 12;
+  const sink = new Map<string, boolean>();
+  const key = (i: number, j: number) => `${i},${j}`;
+  for (let i = -A; i <= A; i++) for (let j = -P; j <= P; j++) {
+    const p = s.power + j * 0.005;
+    sink.set(key(i, j), p > 0 && p <= 1 && simulateShot(hole, hole.tee[0], hole.tee[1], s.angle + i * 0.1, p, at).sunk);
+  }
+  let bestScore = -1, bi = 0, bj = 0;
+  for (let i = -A; i <= A; i++) for (let j = -P; j <= P; j++) {
+    if (!sink.get(key(i, j))) continue;
+    let score = 0;
+    for (let di = -3; di <= 3; di++) for (let dj = -3; dj <= 3; dj++) if (sink.get(key(i + di, j + dj))) score++;
+    if (score > bestScore) { bestScore = score; bi = i; bj = j; }
+  }
+  if (bestScore < 0) return { angle: s.angle, power: round(s.power), ...(s.at !== undefined ? { at: s.at } : {}) };
+  return { angle: round(s.angle + bi * 0.1, 2), power: round(s.power + bj * 0.005), ...(s.at !== undefined ? { at: s.at } : {}) };
+}
+
 /** Replays a stored route from the tee and returns the strokes it takes (Infinity if it never holes out). */
 export function replay(hole: Hole, shots: readonly Shot[]) {
   let x = hole.tee[0], y = hole.tee[1], strokes = 0;
@@ -105,7 +128,7 @@ for (const hole of holes) {
     const a = angs[Math.floor(angs.length / 2)];
     const col = best.filter(c => c.angle === a).sort((p, q) => p.power - q.power);
     const c = col[Math.floor(col.length / 2)];
-    ace = { angle: c.angle, power: round(c.power), ...(hole.gates?.length ? { at: c.at } : {}) };
+    ace = centreAce(hole, { angle: c.angle, power: c.power, ...(hole.gates?.length ? { at: c.at } : {}) });
   }
   const field = pathField(hole);
   const par = parRoute(hole, field);

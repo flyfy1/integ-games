@@ -183,7 +183,8 @@ export function createGl(canvas: HTMLCanvasElement) {
     const tex = track(canvasTex(tw, th, (ctx) => {
       const img = ctx.createImageData(tw, th), d = img.data;
       const [sr, sg, sb] = palette.sand, [or, og, ob] = palette.outer;
-      const stones = h.stones ?? [];
+      // rake rings also run round the cup's bamboo edging, as they do round a stone
+      const stones = [...(h.stones ?? []), ...(h.fence ? [{ x: h.cup[0], y: h.cup[1], r: h.fence.r + 0.05 }] : [])];
       const sp = 0.21;
       for (let j = 0; j < th; j++) {
         const y = gy1 - (j + 0.5) / ppu;
