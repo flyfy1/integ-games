@@ -11,7 +11,7 @@ const escapeAttribute = (value) => value.replace(/[&<>"']/g, (char) => ({ '&': '
 function socialMetadata({ slug, title, description }) {
   const pageTitle = `${title} · Integ Games`;
   const url = `${SITE_ORIGIN}/play/${slug}/`;
-  const image = `${SITE_ORIGIN}/game-art/${slug}-cover.jpg`;
+  const image = `${SITE_ORIGIN}/game-art/${slug}-og.jpg`;
   return `<!-- social-meta:start -->
     <meta name="description" content="${escapeAttribute(description)}" />
     <link rel="canonical" href="${url}" />
@@ -21,8 +21,8 @@ function socialMetadata({ slug, title, description }) {
     <meta property="og:description" content="${escapeAttribute(description)}" />
     <meta property="og:url" content="${url}" />
     <meta property="og:image" content="${image}" />
-    <meta property="og:image:width" content="640" />
-    <meta property="og:image:height" content="360" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="${escapeAttribute(`${title} gameplay screenshot`)}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeAttribute(pageTitle)}" />

@@ -349,7 +349,8 @@ async function copyDisplayedShareLink(): Promise<void> {
 async function shareCurrentGame(): Promise<void> {
   const game = activeSlug ? findGame(activeSlug) : undefined;
   if (!game) return;
-  const data = { title: `${game.title} · Integ Games`, text: `Play ${game.title} with me on Integ Games.`, url: new URL(`/play/${game.slug}/`, siteOrigin).href };
+  const zh = /^zh\b/i.test(navigator.language || '');
+  const data = { title: `${game.title} · Integ Games`, text: zh ? `来玩 ${game.title}，浏览器里直接开，陪我来一局：` : `${game.title}, free in the browser. One round with me?`, url: new URL(`/play/${game.slug}/`, siteOrigin).href };
   hideManualShare();
   setShareStatus('');
   if (typeof navigator.share === 'function') {

@@ -610,9 +610,9 @@ export const shovePond: GameModule = {
     }
     async function shareLink(link: string) {
       try {
-        if (navigator.share) { await navigator.share({ title: 'Shove Pond', url: link }); return; }
-      } catch { /* fall back to copy */ }
-      try { await navigator.clipboard.writeText(link); say(t('room.copied')); } catch { say(link, 3000); }
+        if (navigator.share) { await navigator.share({ title: t('title.name'), text: t('room.invite'), url: link }); return; }
+      } catch (err) { if ((err as { name?: string })?.name === 'AbortError') return; }
+      try { await navigator.clipboard.writeText(`${t('room.invite')} ${link}`); say(t('room.copied')); } catch { say(link, 3000); }
     }
 
     // ---------------------------------------------------------------- panels
